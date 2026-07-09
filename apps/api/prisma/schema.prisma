@@ -1,0 +1,684 @@
+// Prisma schema for Fashion Fusion ITAMLS
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Identity ----------
+model Role {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  name        String
+  description String?
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id      String           @id @default(cuid())
+  code    String           @unique
+  description String?
+  roles   RolePermission[]
+  userOverrides UserPermissionOverride[]
+}
+
+// Per-user permission overrides on top of the role's defaults.
+// effect: GRANT (extra permission beyond role) or DENY (remove from role).
+model UserPermissionOverride {
+  userId       String
+  permissionId String
+  effect       String   // GRANT | DENY
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permissionId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  fullName     String
+  passwordHash String?
+  adSid        String?  @unique
+  roleId       String
+  storeId      String?
+  isActive     Boolean  @default(true)
+  totpSecret   String?
+  totpEnabled  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role  Role   @relation(fields: [roleId], references: [id])
+  store Store? @relation(fields: [storeId], references: [id])
+
+  assignedAssets Asset[]        @relation("AssignedUser")
+  historyEntries AssetHistory[]
+  ibtRequested   Ibt[]          @relation("RequestedBy")
+  ibtApproved    Ibt[]          @relation("ApprovedBy")
+  ibtDispatched  Ibt[]          @relation("DispatchedBy")
+  dispatches     Dispatch[]
+  prRequested    PurchaseRequest[] @relation("PrRequester")
+  prApproved     PurchaseRequest[] @relation("PrApprover")
+
+  permissionOverrides UserPermissionOverride[]
+}
+
+// ---------- Catalog / Master Data ----------
+model Category {
+  id        String     @id @default(cuid())
+  name      String
+  parentId  String?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
+  skus      Sku[]
+  templateItems StoreTemplateItem[]
+}
+
+model Sku {
+  id                 String   @id @default(cuid())
+  code               String   @unique
+  name               String
+  categoryId         String
+  manufacturer       String
+  model              String
+  isSerialised       Boolean  @default(true)
+  warrantyMonths     Int      @default(12)
+  depreciationYears  Int      @default(4)
+  reorderLevel       Int      @default(0)
+  unitCostCents      Int      @default(0)
+
+  category Category @relation(fields: [categoryId], references: [id])
+  assets   Asset[]
+  stock    Stock[]
+  grvLines GrvLine[]
+  prLines  PurchaseRequestLine[]
+  ibtLines IbtLine[]
+  stockMovements StockMovement[]
+}
+
+model Supplier {
+  id             String   @id @default(cuid())
+  name           String
+  contactName    String?
+  email          String?
+  phone          String?
+  taxNumber      String?
+  paymentTerms   String?
+  leadTimeDays   Int?
+  isActive       Boolean  @default(true)
+
+  assets    Asset[]
+  grvs      Grv[]
+  repairs   Repair[]
+  invoices  Invoice[]
+  pos       PurchaseOrder[]
+  softwareLicenses SoftwareLicense[]
+}
+
+// ---------- Locations & Stores ----------
+model Location {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  type      String   // HEAD_OFFICE, STOCK_ROOM, STORE, REPAIR_BAY, IN_TRANSIT
+  region    String?
+  parentId  String?
+  parent    Location? @relation("LocationTree", fields: [parentId], references: [id])
+  children  Location[] @relation("LocationTree")
+
+  store     Store?
+  assetsHere     Asset[]         @relation("CurrentLocation")
+  stock          Stock[]
+  ibtFrom        Ibt[]           @relation("IbtFrom")
+  ibtTo          Ibt[]           @relation("IbtTo")
+  movementsFrom  StockMovement[] @relation("MovementFrom")
+  movementsTo    StockMovement[] @relation("MovementTo")
+  historyFrom    AssetHistory[]  @relation("HistoryFrom")
+  historyTo      AssetHistory[]  @relation("HistoryTo")
+}
+
+model StoreTemplate {
+  id          String              @id @default(cuid())
+  code        String              @unique
+  name        String              // Small, Medium, Large, Flagship
+  description String?
+  items       StoreTemplateItem[]
+  stores      Store[]
+}
+
+model StoreTemplateItem {
+  id          String        @id @default(cuid())
+  templateId  String
+  categoryId  String
+  requiredQty Int
+
+  template StoreTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  category Category      @relation(fields: [categoryId], references: [id])
+
+  @@unique([templateId, categoryId])
+}
+
+model Store {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  name       String
+  region     String
+  entity     String   @default("FASHION_FUSION") // FASHION_FUSION | EVLV
+  locationId String   @unique
+  templateId String?
+  openedAt   DateTime?
+  status     String   @default("PLANNED")
+
+  location   Location       @relation(fields: [locationId], references: [id])
+  template   StoreTemplate? @relation(fields: [templateId], references: [id])
+
+  assignedAssets Asset[]      @relation("AssignedStore")
+  users          User[]
+  dispatches     Dispatch[]
+  audits         Audit[]
+  tonerPlans     TonerPlan[]
+  tonerOrderLines TonerOrderLine[]
+}
+
+// ---------- Inventory ----------
+model Asset {
+  id                String    @id @default(cuid())
+  assetTag          String    @unique
+  serialNo          String?
+  skuId             String
+  supplierId        String?
+  purchaseDate      DateTime?
+  purchaseCostCents Int       @default(0)
+  currentValueCents Int       @default(0)
+  warrantyExpiry    DateTime?
+  condition         String?   // NEW, GOOD, FAIR, POOR
+  status            String    @default("IN_STOCK")
+  locationId        String?
+  assignedUserId    String?
+  assignedStoreId   String?
+  installedAt       DateTime?
+
+  // Auto-discovery (Kaseya VSA agent)
+  hostname          String?
+  osVersion         String?
+  cpuModel          String?
+  ramGb             Int?
+  macAddresses      String?   // CSV
+  lastSeenAt        DateTime?
+  source            String?   // MANUAL | DISCOVERY
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  sku         Sku       @relation(fields: [skuId], references: [id])
+  supplier    Supplier? @relation(fields: [supplierId], references: [id])
+  location    Location? @relation("CurrentLocation", fields: [locationId], references: [id])
+  assignedUser  User?   @relation("AssignedUser", fields: [assignedUserId], references: [id])
+  assignedStore Store?  @relation("AssignedStore", fields: [assignedStoreId], references: [id])
+
+  history  AssetHistory[]
+  repairs  Repair[]
+  ibtLines IbtLine[]
+}
+
+model AssetHistory {
+  id            String   @id @default(cuid())
+  assetId       String
+  eventType     String   // PURCHASED, RECEIVED, DISPATCHED, INSTALLED, MOVED, REPAIR_IN, REPAIR_OUT, AUDITED, RETIRED
+  fromLocationId String?
+  toLocationId   String?
+  refTable      String?
+  refId         String?
+  actorId       String?
+  occurredAt    DateTime @default(now())
+  notes         String?
+
+  asset    Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  fromLoc  Location? @relation("HistoryFrom", fields: [fromLocationId], references: [id])
+  toLoc    Location? @relation("HistoryTo", fields: [toLocationId], references: [id])
+  actor    User?     @relation(fields: [actorId], references: [id])
+}
+
+model Stock {
+  id           String @id @default(cuid())
+  skuId        String
+  locationId   String
+  qtyOnHand    Int    @default(0)
+  qtyReserved  Int    @default(0)
+  reorderLevel Int    @default(0)
+
+  sku      Sku      @relation(fields: [skuId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([skuId, locationId])
+}
+
+model StockMovement {
+  id              String   @id @default(cuid())
+  skuId           String
+  fromLocationId  String?
+  toLocationId    String?
+  qty             Int
+  reason          String
+  refTable        String?
+  refId           String?
+  occurredAt      DateTime @default(now())
+
+  sku      Sku       @relation(fields: [skuId], references: [id])
+  fromLoc  Location? @relation("MovementFrom", fields: [fromLocationId], references: [id])
+  toLoc    Location? @relation("MovementTo", fields: [toLocationId], references: [id])
+}
+
+// ---------- Logistics ----------
+model Grv {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  supplierId     String
+  invoiceNo      String?
+  invoiceDate    DateTime?
+  deliveryNoteNo String?
+  receivedAt     DateTime @default(now())
+  receivedById   String?
+  totalCents     Int      @default(0)
+  status         String   @default("DRAFT") // DRAFT, CONFIRMED, CANCELLED
+  notes          String?
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  lines    GrvLine[]
+  invoices Invoice[]
+}
+
+model GrvLine {
+  id              String @id @default(cuid())
+  grvId           String
+  skuId           String
+  qty             Int
+  unitCostCents   Int
+  serialNumbers   String?  // CSV
+  warrantyExpiry  DateTime?
+
+  grv Grv @relation(fields: [grvId], references: [id], onDelete: Cascade)
+  sku Sku @relation(fields: [skuId], references: [id])
+}
+
+model Ibt {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  fromLocationId  String
+  toLocationId    String
+  status          String   @default("REQUESTED")
+  requestedById   String
+  approvedById    String?
+  dispatchedById  String?
+  courier         String?
+  trackingNo      String?
+  boxNumbers      String?  // Optional, comma-separated. e.g. "BOX-001, BOX-002"
+  sentAt          DateTime?
+  receivedAt      DateTime?
+  createdAt       DateTime @default(now())
+  notes           String?
+
+  fromLoc      Location @relation("IbtFrom", fields: [fromLocationId], references: [id])
+  toLoc        Location @relation("IbtTo", fields: [toLocationId], references: [id])
+  requestedBy  User     @relation("RequestedBy", fields: [requestedById], references: [id])
+  approvedBy   User?    @relation("ApprovedBy", fields: [approvedById], references: [id])
+  dispatchedBy User?    @relation("DispatchedBy", fields: [dispatchedById], references: [id])
+
+  lines      IbtLine[]
+  dispatches Dispatch[]
+}
+
+model IbtLine {
+  id       String @id @default(cuid())
+  ibtId    String
+  assetId  String?
+  skuId    String
+  qty      Int
+
+  ibt   Ibt    @relation(fields: [ibtId], references: [id], onDelete: Cascade)
+  asset Asset? @relation(fields: [assetId], references: [id])
+  sku   Sku    @relation(fields: [skuId], references: [id])
+}
+
+model Dispatch {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  ibtId        String?
+  storeId      String
+  technicianId String
+  signedBy     String?
+  signatureUrl String?
+  dispatchedAt DateTime @default(now())
+  receivedAt   DateTime?
+
+  ibt        Ibt?  @relation(fields: [ibtId], references: [id])
+  store      Store @relation(fields: [storeId], references: [id])
+  technician User  @relation(fields: [technicianId], references: [id])
+}
+
+// ---------- Procurement ----------
+model PurchaseRequest {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  requesterId   String
+  status        String   @default("DRAFT")
+  approverId    String?
+  totalEstCents Int      @default(0)
+  justification String?
+  createdAt     DateTime @default(now())
+
+  requester User  @relation("PrRequester", fields: [requesterId], references: [id])
+  approver  User? @relation("PrApprover", fields: [approverId], references: [id])
+
+  lines PurchaseRequestLine[]
+  pos   PurchaseOrder[]
+}
+
+model PurchaseRequestLine {
+  id               String @id @default(cuid())
+  prId             String
+  skuId            String
+  qty              Int
+  estUnitCostCents Int
+
+  pr  PurchaseRequest @relation(fields: [prId], references: [id], onDelete: Cascade)
+  sku Sku             @relation(fields: [skuId], references: [id])
+}
+
+model PurchaseOrder {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  supplierId       String
+  prId             String?
+  status           String   @default("DRAFT")
+  totalCents       Int      @default(0)
+  sentAt           DateTime?
+  expectedDelivery DateTime?
+
+  supplier Supplier         @relation(fields: [supplierId], references: [id])
+  pr       PurchaseRequest? @relation(fields: [prId], references: [id])
+}
+
+// ---------- Service ----------
+model Repair {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  assetId      String
+  status       String   @default("LOGGED")
+  faultDesc    String
+  supplierId   String?
+  sentAt       DateTime?
+  receivedAt   DateTime?
+  costCents    Int      @default(0)
+  warrantyClaim Boolean @default(false)
+  outcome      String?
+  createdAt    DateTime @default(now())
+
+  asset    Asset     @relation(fields: [assetId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+}
+
+model Invoice {
+  id              String   @id @default(cuid())
+  docNo           String
+  supplierId      String
+  invoiceDate     DateTime
+  totalCents      Int      @default(0)
+  fileUrl         String?
+  ocrText         String?
+  linkedAssetId   String?
+  linkedGrvId     String?
+  linkedPoId      String?
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  linkedGrv Grv?    @relation(fields: [linkedGrvId], references: [id])
+}
+
+// ---------- Audit ----------
+model Audit {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  storeId      String
+  scheduledFor DateTime
+  status       String   @default("SCHEDULED")
+  conductedById String?
+  completedAt  DateTime?
+
+  store Store @relation(fields: [storeId], references: [id])
+  lines AuditLine[]
+}
+
+model AuditLine {
+  id        String  @id @default(cuid())
+  auditId   String
+  assetId   String?
+  expected  Boolean
+  found     Boolean
+  condition String?
+  variance  String? // MISSING, DAMAGED, UNRECORDED
+  photoUrl  String?
+  notes     String?
+
+  audit Audit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+}
+
+model Alert {
+  id          String   @id @default(cuid())
+  type        String
+  severity    String   @default("INFO")
+  refTable    String?
+  refId       String?
+  message     String
+  createdAt   DateTime @default(now())
+  dismissedAt DateTime?
+}
+
+model AuditEvent {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  targetType String?
+  targetId   String?
+  method     String?
+  path       String?
+  payload    String?
+  occurredAt DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([occurredAt])
+}
+
+// ---------- Software & License Management ----------
+model SoftwareTitle {
+  id           String   @id @default(cuid())
+  name         String
+  vendor       String
+  type         String   @default("PERPETUAL") // PERPETUAL | SUBSCRIPTION | SAAS | OEM
+  notes        String?
+  createdAt    DateTime @default(now())
+  licenses     SoftwareLicense[]
+
+  @@unique([name, vendor])
+}
+
+model SoftwareLicense {
+  id              String   @id @default(cuid())
+  titleId         String
+  licenseKeyMask  String?  // last-4 only is stored on display; encrypted full key not in scope
+  licenseKey      String?  // raw key; consider encrypting at app layer if sensitive
+  seatsTotal      Int      @default(1)
+  costCents       Int      @default(0)
+  purchaseDate    DateTime?
+  expiryDate      DateTime?
+  supplierId      String?
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  title       SoftwareTitle @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  supplier    Supplier?     @relation(fields: [supplierId], references: [id])
+  assignments SoftwareAssignment[]
+}
+
+model SoftwareAssignment {
+  id          String   @id @default(cuid())
+  licenseId   String
+  userId      String?
+  assetId     String?
+  assignedAt  DateTime @default(now())
+  revokedAt   DateTime?
+  notes       String?
+
+  license SoftwareLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+}
+
+model Decommission {
+  id                String   @id @default(cuid())
+  assetId           String   @unique
+  reason            String   // OBSOLETE | FAULTY | LOST | SOLD | OTHER
+  notes             String?
+  dataWipeCertUrl   String?
+  disposalSlipUrl   String?
+  disposalVendor    String?
+  disposedAt        DateTime @default(now())
+  signedOffById     String?
+}
+
+model DepreciationRun {
+  id                     String   @id @default(cuid())
+  period                 String   // YYYY-MM
+  postedAt               DateTime @default(now())
+  totalDepreciationCents Int      @default(0)
+}
+
+// ---------- Toner dispatching ----------
+model TonerType {
+  id            String   @id @default(cuid())
+  code          String   @unique          // 111L, 154A, 737, 285A
+  name          String                    // "HP 111L Original Toner Cartridge"
+  manufacturer  String   @default("HP")
+  unitCostCents Int      @default(0)      // ex VAT, in cents
+  vatPct        Int      @default(15)
+  hqStock       Int      @default(0)      // HQ on-hand
+  reorderLevel  Int      @default(0)
+  isActive      Boolean  @default(true)
+
+  plans       TonerPlan[]
+  orderLines  TonerOrderLine[]
+}
+
+model TonerPlan {
+  id           String  @id @default(cuid())
+  storeId      String
+  tonerTypeId  String
+  year         Int
+  jan Int @default(0)
+  feb Int @default(0)
+  mar Int @default(0)
+  apr Int @default(0)
+  may Int @default(0)
+  jun Int @default(0)
+  jul Int @default(0)
+  aug Int @default(0)
+  sep Int @default(0)
+  oct Int @default(0)
+  nov Int @default(0)
+  dec Int @default(0)
+
+  store      Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  tonerType  TonerType @relation(fields: [tonerTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, tonerTypeId, year])
+}
+
+model TonerOrder {
+  id        String   @id @default(cuid())
+  code      String   @unique         // TON-2026-06
+  period    String                   // YYYY-MM
+  status    String   @default("DRAFT")  // DRAFT | DISPATCHED | RECEIVED | CLOSED | CANCELLED
+  notes     String?
+  createdAt DateTime @default(now())
+  closedAt  DateTime?
+
+  lines     TonerOrderLine[]
+}
+
+model TonerOrderLine {
+  id            String    @id @default(cuid())
+  orderId       String
+  storeId       String
+  tonerTypeId   String
+  plannedQty    Int       @default(0)
+  dispatchedQty Int       @default(0)
+  receivedQty   Int       @default(0)
+  courier       String?
+  trackingNo    String?
+  boxNumbers    String?
+  dispatchedAt  DateTime?
+  receivedAt    DateTime?
+  signedBy      String?
+  signatureUrl  String?
+
+  order      TonerOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  store      Store      @relation(fields: [storeId], references: [id])
+  tonerType  TonerType  @relation(fields: [tonerTypeId], references: [id])
+
+  @@unique([orderId, storeId, tonerTypeId])
+}
+
+model HelpdeskLink {
+  id               String    @id @default(cuid())
+  ticketExternalId String
+  system           String    // FRESHSERVICE | JIRA_SM | STUB
+  summary          String
+  openedAt         DateTime
+  closedAt         DateTime?
+  assetId          String?
+  createdAt        DateTime  @default(now())
+
+  @@unique([system, ticketExternalId])
+  @@index([assetId])
+}
+
+// ---------- API keys for external scripts (Kaseya VSA discovery agent) ----------
+model ApiKey {
+  id          String    @id @default(cuid())
+  label       String    // human-readable, e.g. "Kaseya VSA discovery"
+  keyHash     String    @unique // sha256 of the raw key
+  prefix      String    // first 8 chars of the raw key, for UI display
+  scope       String    @default("DISCOVERY") // DISCOVERY | FULL
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdById String?
+}
+
+model DiscoveryReport {
+  id           String   @id @default(cuid())
+  assetId      String?
+  hostname     String
+  manufacturer String?
+  model        String?
+  serialNo     String?
+  osVersion    String?
+  cpuModel     String?
+  ramGb        Int?
+  macAddresses String?
+  payload      String?  // raw JSON for forensic analysis
+  reportedAt   DateTime @default(now())
+  sourceIp     String?
+}

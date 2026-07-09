@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Fashion Fusion ITAMLS",
+    "slug": "fashionfusion-itamls",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "fusion",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050810"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fashionfusion.itamls",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used to scan asset QR codes for lookup, audits and dispatch confirmation."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#050810"
+      },
+      "package": "com.fashionfusion.itamls",
+      "permissions": ["CAMERA"]
+    },
+    "plugins": [
+      "expo-router",
+      ["expo-camera", { "cameraPermission": "Allow Fashion Fusion ITAMLS to scan asset QR codes." }]
+    ],
+    "extra": {
+      "router": { "origin": false },
+      "apiBaseUrl": "http://192.168.1.10:4000/api/v1"
+    }
+  }
+}

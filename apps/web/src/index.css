@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: #050810;
+  color: #e8eef9;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle ambient glow on the page — brand orange top-left, teal bottom-right */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 14% 6%, rgba(254,102,32,0.10), transparent 45%),
+    radial-gradient(circle at 92% 95%, rgba(20,184,166,0.07), transparent 50%);
+  z-index: 0;
+}
+#root { position: relative; z-index: 1; }
+
+/* Scrollbar polish */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #1c2640; border-radius: 6px; }
+*::-webkit-scrollbar-thumb:hover { background: #293659; }
+
+@layer components {
+  /* ---------- Buttons ---------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5
+           text-sm font-medium transition-all duration-150
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60;
+  }
+  .btn-primary {
+    @apply btn relative bg-gradient-to-b from-brand-500 to-brand-600 text-white
+           shadow-[0_4px_14px_-4px_rgba(254,102,32,0.55)]
+           hover:from-brand-400 hover:to-brand-500
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply btn border border-ink-500/60 bg-ink-700/50 text-ink-100
+           hover:bg-ink-600/70 hover:border-ink-400/70 hover:text-white;
+  }
+  .btn-danger {
+    @apply btn bg-rose-600 text-white hover:bg-rose-500;
+  }
+
+  /* ---------- Cards ---------- */
+  .card {
+    @apply rounded-2xl border border-ink-500/60
+           bg-card-gradient backdrop-blur-sm
+           shadow-card;
+  }
+  .card-hover { @apply transition-colors hover:border-brand-500/40; }
+  .card-glow {
+    @apply rounded-2xl border border-brand-500/40
+           bg-card-gradient shadow-glow;
+  }
+
+  /* ---------- Pills / status ---------- */
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5
+           text-[11px] font-semibold uppercase tracking-wide;
+  }
+  .pill-green { @apply pill bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30; }
+  .pill-amber { @apply pill bg-amber-500/15  text-amber-300  ring-1 ring-amber-500/30; }
+  .pill-red   { @apply pill bg-rose-500/15   text-rose-300   ring-1 ring-rose-500/30; }
+  .pill-blue  { @apply pill bg-sky-500/15    text-sky-300    ring-1 ring-sky-500/30; }
+  .pill-slate { @apply pill bg-ink-500/20    text-ink-100    ring-1 ring-ink-500/40; }
+  .pill-gold  { @apply pill bg-gold-500/15   text-gold-300   ring-1 ring-gold-500/30; }
+  .pill-brand { @apply pill bg-brand-500/15  text-brand-300  ring-1 ring-brand-500/30; }
+
+  /* ---------- Forms ---------- */
+  .field {
+    @apply block w-full rounded-md border border-ink-500/60
+           bg-ink-900/60 px-3 py-1.5 text-sm text-ink-50 placeholder-ink-200/60
+           transition-colors
+           focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/60;
+  }
+  .field::placeholder { color: rgba(122,138,168,0.6); }
+  select.field { color-scheme: dark; }
+  .label {
+    @apply mb-1 block text-[11px] font-semibold uppercase tracking-wider text-ink-200;
+  }
+
+  /* ---------- Tables ---------- */
+  .th {
+    @apply px-3 py-2.5 text-left text-[11px] font-semibold uppercase
+           tracking-wider text-ink-200;
+  }
+  .td {
+    @apply px-3 py-2.5 text-sm text-ink-100;
+  }
+  table tbody tr { border-color: rgb(41 54 89 / 0.4); }
+  table tbody tr:hover { background-color: rgb(28 38 64 / 0.4); }
+
+  /* ---------- Misc ---------- */
+  .ring-divider { @apply ring-1 ring-ink-500/40; }
+  .text-soft { @apply text-ink-200; }
+  .text-strong { @apply text-white; }
+}
