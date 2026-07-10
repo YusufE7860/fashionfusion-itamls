@@ -30,4 +30,22 @@ export class ToolsController {
     res.setHeader('Content-Disposition', 'inline; filename="Invoke-ITAMLSDiscovery.ps1"');
     fs.createReadStream(file).pipe(res);
   }
+
+  private resolveBackupScript() {
+    const candidates = [
+      path.resolve(process.cwd(), '..', '..', 'tools', 'Invoke-ITAMLSBackup.ps1'),
+      path.resolve(process.cwd(), 'tools', 'Invoke-ITAMLSBackup.ps1'),
+    ];
+    for (const c of candidates) if (fs.existsSync(c)) return c;
+    throw new NotFoundException('Backup script not found on the API server.');
+  }
+
+  @Public()
+  @Get('backup.ps1')
+  serveBackup(@Res() res: Response) {
+    const file = this.resolveBackupScript();
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="Invoke-ITAMLSBackup.ps1"');
+    fs.createReadStream(file).pipe(res);
+  }
 }

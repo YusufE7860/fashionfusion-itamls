@@ -22,6 +22,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.StoresRead, Permissions.StoresWrite, Permissions.StoreWizard, Permissions.StoresAudit,
     Permissions.ReportsRead, Permissions.ReportsExport, Permissions.AuditLogRead,
     Permissions.TonerManage, Permissions.TonerOrderCreate, Permissions.TonerOrderDispatch, Permissions.TonerOrderReceive,
+    Permissions.BackupsManage, Permissions.BackupsRead,
   ],
   [Roles.Technician]: [
     Permissions.CatalogRead,
@@ -34,6 +35,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.WarrantiesRead, Permissions.StoresRead, Permissions.StoresAudit,
     Permissions.ReportsRead,
     Permissions.TonerOrderDispatch,
+    Permissions.BackupsRead,
   ],
   [Roles.StoreManager]: [
     Permissions.AssetsRead, Permissions.StockRead, Permissions.StoresRead,

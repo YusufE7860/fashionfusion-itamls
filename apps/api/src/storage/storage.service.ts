@@ -51,7 +51,17 @@ export class StorageService implements OnModuleInit {
     return this.client.presignedGetObject(this.bucket, key, expirySeconds);
   }
 
+  async presignedPut(key: string, expirySeconds = 60 * 60) {
+    return this.client.presignedPutObject(this.bucket, key, expirySeconds);
+  }
+
   async remove(key: string) {
     await this.client.removeObject(this.bucket, key);
+  }
+
+  /** Put a Readable stream to MinIO (used for backup uploads streamed through the API). */
+  async putStream(key: string, stream: NodeJS.ReadableStream, size: number, contentType = 'application/zip') {
+    await this.client.putObject(this.bucket, key, stream, size, { 'Content-Type': contentType });
+    return key;
   }
 }

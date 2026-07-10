@@ -33,6 +33,7 @@ import { AssetsImport } from './pages/AssetsImport';
 import { ActivityLog } from './pages/ActivityLog';
 import { Software } from './pages/Software';
 import { Updates } from './pages/Updates';
+import { StoreBackups } from './pages/StoreBackups';
 import { useAuth } from './store/auth';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -85,6 +86,7 @@ export function App() {
         <Route path="assets/import" element={<AssetsImport />} />
         <Route path="software" element={<Software />} />
         <Route path="admin/updates" element={<Updates />} />
+        <Route path="stores/:id/backups" element={<StoreBackups />} />
       </Route>
     </Routes>
   );

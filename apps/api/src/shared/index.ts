@@ -51,6 +51,9 @@ export const Permissions = {
   TonerOrderCreate: 'toner:order:create',
   TonerOrderDispatch: 'toner:order:dispatch',
   TonerOrderReceive: 'toner:order:receive',
+  // Store backups
+  BackupsManage: 'backups:manage',
+  BackupsRead: 'backups:read',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

@@ -7,5 +7,6 @@ import { ApiKeysService } from './api-keys.service';
 @Module({
   controllers: [DiscoveryController, ApiKeysController],
   providers: [DiscoveryService, ApiKeysService],
+  exports: [ApiKeysService],
 })
 export class DiscoveryModule {}

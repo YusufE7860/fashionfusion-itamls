@@ -1,9 +1,9 @@
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { Pill } from '@/components/Pill';
-import { CheckCircle2, AlertCircle, XCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle, XCircle, HardDrive } from 'lucide-react';
 
 function StateIcon({ state }: { state: string }) {
   if (state === 'INSTALLED') return <CheckCircle2 className="text-emerald-600" size={18} />;
@@ -29,7 +29,11 @@ export function StoreDetail() {
 
   return (
     <>
-      <PageHeader title={`${s.code} – ${s.name}`} subtitle={`${s.region}  •  Template: ${s.template?.name ?? '—'}`} />
+      <PageHeader
+        title={`${s.code} – ${s.name}`}
+        subtitle={`${s.region}  •  Template: ${s.template?.name ?? '—'}`}
+        actions={<Link to={`/stores/${id}/backups`} className="btn-ghost"><HardDrive size={14}/>Backups</Link>}
+      />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <section className="card lg:col-span-2 overflow-hidden">
           <header className="border-b px-4 py-2 text-sm font-semibold text-slate-700">

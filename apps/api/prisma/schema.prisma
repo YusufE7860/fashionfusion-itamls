@@ -193,6 +193,8 @@ model Store {
   audits         Audit[]
   tonerPlans     TonerPlan[]
   tonerOrderLines TonerOrderLine[]
+  storePcs       StorePc[]
+  backupJob      BackupJob?
 }
 
 // ---------- Inventory ----------
@@ -544,6 +546,54 @@ model SoftwareAssignment {
   notes       String?
 
   license SoftwareLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Store backups ----------
+// One PC per store (till or back-office). Auto-created by the agent's first check-in.
+model StorePc {
+  id           String   @id @default(cuid())
+  storeId      String
+  name         String                     // e.g. "POS1", "POS2", "BackOffice"
+  role         String   @default("TILL")  // TILL | BACKOFFICE
+  backupPaths  String   @default("[]")    // JSON array of paths on the PC
+  isActive     Boolean  @default(true)
+  lastBackupAt DateTime?
+  lastSeenAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  store Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  runs  BackupRun[]
+
+  @@unique([storeId, name])
+  @@index([storeId])
+}
+
+// One config per store — created automatically when a store is created.
+model BackupJob {
+  id             String   @id @default(cuid())
+  storeId        String   @unique
+  scheduleCron   String   @default("0 2 * * *") // daily at 02:00 local
+  retentionDays  Int      @default(30)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+model BackupRun {
+  id          String   @id @default(cuid())
+  pcId        String
+  status      String   @default("RUNNING") // RUNNING | SUCCESS | FAILED
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  sizeBytes   BigInt   @default(0)
+  storagePath String?
+  error       String?
+  sourceIp    String?
+
+  pc StorePc @relation(fields: [pcId], references: [id], onDelete: Cascade)
+
+  @@index([pcId, startedAt])
 }
 
 model Decommission {

@@ -44,7 +44,7 @@ export class StoresService {
         region: dto.region,
       },
     });
-    return this.prisma.store.create({
+    const store = await this.prisma.store.create({
       data: {
         code: dto.code,
         name: dto.name,
@@ -55,5 +55,12 @@ export class StoresService {
       },
       include: { template: true, location: true },
     });
+    // Auto-create a Backups job for the new store (default: 02:00 daily, 30-day retention)
+    await this.prisma.backupJob.upsert({
+      where: { storeId: store.id },
+      create: { storeId: store.id },
+      update: {},
+    });
+    return store;
   }
 }

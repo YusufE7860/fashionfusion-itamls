@@ -10,7 +10,8 @@ type AlertType =
   | 'STORE_MISSING_EQUIPMENT'
   | 'REPAIR_DELAY'
   | 'ASSET_NOT_SEEN'
-  | 'LICENSE_EXPIRING';
+  | 'LICENSE_EXPIRING'
+  | 'BACKUP_MISSED';
 
 @Injectable()
 export class AlertsService {
@@ -56,8 +57,29 @@ export class AlertsService {
     await this.repairDelayScan();
     await this.assetNotSeenScan();
     await this.licenseExpiringScan();
+    await this.backupMissedScan();
     const after = await this.prisma.alert.count();
     return { created: after - before };
+  }
+
+  private async backupMissedScan() {
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - 36); // >36h since last successful backup = missed
+    const pcs = await (this.prisma as any).storePc?.findMany?.({
+      where: {
+        isActive: true,
+        OR: [{ lastBackupAt: null }, { lastBackupAt: { lt: cutoff } }],
+      },
+      include: { store: true },
+    }).catch(() => []) ?? [];
+    for (const pc of pcs) {
+      const paths = safeArr(pc.backupPaths);
+      if (paths.length === 0) continue; // unconfigured — don't warn
+      await this.upsertOnce(
+        'BACKUP_MISSED', 'ERROR', 'store_pc', pc.id,
+        `${pc.store.code} ${pc.store.name} · ${pc.name}: no successful backup in the last 36 hours`,
+      );
+    }
   }
 
   // ---------- email digest ----------
@@ -197,4 +219,7 @@ export class AlertsService {
 
 function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]!));
+}
+function safeArr(s: string): string[] {
+  try { const p = JSON.parse(s); return Array.isArray(p) ? p : []; } catch { return []; }
 }
