@@ -17,11 +17,14 @@
 
 set -euo pipefail
 
-# ---------- CHANGE THIS to your fork/repo URL after you push ----------
-REPO_URL="${REPO_URL:-https://github.com/YOUR-USER/fashionfusion-itamls.git}"
+# ---------- Repository ----------
+REPO_URL="${REPO_URL:-https://github.com/YusufE7860/fashionfusion-itamls.git}"
 BRANCH="${BRANCH:-main}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/itamls}"
-# ---------------------------------------------------------------------
+# If the repo is private, run:  sudo GITHUB_TOKEN=github_pat_... bash -c '...bootstrap.sh...'
+# — or pass ?token=... in the raw URL. The installer will inject it into REPO_URL.
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+# --------------------------------
 
 BOLD=$(tput bold 2>/dev/null || true); RESET=$(tput sgr0 2>/dev/null || true)
 GREEN=$(tput setaf 2 2>/dev/null || true); YELLOW=$(tput setaf 3 2>/dev/null || true)
@@ -70,6 +73,12 @@ install_prereqs() {
 }
 
 fetch_repo() {
+  # For private repos, inject GITHUB_TOKEN into the URL for the clone
+  local url="${REPO_URL}"
+  if [[ -n "${GITHUB_TOKEN}" ]]; then
+    url="$(echo "${REPO_URL}" | sed "s#https://github.com/#https://${GITHUB_TOKEN}@github.com/#")"
+  fi
+
   if [[ -d "${INSTALL_DIR}/.git" ]]; then
     step "Repo already at ${INSTALL_DIR} — pulling latest"
     git -C "${INSTALL_DIR}" fetch --all
@@ -78,9 +87,14 @@ fetch_repo() {
     ok "Updated to latest ${BRANCH}"
   else
     step "Cloning ${REPO_URL} → ${INSTALL_DIR}"
-    git clone --branch "${BRANCH}" "${REPO_URL}" "${INSTALL_DIR}"
+    if ! git clone --branch "${BRANCH}" "${url}" "${INSTALL_DIR}" 2>/dev/null; then
+      fail "Clone failed. If the repo is private, either make it public, or re-run with:
+    curl -fsSL <bootstrap-url> | sudo GITHUB_TOKEN=github_pat_xxxx bash
+  (create a fine-grained token at github.com/settings/tokens with 'Contents: Read' on this repo)"
+    fi
     ok "Cloned"
   fi
+  return 0
 }
 
 collect_config() {
