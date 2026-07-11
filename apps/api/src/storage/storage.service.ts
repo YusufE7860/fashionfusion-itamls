@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Client as MinioClient } from 'minio';
 import { randomBytes } from 'node:crypto';
+import { Readable } from 'node:stream';
 
 @Injectable()
 export class StorageService implements OnModuleInit {
@@ -60,7 +61,7 @@ export class StorageService implements OnModuleInit {
   }
 
   /** Put a Readable stream to MinIO (used for backup uploads streamed through the API). */
-  async putStream(key: string, stream: NodeJS.ReadableStream, size: number, contentType = 'application/zip') {
+  async putStream(key: string, stream: Readable, size: number, contentType = 'application/zip') {
     await this.client.putObject(this.bucket, key, stream, size, { 'Content-Type': contentType });
     return key;
   }

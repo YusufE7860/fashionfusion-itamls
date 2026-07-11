@@ -38,22 +38,31 @@ EOF
 }
 
 require_root() {
-  [[ "${EUID}" -ne 0 ]] && fail "Run as root: sudo bash install.sh"
+  if [[ "${EUID}" -ne 0 ]]; then
+    fail "Run as root: sudo bash install.sh"
+  fi
+  return 0
 }
 
 require_ubuntu() {
-  [[ -f /etc/os-release ]] || fail "Not an Ubuntu system"
+  if [[ ! -f /etc/os-release ]]; then
+    fail "Not an Ubuntu system"
+  fi
   . /etc/os-release
   if [[ "${ID:-}" == "ubuntu" ]]; then
     ok "Detected ${PRETTY_NAME}"
   else
     warn "Detected '${PRETTY_NAME:-unknown}'. Tested on Ubuntu 22.04/24.04 but should also work on Debian."
   fi
+  return 0
 }
 
 require_project_root() {
-  [[ -f docker-compose.prod.yml ]] || fail "Run from the project root (where docker-compose.prod.yml lives)."
+  if [[ ! -f docker-compose.prod.yml ]]; then
+    fail "Run from the project root (where docker-compose.prod.yml lives)."
+  fi
   ok "Project root: $(pwd)"
+  return 0
 }
 
 install_docker() {

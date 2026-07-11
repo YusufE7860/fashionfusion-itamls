@@ -52,7 +52,10 @@ EOF
 }
 
 require_root() {
-  [[ "${EUID}" -ne 0 ]] && fail "Run as root: curl ... | sudo bash"
+  if [[ "${EUID}" -ne 0 ]]; then
+    fail "Run as root: curl ... | sudo bash"
+  fi
+  return 0
 }
 
 install_prereqs() {
