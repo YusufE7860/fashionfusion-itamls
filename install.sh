@@ -184,15 +184,15 @@ wait_for_db() {
 migrate_and_seed() {
   step "Running database migrations"
   docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T api \
-    sh -c "cd /app/apps/api && pnpm exec prisma migrate deploy"
+    sh -c "cd /app/apps/api && node_modules/.bin/prisma migrate deploy"
   ok "Migrations applied"
 
   step "Seeding demo data"
   if docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T api \
-       sh -c "cd /app/apps/api && [ ! -f .seeded ] && pnpm exec prisma db seed && touch .seeded" 2>/dev/null; then
+       sh -c "cd /app/apps/api && [ ! -f .seeded ] && node_modules/.bin/ts-node prisma/seed.ts && touch .seeded"; then
     ok "Seed complete"
   else
-    warn "Seed already run — skipping"
+    warn "Seed already run — skipping (or failed — check with docker compose logs api)"
   fi
 }
 

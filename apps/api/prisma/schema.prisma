@@ -1,7 +1,10 @@
 // Prisma schema for Fashion Fusion ITAMLS
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" for local dev on Windows/Mac/Linux glibc,
+  // "linux-musl-openssl-3.0.x" for Alpine-based Docker images.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {

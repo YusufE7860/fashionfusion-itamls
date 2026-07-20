@@ -22,6 +22,8 @@ RUN pnpm build
 FROM node:20-alpine
 # openssl for prisma, git+docker-cli for the in-app self-updater
 RUN apk add --no-cache openssl tini git docker-cli
+# Install pnpm so we can run migrations / seed at runtime
+RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
 WORKDIR /app
 COPY --from=builder /app /app
 ENV NODE_ENV=production
