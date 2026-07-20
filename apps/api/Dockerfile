@@ -24,6 +24,9 @@ FROM node:20-alpine
 RUN apk add --no-cache openssl tini git docker-cli
 # Install pnpm so we can run migrations / seed at runtime
 RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+# Trust the mounted repo for the in-app self-updater (host UID != container UID)
+RUN git config --system --add safe.directory /repo \
+ && git config --system --add safe.directory '*'
 WORKDIR /app
 COPY --from=builder /app /app
 ENV NODE_ENV=production

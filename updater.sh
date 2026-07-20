@@ -19,6 +19,10 @@ log() {
 
 cd "$REPO_DIR"
 
+# The updater container is short-lived and runs as root but the repo is owned
+# by whatever host UID cloned it. Trust it explicitly.
+git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
+
 log "Starting update"
 log "Current commit: $(git rev-parse --short HEAD)"
 

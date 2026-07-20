@@ -21,13 +21,16 @@ export class UpdatesService {
       };
     }
 
-    // Fetch without failing hard if we can't reach GitHub
+    // Fetch without failing hard if we can't reach GitHub.
+    // - Hard timeout of 20s so we never hang the API.
+    // - Disable credential prompts so we fail loudly on private-repo auth issues.
     try {
-      await this.git('fetch --all --prune');
+      await this.gitNoPrompt('fetch --all --prune', 20_000);
     } catch (e: any) {
+      const short = String(e.message ?? e).split('\n').slice(0, 3).join(' ');
       return {
         ready: true, available: false,
-        message: `Could not reach the git remote: ${String(e.message ?? e).split('\n')[0]}`,
+        message: `Could not reach the git remote: ${short}. If the repo is private, set the origin URL with a token: \`git remote set-url origin https://USER:TOKEN@github.com/...\``,
         currentCommit: (await this.git('rev-parse --short HEAD')).stdout.trim(),
       };
     }
@@ -108,6 +111,16 @@ export class UpdatesService {
   }
 
   private git(args: string) {
-    return exec(`git -C ${this.repoDir} ${args}`);
+    return exec(`git -C ${this.repoDir} ${args}`, { timeout: 20_000 });
+  }
+
+  /** git command that will never wait for an interactive credential prompt. */
+  private gitNoPrompt(args: string, timeoutMs = 20_000) {
+    const env = {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_ASKPASS: 'echo',
+    };
+    return exec(`git -C ${this.repoDir} ${args}`, { env, timeout: timeoutMs });
   }
 }
