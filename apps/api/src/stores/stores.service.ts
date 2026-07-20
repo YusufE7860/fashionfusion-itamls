@@ -7,7 +7,10 @@ export class CreateStoreDto {
   @IsString() code!: string;
   @IsString() name!: string;
   @IsString() region!: string;
+  @IsOptional() @IsString() entity?: string;      // FASHION_FUSION | EVLV
+  @IsOptional() @IsString() status?: string;      // OPEN | PLANNED | REMODEL | CLOSED
   @IsOptional() @IsString() templateId?: string;
+  @IsOptional() @IsString() openedAt?: string;    // ISO date
 }
 
 @Injectable()
@@ -49,9 +52,11 @@ export class StoresService {
         code: dto.code,
         name: dto.name,
         region: dto.region,
+        entity: dto.entity ?? 'FASHION_FUSION',
         locationId: location.id,
-        templateId: dto.templateId,
-        status: StoreStatus.Planned,
+        templateId: dto.templateId || undefined,
+        status: dto.status ?? StoreStatus.Open,
+        openedAt: dto.openedAt ? new Date(dto.openedAt) : new Date(),
       },
       include: { template: true, location: true },
     });
