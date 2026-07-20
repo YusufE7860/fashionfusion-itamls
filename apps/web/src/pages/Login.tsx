@@ -39,22 +39,46 @@ export function Login() {
   }
 
   return (
-    <div className="relative grid min-h-screen place-items-center overflow-hidden bg-ink-950 p-4">
-      <div className="pointer-events-none absolute -left-32 top-0 h-[480px] w-[480px] rounded-full bg-brand-500/20 blur-[100px]" />
-      <div className="pointer-events-none absolute -bottom-32 -right-20 h-[480px] w-[480px] rounded-full bg-teal-500/10 blur-[100px]" />
-      <div className="pointer-events-none absolute inset-0 opacity-[0.04]"
-           style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+    <div className="grid min-h-screen bg-white md:grid-cols-2">
+      {/* ---------- Left panel (brand) ---------- */}
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-[#0b0f1a] p-10 text-white md:flex">
+        <div className="pointer-events-none absolute -left-24 top-0 h-[420px] w-[420px] rounded-full bg-brand-500/25 blur-[100px]" />
+        <div className="pointer-events-none absolute -bottom-24 -right-16 h-[420px] w-[420px] rounded-full bg-teal-500/10 blur-[100px]" />
 
-      <div className="relative w-full max-w-md">
-        <div className="mb-8 flex justify-center"><FusionMark size="2xl" /></div>
+        <div className="relative">
+          <FusionMark size="lg" />
+          <div className="mt-4 text-[11px] font-bold uppercase tracking-[0.28em] text-ink-400">
+            Operations Command Center
+          </div>
+        </div>
 
-        <div className="relative rounded-2xl border border-ink-500/60 bg-card-gradient p-8 shadow-card backdrop-blur-md">
-          <div className="pointer-events-none absolute -inset-px rounded-2xl bg-gradient-to-b from-brand-500/40 via-transparent to-transparent opacity-60 [mask:linear-gradient(black,transparent_40%)]" />
+        <div className="relative">
+          <h2 className="font-display text-3xl font-bold leading-tight">
+            One command center<br/>for your whole operation.
+          </h2>
+          <p className="mt-4 max-w-md text-sm text-ink-300/90">
+            Assets, stores, tills, backups, toner, procurement, repairs — everything your IT department runs on, in one place.
+          </p>
+        </div>
 
-          <h1 className="font-display text-2xl font-bold text-white">Welcome back</h1>
-          <p className="mt-1 text-sm text-ink-200">Sign in to IT Asset Management</p>
+        <div className="relative text-[11px] text-ink-400">
+          © Fashion Fusion · Internal use only
+        </div>
+      </div>
 
-          <form onSubmit={submit} className="mt-6 space-y-4">
+      {/* ---------- Right panel (form) ---------- */}
+      <div className="relative flex items-center justify-center px-6 py-12">
+        <div className="w-full max-w-sm">
+          <div className="mb-8 md:hidden flex justify-center">
+            <div className="rounded-lg bg-[#0b0f1a] px-6 py-4">
+              <FusionMark size="md" />
+            </div>
+          </div>
+
+          <h1 className="font-display text-2xl font-bold text-ink-50">Welcome back</h1>
+          <p className="mt-1 text-sm text-ink-300">Sign in to IT Asset Management</p>
+
+          <form onSubmit={submit} className="mt-8 space-y-4">
             <div>
               <label className="label">Email</label>
               <input className="field" type="email" value={email}
@@ -75,7 +99,7 @@ export function Login() {
               </div>
             )}
             {error && (
-              <div className="rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+              <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                 {error}
               </div>
             )}
@@ -84,28 +108,10 @@ export function Login() {
             </button>
           </form>
 
-          {!needs2fa && (
-            <div className="mt-6 border-t border-ink-500/40 pt-4">
-              <p className="text-[11px] uppercase tracking-wider text-ink-200">
-                Demo accounts · password: <code className="rounded bg-ink-700/60 px-1 py-0.5 font-mono text-brand-300">password</code>
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-                {[
-                  ['admin','Administrator'],['itmanager','IT Manager'],['tech','Technician'],
-                  ['store001','Store Manager'],['finance','Finance'],
-                ].map(([u, r]) => (
-                  <button key={u} type="button"
-                    onClick={() => setEmail(`${u}@fashionfusion.local`)}
-                    className="rounded-full border border-ink-500/60 bg-ink-700/40 px-2.5 py-0.5 text-ink-100 hover:border-brand-500/40 hover:text-brand-300 transition-colors">
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          <p className="mt-6 text-center text-[11px] text-ink-400">
+            © Fashion Fusion · Internal use only
+          </p>
         </div>
-
-        <p className="mt-4 text-center text-[11px] text-ink-200">© Fashion Fusion · Internal use only</p>
       </div>
     </div>
   );

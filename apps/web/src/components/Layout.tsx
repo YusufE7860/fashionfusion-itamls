@@ -2,11 +2,8 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  LayoutDashboard, Boxes, Warehouse, Store, Truck, ArrowLeftRight,
-  ShieldCheck, LogOut, ShoppingCart, Wrench, ShieldAlert, FileBarChart,
-  FileSearch, ClipboardCheck, Radar, KeyRound, Bell, Sparkles,
-  UsersRound, LayoutTemplate, Printer, Upload, Activity, ShieldQuestion, Disc, Download,
-  ChevronDown, Package,
+  LayoutDashboard, Boxes, Store, Truck, ShieldCheck, LogOut, Wrench,
+  FileBarChart, Bell, Printer, ChevronDown, Package,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/store/auth';
@@ -71,7 +68,7 @@ function useUpdateBadge() {
   const q = useQuery({
     queryKey: ['update-status'],
     queryFn: () => api.get('/admin/updates/status').then((r) => r.data).catch(() => null),
-    refetchInterval: 5 * 60_000,   // poll every 5 minutes
+    refetchInterval: 5 * 60_000,
     staleTime: 60_000,
     retry: false,
   });
@@ -83,11 +80,8 @@ export function Layout() {
   const logout = useAuth((s) => s.logout);
   const location = useLocation();
   const updateAvailable = useUpdateBadge();
-
-  // Which section is currently open (only one at a time)
   const [open, setOpen] = useState<string | null>(null);
 
-  // Auto-open the section that contains the current route
   useEffect(() => {
     const match = NAV.find((n) => n.kind === 'group' && n.items.some((i) =>
       i.end ? location.pathname === i.to : location.pathname.startsWith(i.to),
@@ -96,19 +90,20 @@ export function Layout() {
   }, [location.pathname]);
 
   return (
-    <div className="grid h-full grid-cols-[280px_1fr]">
+    <div className="grid h-full grid-cols-[280px_1fr] bg-white">
       {/* ---------- Sidebar ---------- */}
-      <aside className="relative flex flex-col border-r border-ink-500/40 bg-sidebar-gradient">
+      <aside className="relative flex flex-col border-r border-ink-500 bg-sidebar-gradient">
         {/* Brand */}
         <div className="relative flex flex-col items-center px-4 py-6">
-          <div className="absolute inset-0 bg-glow-brand opacity-60" />
-          <FusionMark size="md" className="relative" />
-          <div className="relative mt-3 text-[10px] font-bold uppercase tracking-[0.22em] text-ink-200">
+          <div className="rounded-lg bg-[#0b0f1a] px-6 py-4">
+            <FusionMark size="md" />
+          </div>
+          <div className="mt-3 text-[10px] font-bold uppercase tracking-[0.22em] text-ink-400">
             Operations Command Center
           </div>
         </div>
 
-        <div className="mx-3 h-px bg-gradient-to-r from-transparent via-brand-500/30 to-transparent" />
+        <div className="mx-3 h-px bg-ink-500" />
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto p-3">
@@ -124,28 +119,28 @@ export function Layout() {
         </nav>
 
         {/* User card */}
-        <div className="m-3 mt-0 rounded-xl border border-ink-500/60 bg-ink-700/40 p-3">
+        <div className="m-3 mt-0 rounded-xl border border-ink-500 bg-white p-3">
           {user && (
             <div className="mb-2 flex items-center gap-2.5">
-              <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-xs font-bold text-white shadow-[0_0_12px_rgba(254,102,32,0.4)]">
+              <div className="grid h-9 w-9 place-items-center rounded-full bg-brand-500 text-xs font-bold text-white">
                 {user.fullName.split(' ').map((p: string) => p[0]).slice(0,2).join('')}
               </div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-white">{user.fullName}</div>
-                <div className="truncate text-[11px] uppercase tracking-wider text-brand-400">{user.role.replaceAll('_',' ')}</div>
+                <div className="truncate text-sm font-semibold text-ink-50">{user.fullName}</div>
+                <div className="truncate text-[11px] uppercase tracking-wider text-brand-600">{user.role.replaceAll('_',' ')}</div>
               </div>
             </div>
           )}
-          <button onClick={logout} className="flex w-full items-center justify-center gap-2 rounded-md border border-ink-500/60 bg-ink-700/30 px-3 py-1.5 text-xs font-medium text-ink-100 hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300 transition-colors">
+          <button onClick={logout} className="flex w-full items-center justify-center gap-2 rounded-md border border-ink-500 bg-white px-3 py-1.5 text-xs font-medium text-ink-200 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 transition-colors">
             <LogOut size={13}/> Sign out
           </button>
         </div>
       </aside>
 
       {/* ---------- Main ---------- */}
-      <main className="relative overflow-y-auto">
+      <main className="relative overflow-y-auto bg-white">
         {updateAvailable && (
-          <div className="border-b border-brand-500/40 bg-brand-500/10 px-8 py-2 text-xs text-brand-300">
+          <div className="border-b border-brand-200 bg-brand-50 px-8 py-2 text-xs text-brand-700">
             <NavLink to="/admin/updates" className="inline-flex items-center gap-2 hover:underline">
               <Package size={12}/> A new version is available — click here to review and install
             </NavLink>
@@ -159,8 +154,6 @@ export function Layout() {
   );
 }
 
-/* ---------------------------------------------------------------- */
-
 function SingleNav({ entry, updateBadge }: { entry: SingleItem; updateBadge?: boolean }) {
   const Icon = entry.icon;
   return (
@@ -168,12 +161,13 @@ function SingleNav({ entry, updateBadge }: { entry: SingleItem; updateBadge?: bo
       className={({ isActive }) => clsx(
         'group relative mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all',
         isActive
-          ? 'bg-gradient-to-r from-brand-500 to-brand-600 text-white shadow-[0_4px_14px_-4px_rgba(254,102,32,0.55)]'
-          : 'text-ink-100 hover:bg-ink-700/50 hover:text-white',
+          ? 'bg-brand-50 text-brand-700 font-medium'
+          : 'text-ink-200 hover:bg-ink-600 hover:text-ink-50',
       )}>
       {({ isActive }) => (
         <>
-          <Icon size={16} className={isActive ? 'text-white' : 'text-ink-200 group-hover:text-white'} />
+          {isActive && <span className="absolute left-0 top-1.5 h-6 w-0.5 rounded-r-full bg-brand-500" />}
+          <Icon size={16} className={isActive ? 'text-brand-600' : 'text-ink-300 group-hover:text-ink-100'} />
           <span className="flex-1">{entry.label}</span>
           {updateBadge && <UpdateDot />}
         </>
@@ -192,16 +186,16 @@ function GroupNav({ entry, isOpen, onToggle, updateBadge }:
         className={clsx(
           'group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all',
           isOpen
-            ? 'bg-gradient-to-r from-brand-500 to-brand-600 text-white shadow-[0_4px_14px_-4px_rgba(254,102,32,0.55)]'
-            : 'text-ink-100 hover:bg-ink-700/50 hover:text-white',
+            ? 'bg-brand-50 text-brand-700 font-medium'
+            : 'text-ink-200 hover:bg-ink-600 hover:text-ink-50',
         )}
       >
-        <Icon size={16} className={isOpen ? 'text-white' : 'text-ink-200 group-hover:text-white'} />
+        <Icon size={16} className={isOpen ? 'text-brand-600' : 'text-ink-300 group-hover:text-ink-100'} />
         <span className="flex-1 text-left">{entry.label}</span>
         {updateBadge && !isOpen && <UpdateDot />}
         <ChevronDown size={14}
           className={clsx('transition-transform', isOpen ? 'rotate-180' : '',
-                          isOpen ? 'text-white' : 'text-ink-200')} />
+                          isOpen ? 'text-brand-600' : 'text-ink-400')} />
       </button>
 
       <div
@@ -211,7 +205,7 @@ function GroupNav({ entry, isOpen, onToggle, updateBadge }:
         )}
       >
         <div className="min-h-0">
-          <div className="mt-1 space-y-0.5 rounded-lg bg-ink-700/30 py-1 pl-3 pr-1">
+          <div className="mt-1 space-y-0.5 py-1 pl-3 pr-1">
             {entry.items.map((item) => (
               <NavLink
                 key={item.to}
@@ -220,15 +214,15 @@ function GroupNav({ entry, isOpen, onToggle, updateBadge }:
                 className={({ isActive }) => clsx(
                   'relative flex items-center gap-2 rounded-md px-3 py-1.5 text-[13px] transition-colors',
                   isActive
-                    ? 'bg-ink-600/70 font-medium text-white'
-                    : 'text-ink-100 hover:bg-ink-600/40 hover:text-white',
+                    ? 'bg-white font-medium text-ink-50 shadow-card'
+                    : 'text-ink-200 hover:bg-white hover:text-ink-50',
                 )}
               >
                 {({ isActive }) => (
                   <>
                     <span className={clsx(
                       'ml-1 inline-block h-1 w-1 rounded-full transition-colors',
-                      isActive ? 'bg-brand-400' : 'bg-ink-400/50',
+                      isActive ? 'bg-brand-500' : 'bg-ink-400',
                     )} />
                     <span className="flex-1">{item.label}</span>
                     {item.to === '/admin/updates' && updateBadge && <UpdateDot />}
@@ -245,9 +239,9 @@ function GroupNav({ entry, isOpen, onToggle, updateBadge }:
 
 function UpdateDot() {
   return (
-    <span className="inline-flex h-2 w-2 items-center justify-center">
+    <span className="relative inline-flex h-2 w-2 items-center justify-center">
       <span className="absolute h-2 w-2 animate-ping rounded-full bg-brand-400 opacity-75" />
-      <span className="relative h-2 w-2 rounded-full bg-brand-500 shadow-[0_0_8px_rgba(254,102,32,0.9)]" />
+      <span className="relative h-2 w-2 rounded-full bg-brand-500" />
     </span>
   );
 }
