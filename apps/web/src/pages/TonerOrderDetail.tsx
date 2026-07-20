@@ -102,9 +102,9 @@ export function TonerOrderDetail() {
 
       <div className="space-y-3">
         {byStore.map((s) => {
-          const planned    = s.lines.reduce((sum, l) => sum + l.plannedQty, 0);
-          const dispatched = s.lines.reduce((sum, l) => sum + l.dispatchedQty, 0);
-          const received   = s.lines.reduce((sum, l) => sum + l.receivedQty, 0);
+          const planned    = s.lines.reduce((sum: number, l: any) => sum + l.plannedQty, 0);
+          const dispatched = s.lines.reduce((sum: number, l: any) => sum + l.dispatchedQty, 0);
+          const received   = s.lines.reduce((sum: number, l: any) => sum + l.receivedQty, 0);
           const fullyDispatched = dispatched >= planned;
           return (
             <div key={s.storeId} className="card overflow-hidden">
@@ -138,7 +138,7 @@ export function TonerOrderDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {s.lines.map((l) => (
+                  {s.lines.map((l: any) => (
                     <tr key={l.id} className="border-t border-ink-500/30">
                       <td className="td font-mono">{l.tonerType.code} <span className="text-xs text-ink-200">{l.tonerType.manufacturer}</span></td>
                       <td className="td text-right font-mono">{l.plannedQty}</td>
