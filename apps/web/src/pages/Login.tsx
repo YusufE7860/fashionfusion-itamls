@@ -48,13 +48,13 @@ export function Login() {
         <div className="relative">
           <FusionMark size="lg" />
           <div className="mt-4 text-[11px] font-bold uppercase tracking-[0.28em] text-ink-400">
-            Operations Command Center
+            IT Command Center
           </div>
         </div>
 
         <div className="relative">
           <h2 className="font-display text-3xl font-bold leading-tight">
-            One command center<br/>for your whole operation.
+            One command center<br/>for your whole IT estate.
           </h2>
           <p className="mt-4 max-w-md text-sm text-ink-300/90">
             Assets, stores, tills, backups, toner, procurement, repairs — everything your IT department runs on, in one place.

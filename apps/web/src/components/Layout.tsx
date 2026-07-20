@@ -99,7 +99,7 @@ export function Layout() {
             <FusionMark size="md" />
           </div>
           <div className="mt-3 text-[10px] font-bold uppercase tracking-[0.22em] text-ink-400">
-            Operations Command Center
+            IT Command Center
           </div>
         </div>
 
