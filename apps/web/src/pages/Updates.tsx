@@ -11,7 +11,9 @@ export function Updates() {
   const status = useQuery({
     queryKey: ['update-status'],
     queryFn: () => api.get('/admin/updates/status').then((r) => r.data),
-    refetchInterval: (q) => (q.state.data?.updating ? 3000 : false),
+    // Poll every 3s while updating (live progress), otherwise every 5 minutes so
+    // the page + sidebar badge auto-detect a fresh push to GitHub.
+    refetchInterval: (q) => (q.state.data?.updating ? 3000 : 5 * 60_000),
   });
 
   const log = useQuery({
