@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
-import { UsersService } from './users.service';
+import { CreateUserDto, UsersService } from './users.service';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Permissions } from '../shared';
 
@@ -10,6 +10,22 @@ export class UsersController {
   @Get('users')
   @RequirePermissions(Permissions.UsersManage)
   list() { return this.users.list(); }
+
+  @Post('users')
+  @RequirePermissions(Permissions.UsersManage)
+  create(@Body() dto: CreateUserDto) { return this.users.create(dto); }
+
+  @Patch('users/:id/active')
+  @RequirePermissions(Permissions.UsersManage)
+  setActive(@Param('id') id: string, @Body() body: { isActive: boolean }) {
+    return this.users.setActive(id, !!body.isActive);
+  }
+
+  @Post('users/:id/reset-password')
+  @RequirePermissions(Permissions.UsersManage)
+  resetPassword(@Param('id') id: string, @Body() body: { password: string }) {
+    return this.users.resetPassword(id, body.password);
+  }
 
   @Get('users/:id')
   @RequirePermissions(Permissions.UsersManage)

@@ -1,5 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+
+export interface CreateUserDto {
+  email: string;
+  fullName: string;
+  password: string;
+  roleId: string;
+  storeId?: string | null;
+  isActive?: boolean;
+}
 
 @Injectable()
 export class UsersService {
@@ -10,6 +20,45 @@ export class UsersService {
       include: { role: true, store: true, permissionOverrides: true },
       orderBy: { fullName: 'asc' },
     });
+  }
+
+  async create(dto: CreateUserDto) {
+    if (!dto.email || !dto.fullName || !dto.password || !dto.roleId) {
+      throw new BadRequestException('email, fullName, password and roleId are required');
+    }
+    if (dto.password.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new BadRequestException(`A user with email ${email} already exists`);
+    const role = await this.prisma.role.findUnique({ where: { id: dto.roleId } });
+    if (!role) throw new BadRequestException('Role not found');
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    return this.prisma.user.create({
+      data: {
+        email,
+        fullName: dto.fullName.trim(),
+        passwordHash,
+        roleId: dto.roleId,
+        storeId: dto.storeId || null,
+        isActive: dto.isActive ?? true,
+      },
+      include: { role: true, store: true },
+    });
+  }
+
+  async setActive(id: string, isActive: boolean) {
+    return this.prisma.user.update({ where: { id }, data: { isActive } });
+  }
+
+  async resetPassword(id: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    return this.prisma.user.update({ where: { id }, data: { passwordHash } });
   }
 
   async byId(id: string) {

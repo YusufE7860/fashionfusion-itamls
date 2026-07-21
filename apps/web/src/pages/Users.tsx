@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
-import { ChevronDown, ChevronRight, Check, X, Minus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Check, X, Minus, Plus, KeyRound, Power } from 'lucide-react';
 import clsx from 'clsx';
 
 // Modules group the granular permissions for the UI
@@ -20,13 +20,85 @@ const MODULE_GROUPS: { label: string; perms: string[] }[] = [
 ];
 
 export function Users() {
+  const qc = useQueryClient();
   const users = useQuery({ queryKey: ['users'], queryFn: () => api.get('/users').then((r) => r.data) });
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => api.get('/roles').then((r) => r.data) });
+  const stores = useQuery({ queryKey: ['stores'], queryFn: () => api.get('/stores').then((r) => r.data) });
   const [openId, setOpenId] = useState<string | null>(null);
+
+  const [showNew, setShowNew] = useState(false);
+  const [form, setForm] = useState({ email: '', fullName: '', password: '', roleId: '', storeId: '' });
+  const create = useMutation({
+    mutationFn: () => api.post('/users', {
+      email: form.email, fullName: form.fullName, password: form.password,
+      roleId: form.roleId, storeId: form.storeId || null,
+    }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setShowNew(false);
+      setForm({ email: '', fullName: '', password: '', roleId: '', storeId: '' });
+    },
+    onError: (e: any) => alert(e.response?.data?.message ?? 'Could not create user'),
+  });
+
+  const roleNeedsStore = (roleCode?: string) => roleCode === 'STORE_MANAGER';
+  const selectedRoleCode = roles.data?.find((r: any) => r.id === form.roleId)?.code;
 
   return (
     <>
-      <PageHeader title="Users & Access" subtitle="Manage who can use the system and what each user can see" />
+      <PageHeader
+        title="Users & Access"
+        subtitle="Manage who can use the system and what each user can see"
+        actions={<button className="btn-primary" onClick={() => setShowNew(!showNew)}>
+          {showNew ? <><X size={14}/>Cancel</> : <><Plus size={14}/>New user</>}
+        </button>}
+      />
+
+      {showNew && (
+        <div className="card mb-4 p-4">
+          <h3 className="mb-3 text-sm font-semibold text-ink-50">Create user</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Full name</label>
+              <input className="field" value={form.fullName}
+                     onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+                     placeholder="Jane Doe" /></div>
+            <div><label className="label">Email</label>
+              <input type="email" className="field" value={form.email}
+                     onChange={(e) => setForm({ ...form, email: e.target.value })}
+                     placeholder="jane.doe@fashionfusion.local" /></div>
+            <div><label className="label">Initial password (≥ 8 chars)</label>
+              <input type="text" className="field font-mono" value={form.password}
+                     onChange={(e) => setForm({ ...form, password: e.target.value })}
+                     placeholder="TempPassword123" />
+              <p className="mt-1 text-[11px] text-ink-400">User should change on first login.</p></div>
+            <div><label className="label">Role</label>
+              <select className="field" value={form.roleId}
+                      onChange={(e) => setForm({ ...form, roleId: e.target.value, storeId: '' })}>
+                <option value="">Pick a role…</option>
+                {roles.data?.map((r: any) => (
+                  <option key={r.id} value={r.id}>{r.code.replaceAll('_',' ')}</option>
+                ))}
+              </select></div>
+            {roleNeedsStore(selectedRoleCode) && (
+              <div className="col-span-2"><label className="label">Assigned store (required for Store Manager)</label>
+                <select className="field" value={form.storeId}
+                        onChange={(e) => setForm({ ...form, storeId: e.target.value })}>
+                  <option value="">Pick a store…</option>
+                  {stores.data?.map((s: any) => (
+                    <option key={s.id} value={s.id}>{s.code} – {s.name}</option>
+                  ))}
+                </select></div>
+            )}
+          </div>
+          <button className="btn-primary mt-4"
+                  disabled={!form.email || !form.fullName || form.password.length < 8 || !form.roleId ||
+                            (roleNeedsStore(selectedRoleCode) && !form.storeId) || create.isPending}
+                  onClick={() => create.mutate()}>
+            {create.isPending ? 'Creating…' : 'Create user'}
+          </button>
+        </div>
+      )}
+
       <div className="space-y-3">
         {users.data?.map((u: any) => (
           <UserCard
@@ -56,6 +128,17 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
       qc.invalidateQueries({ queryKey: ['users'] });
       qc.invalidateQueries({ queryKey: ['user', user.id, 'detail'] });
     },
+  });
+
+  const toggleActive = useMutation({
+    mutationFn: () => api.patch(`/users/${user.id}/active`, { isActive: !user.isActive }).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+
+  const resetPassword = useMutation({
+    mutationFn: (password: string) => api.post(`/users/${user.id}/reset-password`, { password }).then((r) => r.data),
+    onSuccess: () => alert('Password reset. Give the user the new password and ask them to change it on next login.'),
+    onError: (e: any) => alert(e.response?.data?.message ?? 'Reset failed'),
   });
 
   const setOverride = useMutation({
@@ -103,6 +186,7 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
           {user.permissionOverrides?.length > 0 && (
             <span className="pill-gold">{user.permissionOverrides.length} override(s)</span>
           )}
+          {!user.isActive && <span className="pill-red">Disabled</span>}
         </div>
       </button>
 
@@ -112,15 +196,30 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
             <div className="text-sm text-ink-200">Loading…</div>
           ) : (
             <>
-              <div className="mb-4 flex items-end gap-3">
-                <div className="flex-1">
+              <div className="mb-4 flex flex-wrap items-end gap-3">
+                <div className="flex-1 min-w-[220px]">
                   <label className="label">Role</label>
                   <select className="field max-w-xs" value={detail.data.role.id}
                           onChange={(e) => updateRole.mutate(e.target.value)}>
                     {roles.map((r: any) => <option key={r.id} value={r.id}>{r.code.replaceAll('_',' ')}</option>)}
                   </select>
                 </div>
-                <p className="text-xs text-ink-200">
+                <button className="btn-ghost"
+                        onClick={() => {
+                          const pw = prompt('New password (≥ 8 characters):');
+                          if (pw && pw.length >= 8) resetPassword.mutate(pw);
+                          else if (pw !== null) alert('Password must be at least 8 characters');
+                        }}>
+                  <KeyRound size={12}/>Reset password
+                </button>
+                <button className="btn-ghost"
+                        onClick={() => {
+                          if (confirm(user.isActive ? 'Disable this user? They will not be able to sign in.' : 'Re-enable this user?'))
+                            toggleActive.mutate();
+                        }}>
+                  <Power size={12}/>{user.isActive ? 'Disable user' : 'Enable user'}
+                </button>
+                <p className="w-full text-xs text-ink-300">
                   Changing role replaces the inherited permission set. Per-permission overrides still apply on top.
                 </p>
               </div>
