@@ -100,9 +100,12 @@ services:
       - mesh_files:/opt/meshcentral/meshcentral-files
       - mesh_backup:/opt/meshcentral/meshcentral-backups
     environment:
-      HOSTNAME: "${MESH_HOSTNAME:-itamls}"
-      ALLOW_NEW_ACCOUNTS: "0"
+      # Must match the IP or DNS the browser hits, otherwise WebSockets fail with
+      # "Invalid origin in HTTP request".
+      HOSTNAME:            "${MESH_HOSTNAME:-${IP_ADDRESS:-localhost}}"
+      ALLOW_NEW_ACCOUNTS:  "0"
       IFRAME:              "1"
+      ALLOWED_ORIGIN:      "*"
 
 volumes:
   postgres_data:
