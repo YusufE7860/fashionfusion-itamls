@@ -48,4 +48,22 @@ export class ToolsController {
     res.setHeader('Content-Disposition', 'inline; filename="Invoke-ITAMLSBackup.ps1"');
     fs.createReadStream(file).pipe(res);
   }
+
+  private resolveMeshScript() {
+    const candidates = [
+      path.resolve(process.cwd(), '..', '..', 'tools', 'Install-ITAMLSMeshAgent.ps1'),
+      path.resolve(process.cwd(), 'tools', 'Install-ITAMLSMeshAgent.ps1'),
+    ];
+    for (const c of candidates) if (fs.existsSync(c)) return c;
+    throw new NotFoundException('Mesh agent script not found on the API server.');
+  }
+
+  @Public()
+  @Get('mesh-agent.ps1')
+  serveMeshAgent(@Res() res: Response) {
+    const file = this.resolveMeshScript();
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="Install-ITAMLSMeshAgent.ps1"');
+    fs.createReadStream(file).pipe(res);
+  }
 }

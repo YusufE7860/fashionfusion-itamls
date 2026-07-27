@@ -6,7 +6,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { Pill } from '@/components/Pill';
 import { formatZAR } from '@itamls/shared';
 import { useAuth } from '@/store/auth';
-import { Wrench, Printer, QrCode, Trash2 } from 'lucide-react';
+import { Wrench, Printer, QrCode, Trash2, MonitorSmartphone } from 'lucide-react';
 
 export function AssetDetail() {
   const { id } = useParams();
@@ -75,6 +75,16 @@ export function AssetDetail() {
               <button className="btn-primary" onClick={() => setShowFault(!showFault)}><Wrench size={14}/>Log fault</button>}
             {hasPerm('assets:dispose') && a.status !== 'DISPOSED' &&
               <button className="btn-ghost text-rose-300" onClick={() => setShowDispose(!showDispose)}><Trash2 size={14}/>Decommission</button>}
+            {a.hostname && (
+              <button className="btn-primary"
+                onClick={async () => {
+                  const { data } = await api.get(`/remote/asset/${id}`);
+                  if (data.ready) window.open(data.url, '_blank', 'noopener,noreferrer');
+                  else alert(data.message ?? 'Remote connect not available for this asset.');
+                }}>
+                <MonitorSmartphone size={14}/>Remote Connect
+              </button>
+            )}
           </>
         }
       />

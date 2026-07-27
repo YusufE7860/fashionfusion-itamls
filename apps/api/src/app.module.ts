@@ -28,6 +28,7 @@ import { ActivityModule } from './activity/activity.module';
 import { SoftwareModule } from './software/software.module';
 import { UpdatesModule } from './updates/updates.module';
 import { BackupsModule } from './backups/backups.module';
+import { RemoteModule } from './remote/remote.module';
 import { JwtAuthGuard } from './common/guards/jwt.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
@@ -62,6 +63,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     SoftwareModule,
     UpdatesModule,
     BackupsModule,
+    RemoteModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
