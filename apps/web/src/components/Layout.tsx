@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Boxes, Store, Truck, ShieldCheck, LogOut, Wrench,
-  FileBarChart, Bell, Printer, ChevronDown, Package,
+  FileBarChart, Bell, Printer, ChevronDown, Package, MonitorSmartphone,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/store/auth';
@@ -17,6 +17,7 @@ type NavEntry    = SingleItem | GroupItem;
 const NAV: NavEntry[] = [
   { kind: 'single', id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, to: '/', end: true },
   { kind: 'single', id: 'alerts',    label: 'Alerts',    icon: Bell,            to: '/alerts' },
+  { kind: 'single', id: 'remote',    label: 'Remote Console', icon: MonitorSmartphone, to: '/remote' },
 
   { kind: 'group', id: 'inventory', label: 'Inventory', icon: Boxes, items: [
     { to: '/assets',       label: 'Assets' },

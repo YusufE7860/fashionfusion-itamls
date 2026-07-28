@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
@@ -10,6 +10,7 @@ import { Wrench, Printer, QrCode, Trash2, MonitorSmartphone } from 'lucide-react
 
 export function AssetDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const token = useAuth((s) => s.token);
   const hasPerm = useAuth((s) => s.hasPermission);
@@ -77,11 +78,7 @@ export function AssetDetail() {
               <button className="btn-ghost text-rose-300" onClick={() => setShowDispose(!showDispose)}><Trash2 size={14}/>Decommission</button>}
             {a.hostname && (
               <button className="btn-primary"
-                onClick={async () => {
-                  const { data } = await api.get(`/remote/asset/${id}`);
-                  if (data.ready) window.open(data.url, '_blank', 'noopener,noreferrer');
-                  else alert(data.message ?? 'Remote connect not available for this asset.');
-                }}>
+                onClick={() => navigate(`/remote?hostname=${encodeURIComponent(a.hostname)}`)}>
                 <MonitorSmartphone size={14}/>Remote Connect
               </button>
             )}
