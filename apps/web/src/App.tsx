@@ -35,6 +35,7 @@ import { Software } from './pages/Software';
 import { Updates } from './pages/Updates';
 import { StoreBackups } from './pages/StoreBackups';
 import { RemoteConsole } from './pages/RemoteConsole';
+import { Mikrotik } from './pages/Mikrotik';
 import { useAuth } from './store/auth';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -89,6 +90,7 @@ export function App() {
         <Route path="admin/updates" element={<Updates />} />
         <Route path="stores/:id/backups" element={<StoreBackups />} />
         <Route path="remote" element={<RemoteConsole />} />
+        <Route path="mikrotik" element={<Mikrotik />} />
       </Route>
     </Routes>
   );

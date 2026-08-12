@@ -50,6 +50,7 @@ const NAV: NavEntry[] = [
     { to: '/stores',        label: 'Stores' },
     { to: '/audits',        label: 'Audits' },
     { to: '/stores/wizard', label: 'New Store Wizard' },
+    { to: '/mikrotik',      label: 'MikroTik Configs' },
   ] },
 
   { kind: 'single', id: 'reports', label: 'Reports', icon: FileBarChart, to: '/reports' },

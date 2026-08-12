@@ -56,6 +56,10 @@ export const Permissions = {
   ReportsExport: 'reports:export',
   // Audit
   AuditLogRead: 'auditlog:read',
+  // MikroTik router-config generator
+  MikrotikRead: 'mikrotik:read',
+  MikrotikGenerate: 'mikrotik:generate',
+  MikrotikManage: 'mikrotik:manage',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

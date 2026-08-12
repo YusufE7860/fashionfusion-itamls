@@ -54,6 +54,10 @@ export const Permissions = {
   // Store backups
   BackupsManage: 'backups:manage',
   BackupsRead: 'backups:read',
+  // MikroTik router-config generator
+  MikrotikRead: 'mikrotik:read',
+  MikrotikGenerate: 'mikrotik:generate',
+  MikrotikManage: 'mikrotik:manage',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

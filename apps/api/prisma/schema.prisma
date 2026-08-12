@@ -735,3 +735,51 @@ model DiscoveryReport {
   reportedAt   DateTime @default(now())
   sourceIp     String?
 }
+
+// ---------- MikroTik store-router config generator ----------
+// One row per brand — tracks the last third-octet handed out so the next
+// store gets the next network. Each new network is a /23 on the brand's
+// /16 (10.168 for FF, 10.167 for EV, 10.166 for MB).
+model MikrotikNetworkPool {
+  brand          String   @id                 // FASHION_FUSION | EVOLVE | MY_BRANDS
+  displayName    String                        // "Fashion Fusion"
+  identityPrefix String                        // "FF" | "EV" | "MB"
+  ipPrefix       String                        // "10.168"
+  cidr           Int      @default(23)
+  lastThirdOctet Int                           // last third-octet allocated (0-255)
+  updatedAt      DateTime @updatedAt
+}
+
+// Full history of every generated router config, so we can re-download or audit.
+model MikrotikConfig {
+  id                String   @id @default(cuid())
+  brand             String                       // FASHION_FUSION | EVOLVE | MY_BRANDS
+  siteCode          String                       // "Empangeni", "WonderparkMall"
+  identity          String                       // "FF-Empangeni-GW"
+  storeId           String?                      // optional link to a Store
+  thirdOctet        Int                          // the octet we consumed
+  lanGateway        String                       // "10.168.117.1"
+  lanNetwork        String                       // "10.168.116.0"
+  cidr              Int      @default(23)
+  dhcpRangeStart    String
+  dhcpRangeEnd      String
+  wan1Type          String   @default("DHCP")    // DHCP | PPPOE
+  wan1Iface         String   @default("ether1-WAN1")
+  wan1PppoeUser     String?
+  wan1PppoePassword String?
+  wan2Type          String   @default("DHCP")
+  wan2Iface         String   @default("ether5-WAN2")
+  wan2PppoeUser     String?
+  wan2PppoePassword String?
+  ssid              String
+  wpaPsk            String
+  wgListenPort      Int
+  wgHubPublicKey    String
+  wgHubEndpoint     String
+  wgHubEndpointPort Int      @default(443)
+  wgTunnelIp        String                       // "172.31.254.x/32" — allocated by hub team
+  remoteWinboxBlock String                       // pasted by user; embedded verbatim
+  configText        String                       @db.Text
+  createdAt         DateTime @default(now())
+  createdById       String?
+}

@@ -23,6 +23,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.ReportsRead, Permissions.ReportsExport, Permissions.AuditLogRead,
     Permissions.TonerManage, Permissions.TonerOrderCreate, Permissions.TonerOrderDispatch, Permissions.TonerOrderReceive,
     Permissions.BackupsManage, Permissions.BackupsRead,
+    Permissions.MikrotikRead, Permissions.MikrotikGenerate, Permissions.MikrotikManage,
   ],
   [Roles.Technician]: [
     Permissions.CatalogRead,
@@ -36,6 +37,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.ReportsRead,
     Permissions.TonerOrderDispatch,
     Permissions.BackupsRead,
+    Permissions.MikrotikRead, Permissions.MikrotikGenerate,
   ],
   [Roles.StoreManager]: [
     Permissions.AssetsRead, Permissions.StockRead, Permissions.StoresRead,
@@ -275,6 +277,21 @@ async function main() {
     // A few in stock room
     await ensureAsset('FF-POS-SR-001', posSku, sr.id, undefined, 'IN_STOCK');
     await ensureAsset('FF-MON-SR-001', monSku, sr.id, undefined, 'IN_STOCK');
+  }
+
+  // MikroTik network pools — one row per brand, seeded with the last
+  // third-octet you've already handed out. Next store gets +1.
+  const pools = [
+    { brand: 'FASHION_FUSION', displayName: 'Fashion Fusion', identityPrefix: 'FF', ipPrefix: '10.168', lastThirdOctet: 116 },
+    { brand: 'EVOLVE',         displayName: 'Evolve',         identityPrefix: 'EV', ipPrefix: '10.167', lastThirdOctet: 11  },
+    { brand: 'MY_BRANDS',      displayName: 'My Brands',      identityPrefix: 'MB', ipPrefix: '10.166', lastThirdOctet: 2   },
+  ];
+  for (const p of pools) {
+    await prisma.mikrotikNetworkPool.upsert({
+      where: { brand: p.brand },
+      update: { displayName: p.displayName, identityPrefix: p.identityPrefix, ipPrefix: p.ipPrefix },
+      create: { ...p, cidr: 23 },
+    });
   }
 
   console.log('Seed complete.');
