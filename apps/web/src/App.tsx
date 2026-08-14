@@ -92,7 +92,8 @@ export function App() {
         <Route path="stores/:id/backups" element={<StoreBackups />} />
         <Route path="remote" element={<RemoteConsole />} />
         <Route path="mikrotik" element={<Mikrotik />} />
-        <Route path="admin/agents" element={<AgentEnrollment />} />
+        <Route path="admin/agents"  element={<AgentEnrollment />} />
+        <Route path="stores/agents" element={<AgentEnrollment />} />
       </Route>
     </Routes>
   );

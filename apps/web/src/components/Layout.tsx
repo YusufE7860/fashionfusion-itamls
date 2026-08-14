@@ -47,17 +47,17 @@ const NAV: NavEntry[] = [
   ] },
 
   { kind: 'group', id: 'stores', label: 'Stores', icon: Store, items: [
-    { to: '/stores',        label: 'Stores' },
-    { to: '/audits',        label: 'Audits' },
-    { to: '/stores/wizard', label: 'New Store Wizard' },
-    { to: '/mikrotik',      label: 'MikroTik Configs' },
+    { to: '/stores',         label: 'Stores' },
+    { to: '/audits',         label: 'Audits' },
+    { to: '/stores/wizard',  label: 'New Store Wizard' },
+    { to: '/mikrotik',       label: 'MikroTik Configs' },
+    { to: '/stores/agents',  label: 'PC Agent Enrollment' },
   ] },
 
   { kind: 'single', id: 'reports', label: 'Reports', icon: FileBarChart, to: '/reports' },
 
   { kind: 'group', id: 'admin', label: 'Admin', icon: ShieldCheck, items: [
     { to: '/admin/users',     label: 'Users & Access' },
-    { to: '/admin/agents',    label: 'PC Agent Enrollment' },
     { to: '/admin/templates', label: 'Store Templates' },
     { to: '/admin/skus',      label: 'SKUs & Pricing' },
     { to: '/admin/activity',  label: 'Activity Log' },

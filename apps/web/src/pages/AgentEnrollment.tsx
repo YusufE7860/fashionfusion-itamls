@@ -4,7 +4,7 @@ import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
 import {
-  Copy, Download, KeyRound, MonitorSmartphone, PlusCircle, RefreshCw, Trash2, Terminal,
+  AlertTriangle, Copy, Download, KeyRound, MonitorSmartphone, PlusCircle, RefreshCw, Trash2, Terminal,
 } from 'lucide-react';
 
 type Store = { id: string; code: string; name: string };
@@ -85,9 +85,30 @@ export function AgentEnrollment() {
         }
       />
 
-      {/* ---------- Issue token ---------- */}
-      {canManage && (
-        <section className="card mb-4 p-4">
+      {/* ---------- Permission warning (stale JWT / seed not run) ---------- */}
+      {!canManage && (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <div>
+            <div className="font-semibold">You can view but not issue tokens.</div>
+            <div className="mt-1 text-xs">
+              This usually means one of two things:
+              <ol className="mt-1 list-inside list-decimal space-y-0.5">
+                <li>
+                  The <code>agents:manage</code> permission wasn't seeded yet on this server. Ask an admin to
+                  re-run the seed: <code className="rounded bg-amber-100 px-1">docker compose exec api sh -c "cd /app/apps/api && node_modules/.bin/ts-node prisma/seed.ts"</code>
+                </li>
+                <li>
+                  Your login token was issued before the permission existed — <b>sign out and back in</b> to refresh it.
+                </li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- Issue token (always visible; API enforces permission) ---------- */}
+      <section className="card mb-4 p-4">
           <div className="mb-3 flex items-center gap-2">
             <KeyRound size={16} className="text-brand-600" />
             <h2 className="text-sm font-semibold text-slate-700">Issue a new enrollment token</h2>
@@ -119,6 +140,13 @@ export function AgentEnrollment() {
               </button>
             </div>
           </div>
+          {issue.isError && (
+            <div className="mt-2 text-xs text-rose-600">
+              {(issue.error as any)?.response?.status === 403
+                ? 'Permission denied — see banner above.'
+                : ((issue.error as any)?.response?.data?.message ?? 'Failed to issue token')}
+            </div>
+          )}
 
           {lastIssued && (
             <div className="mt-4 rounded-lg border border-brand-200 bg-brand-50 p-3">
@@ -154,7 +182,6 @@ export function AgentEnrollment() {
             </div>
           )}
         </section>
-      )}
 
       {/* ---------- Active tokens ---------- */}
       <section className="card mb-4 p-4">
