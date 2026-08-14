@@ -57,6 +57,7 @@ const NAV: NavEntry[] = [
 
   { kind: 'group', id: 'admin', label: 'Admin', icon: ShieldCheck, items: [
     { to: '/admin/users',     label: 'Users & Access' },
+    { to: '/admin/agents',    label: 'PC Agent Enrollment' },
     { to: '/admin/templates', label: 'Store Templates' },
     { to: '/admin/skus',      label: 'SKUs & Pricing' },
     { to: '/admin/activity',  label: 'Activity Log' },

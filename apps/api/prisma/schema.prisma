@@ -554,15 +554,25 @@ model SoftwareAssignment {
 // ---------- Store backups ----------
 // One PC per store (till or back-office). Auto-created by the agent's first check-in.
 model StorePc {
-  id           String   @id @default(cuid())
-  storeId      String
-  name         String                     // e.g. "POS1", "POS2", "BackOffice"
-  role         String   @default("TILL")  // TILL | BACKOFFICE
-  backupPaths  String   @default("[]")    // JSON array of paths on the PC
-  isActive     Boolean  @default(true)
-  lastBackupAt DateTime?
-  lastSeenAt   DateTime?
-  createdAt    DateTime @default(now())
+  id                String   @id @default(cuid())
+  storeId           String
+  name              String                     // e.g. "POS1", "POS2", "BackOffice"
+  role              String   @default("TILL")  // TILL | BACKOFFICE
+  backupPaths       String   @default("[]")    // JSON array of paths on the PC
+  isActive          Boolean  @default(true)
+  lastBackupAt      DateTime?
+  lastSeenAt        DateTime?
+  createdAt         DateTime @default(now())
+  // Agent enrollment metadata (populated by the PC installer)
+  agentInstalledAt  DateTime?
+  agentVersion      String?
+  osVersion         String?
+  osBuild           String?
+  cpuModel          String?
+  ramGb             Int?
+  ipAddress         String?
+  lastInventoryAt   DateTime?
+  apiKeyId          String?                    // back-reference to per-PC ApiKey
 
   store Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   runs  BackupRun[]
@@ -713,11 +723,47 @@ model ApiKey {
   label       String    // human-readable, e.g. "Kaseya VSA discovery"
   keyHash     String    @unique // sha256 of the raw key
   prefix      String    // first 8 chars of the raw key, for UI display
-  scope       String    @default("DISCOVERY") // DISCOVERY | FULL
+  scope       String    @default("DISCOVERY") // DISCOVERY | BACKUP | AGENT | FULL
+  storeId     String?                          // if set, key is bound to this store
+  pcId        String?                          // if set, key is bound to a single PC (per-agent)
   createdAt   DateTime  @default(now())
   lastUsedAt  DateTime?
   revokedAt   DateTime?
   createdById String?
+}
+
+// ---------- Store PC agent enrollment ----------
+// A store-scoped one-shot (or few-shot) code an admin generates and pastes into
+// the installer. The installer redeems it once to get a per-PC agent key and
+// register the PC under the correct store.
+model EnrollmentToken {
+  id            String    @id @default(cuid())
+  token         String    @unique                 // opaque; short, human-friendly (12 chars)
+  storeId       String
+  usesRemaining Int       @default(5)
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  createdById   String?
+  revokedAt     DateTime?
+  lastUsedAt    DateTime?
+
+  @@index([storeId])
+}
+
+// Raw software inventory pushed by the PC agent. Full-replace snapshot per PC
+// on each successful report -- old rows for that pcId are deleted first.
+model PcSoftwareEntry {
+  id          String    @id @default(cuid())
+  pcId        String
+  name        String
+  version     String?
+  publisher   String?
+  installDate DateTime?
+  source      String    @default("REGISTRY")     // REGISTRY | APPX
+  reportedAt  DateTime  @default(now())
+
+  @@index([pcId])
+  @@index([pcId, name])
 }
 
 model DiscoveryReport {

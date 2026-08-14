@@ -66,4 +66,64 @@ export class ToolsController {
     res.setHeader('Content-Disposition', 'inline; filename="Install-ITAMLSMeshAgent.ps1"');
     fs.createReadStream(file).pipe(res);
   }
+
+  // ---------- PC agent installer + companions ----------
+  private resolveToolFile(name: string) {
+    const candidates = [
+      path.resolve(process.cwd(), '..', '..', 'tools', name),
+      path.resolve(process.cwd(), 'tools', name),
+    ];
+    for (const c of candidates) if (fs.existsSync(c)) return c;
+    throw new NotFoundException(`${name} not found on the API server.`);
+  }
+
+  /** Bootstrap loader — piped through `iwr ... | iex` on the PC. */
+  @Public()
+  @Get('install-pc.ps1')
+  serveInstallPc(@Res() res: Response) {
+    const file = this.resolveToolFile('install-pc.ps1');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="install-pc.ps1"');
+    fs.createReadStream(file).pipe(res);
+  }
+
+  /** The real installer (defines Install-ITAMLSAgent function). */
+  @Public()
+  @Get('install-itamlsagent.ps1')
+  serveAgentInstaller(@Res() res: Response) {
+    const file = this.resolveToolFile('Install-ITAMLSAgent.ps1');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="Install-ITAMLSAgent.ps1"');
+    fs.createReadStream(file).pipe(res);
+  }
+
+  /** Software inventory collector — installed by the installer, run daily. */
+  @Public()
+  @Get('invoke-itamlsinventory.ps1')
+  serveInventoryScript(@Res() res: Response) {
+    const file = this.resolveToolFile('Invoke-ITAMLSInventory.ps1');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="Invoke-ITAMLSInventory.ps1"');
+    fs.createReadStream(file).pipe(res);
+  }
+
+  /** Alias so the daily-backup task's downloader hits the same casing. */
+  @Public()
+  @Get('invoke-itamlsbackup.ps1')
+  serveBackupAlias(@Res() res: Response) {
+    const file = this.resolveToolFile('Invoke-ITAMLSBackup.ps1');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="Invoke-ITAMLSBackup.ps1"');
+    fs.createReadStream(file).pipe(res);
+  }
+
+  /** Double-click .cmd wrapper for non-technical store staff. */
+  @Public()
+  @Get('install-itamlsagent.cmd')
+  serveCmdWrapper(@Res() res: Response) {
+    const file = this.resolveToolFile('Install-ITAMLSAgent.cmd');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="Install-ITAMLSAgent.cmd"');
+    fs.createReadStream(file).pipe(res);
+  }
 }

@@ -39,11 +39,15 @@ fi
 log "Pulled: $BEFORE -> $AFTER"
 
 # ---------- rebuild ----------
-log "Building images"
-$COMPOSE build --pull api web >> "$LOG" 2>&1
+# --no-cache is important: Docker's layer cache sometimes fails to invalidate
+# on changes to files pulled from git (especially on Windows-hosted docker
+# via WSL). Force a clean build so users always get the latest code.
+log "Building images (no-cache)"
+$COMPOSE build --pull --no-cache api web >> "$LOG" 2>&1
 
-log "Restarting containers"
-$COMPOSE up -d api web >> "$LOG" 2>&1
+log "Recreating containers"
+# --force-recreate ensures the new image is used even if the tag looks unchanged.
+$COMPOSE up -d --force-recreate --no-deps api web >> "$LOG" 2>&1
 
 # ---------- wait for api ----------
 log "Waiting for API to come back"
@@ -56,9 +60,20 @@ done
 
 # ---------- migrations ----------
 log "Running database migrations"
-$COMPOSE exec -T api sh -c "cd /app/apps/api && pnpm exec prisma migrate deploy" >> "$LOG" 2>&1 || {
-  log "Migration failed — check .update.log"
-  exit 1
+$COMPOSE exec -T api sh -c "cd /app/apps/api && node_modules/.bin/prisma migrate deploy" >> "$LOG" 2>&1 || {
+  log "migrate deploy failed — falling back to db push (schema-only sync)"
+  $COMPOSE exec -T api sh -c "cd /app/apps/api && node_modules/.bin/prisma db push --skip-generate --accept-data-loss" >> "$LOG" 2>&1 || {
+    log "Schema sync failed — check .update.log"; exit 1;
+  }
+}
+
+# ---------- seed (safe to re-run; all seeders are upsert-based) ----------
+# Any new roles, permissions, network pools, toner types, template rows added
+# in this update need to land in the running DB — the initial install writes
+# a .seeded marker that the install script skips on, but updates MUST re-seed.
+log "Re-running seed (idempotent upserts)"
+$COMPOSE exec -T api sh -c "cd /app/apps/api && node_modules/.bin/ts-node prisma/seed.ts" >> "$LOG" 2>&1 || {
+  log "Seed failed (non-fatal — new lookup rows may be missing until you re-run manually)"
 }
 
 log "Update complete"

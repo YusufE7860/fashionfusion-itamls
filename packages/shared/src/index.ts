@@ -60,6 +60,10 @@ export const Permissions = {
   MikrotikRead: 'mikrotik:read',
   MikrotikGenerate: 'mikrotik:generate',
   MikrotikManage: 'mikrotik:manage',
+  // PC agents
+  AgentsRead: 'agents:read',
+  AgentsEnroll: 'agents:enroll',
+  AgentsManage: 'agents:manage',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 
