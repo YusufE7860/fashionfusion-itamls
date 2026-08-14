@@ -7,7 +7,7 @@
 # Runs OUTSIDE the ITAMLS docker network so it survives when api / web are
 # recreated during the update.
 #
-set -eu
+set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/repo}"
 COMPOSE="docker compose --env-file .env.prod -f docker-compose.prod.yml"
@@ -15,6 +15,19 @@ LOG="/repo/.update.log"
 
 log() {
   echo "[$(date -u +%FT%TZ)] $*" | tee -a "$LOG"
+}
+
+# Run a command, tee its output to the log, and preserve its real exit code
+# (piping through tee normally masks the error). Without this, any docker
+# error was silently swallowed and the updater would report "success" while
+# nothing actually got recreated.
+run() {
+  log "$ $*"
+  set +e
+  ( "$@" ) 2>&1 | tee -a "$LOG"
+  local rc=${PIPESTATUS[0]}
+  set -e
+  return $rc
 }
 
 cd "$REPO_DIR"
@@ -43,37 +56,72 @@ log "Pulled: $BEFORE -> $AFTER"
 # on changes to files pulled from git (especially on Windows-hosted docker
 # via WSL). Force a clean build so users always get the latest code.
 log "Building images (no-cache)"
-$COMPOSE build --pull --no-cache api web >> "$LOG" 2>&1
+if ! run $COMPOSE build --pull --no-cache api web; then
+  log "BUILD FAILED — aborting update"; exit 1
+fi
+
+# --- explicitly stop + remove the named containers first ---
+# With container_name: set in the compose file (which ours does), docker
+# compose sometimes fails to remove the old container during --force-recreate
+# and dies with "container name /itamls_api is already in use". Doing an
+# explicit rm -sf up front avoids the race entirely.
+log "Stopping + removing existing api/web containers"
+run $COMPOSE stop api web || true
+run $COMPOSE rm -f api web || true
+# Belt-and-braces: kill any orphan by literal name (survives a broken compose state)
+for name in itamls_api itamls_web; do
+  if docker ps -a --format '{{.Names}}' | grep -qx "$name"; then
+    log "  removing orphan container $name"
+    docker rm -f "$name" >> "$LOG" 2>&1 || true
+  fi
+done
 
 log "Recreating containers"
-# --force-recreate ensures the new image is used even if the tag looks unchanged.
-$COMPOSE up -d --force-recreate --no-deps api web >> "$LOG" 2>&1
+if ! run $COMPOSE up -d --force-recreate --no-deps api web; then
+  log "UP FAILED — aborting update"; exit 1
+fi
 
-# ---------- wait for api ----------
-log "Waiting for API to come back"
+# --- verify the api container is actually running ---
+log "Verifying api container is running"
+sleep 3
+if ! docker ps --format '{{.Names}}' | grep -qx 'itamls_api'; then
+  log "itamls_api container did NOT start — inspect: docker logs itamls_api"
+  docker logs --tail 100 itamls_api >> "$LOG" 2>&1 || true
+  exit 1
+fi
+
+# ---------- wait for api to answer ----------
+log "Waiting for API to answer HTTP"
+API_READY=0
 for i in $(seq 1 60); do
-  if $COMPOSE exec -T api node -e 'require("http").get("http://127.0.0.1:4000/api/v1/auth/me", r => process.exit(r.statusCode < 500 ? 0 : 1))' 2>/dev/null; then
-    break
+  if $COMPOSE exec -T api node -e 'require("http").get("http://127.0.0.1:4000/api/v1/auth/me", r => process.exit(r.statusCode < 500 ? 0 : 1))' >/dev/null 2>&1; then
+    API_READY=1; break
   fi
   sleep 2
 done
+if [ "$API_READY" -ne 1 ]; then
+  log "API never came up healthy — last 100 log lines:"
+  docker logs --tail 100 itamls_api >> "$LOG" 2>&1 || true
+  exit 1
+fi
+log "API is up"
 
 # ---------- migrations ----------
 log "Running database migrations"
-$COMPOSE exec -T api sh -c "cd /app/apps/api && node_modules/.bin/prisma migrate deploy" >> "$LOG" 2>&1 || {
+if ! run $COMPOSE exec -T api sh -c "cd /app/apps/api && node_modules/.bin/prisma migrate deploy"; then
   log "migrate deploy failed — falling back to db push (schema-only sync)"
-  $COMPOSE exec -T api sh -c "cd /app/apps/api && node_modules/.bin/prisma db push --skip-generate --accept-data-loss" >> "$LOG" 2>&1 || {
-    log "Schema sync failed — check .update.log"; exit 1;
-  }
-}
+  if ! run $COMPOSE exec -T api sh -c "cd /app/apps/api && node_modules/.bin/prisma db push --skip-generate --accept-data-loss"; then
+    log "Schema sync failed — check .update.log"; exit 1
+  fi
+fi
 
 # ---------- seed (safe to re-run; all seeders are upsert-based) ----------
 # Any new roles, permissions, network pools, toner types, template rows added
 # in this update need to land in the running DB — the initial install writes
 # a .seeded marker that the install script skips on, but updates MUST re-seed.
 log "Re-running seed (idempotent upserts)"
-$COMPOSE exec -T api sh -c "cd /app/apps/api && node_modules/.bin/ts-node prisma/seed.ts" >> "$LOG" 2>&1 || {
-  log "Seed failed (non-fatal — new lookup rows may be missing until you re-run manually)"
-}
+if ! run $COMPOSE exec -T api sh -c "cd /app/apps/api && node_modules/.bin/ts-node prisma/seed.ts"; then
+  log "SEED FAILED — new lookup rows / permissions may be missing (non-fatal but users may need to re-login once resolved)"
+fi
 
 log "Update complete"
