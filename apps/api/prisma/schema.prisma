@@ -216,6 +216,7 @@ model Asset {
   locationId        String?
   assignedUserId    String?
   assignedStoreId   String?
+  assignedDepartmentId String?    // for HQ assets: which department owns it
   installedAt       DateTime?
 
   // Auto-discovery (Kaseya VSA agent)
@@ -235,10 +236,28 @@ model Asset {
   location    Location? @relation("CurrentLocation", fields: [locationId], references: [id])
   assignedUser  User?   @relation("AssignedUser", fields: [assignedUserId], references: [id])
   assignedStore Store?  @relation("AssignedStore", fields: [assignedStoreId], references: [id])
+  assignedDepartment Department? @relation(fields: [assignedDepartmentId], references: [id])
 
   history  AssetHistory[]
   repairs  Repair[]
   ibtLines IbtLine[]
+}
+
+// ---------- HQ departments ----------
+// For head-office assets, this is the "who owns it" dimension in place of a
+// store. Editable from the admin UI so new departments can be added without
+// a schema change (or the fixed defaults renamed for a merger etc).
+model Department {
+  id          String   @id @default(cuid())
+  code        String   @unique              // short slug: HR, ACC, OPS, IT, MERCH, DIR, WH, MAINT, PLANT
+  name        String                          // display name
+  description String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assets Asset[]
 }
 
 model AssetHistory {
@@ -748,6 +767,67 @@ model EnrollmentToken {
   lastUsedAt    DateTime?
 
   @@index([storeId])
+}
+
+// ---------- Nedbank Verifone PIN pads ----------
+// Auto-detected via USB VID_11CA on each till's inventory push. One row per
+// physical device (unique by serial). We keep last-known assignment
+// (store + till) plus a full movement log so we can prove a device was at a
+// given store between dates if Nedbank ever asks.
+model PinPad {
+  id                    String    @id @default(cuid())
+  serialNo              String    @unique         // from USB descriptor
+  model                 String?                    // VX520, P400, V200c, etc — parsed from USB PID or a lookup
+  manufacturer          String    @default("Verifone")
+  productId             String?                    // e.g. "0x0207"
+  usbDeviceId           String?                    // full Windows PnP DeviceID for forensics
+
+  currentPcId           String?                    // last-known till PC
+  currentStoreId        String?                    // last-known store
+  currentPcName         String?                    // denormalized for reports even if PC record is deleted
+  currentStoreCode      String?                    // denormalized for CSV export
+
+  status                String    @default("DETECTED") // DETECTED | ASSIGNED | RETURNED | MISSING | UNKNOWN
+  firstDetectedAt       DateTime  @default(now())
+  lastDetectedAt        DateTime  @default(now())
+  markedMissingAt       DateTime?
+
+  receivedFromNedbankAt DateTime?
+  receivedRef           String?                    // Nedbank delivery note / invoice
+  returnedToNedbankAt   DateTime?
+  returnRef             String?                    // Nedbank return reference
+
+  notes                 String?
+
+  events                PinPadEvent[]
+
+  @@index([currentStoreId])
+  @@index([currentPcId])
+  @@index([status])
+}
+
+// Every change in location (new PC, new store, disappearance, return) writes
+// one row. Enough to reconstruct the full history for auditing / Nedbank
+// disputes.
+model PinPadEvent {
+  id          String   @id @default(cuid())
+  pinPadId    String
+  eventType   String                                // DETECTED | MOVED_PC | MOVED_STORE | MARKED_MISSING | RETURNED | ASSIGNED | NOTES
+  occurredAt  DateTime @default(now())
+  fromPcId    String?
+  fromStoreId String?
+  toPcId      String?
+  toStoreId   String?
+  fromPcName    String?
+  fromStoreCode String?
+  toPcName      String?
+  toStoreCode   String?
+  actorUserId String?                                // user who made the change (null for agent-triggered)
+  notes       String?
+
+  pinPad PinPad @relation(fields: [pinPadId], references: [id], onDelete: Cascade)
+
+  @@index([pinPadId, occurredAt])
 }
 
 // Raw software inventory pushed by the PC agent. Full-replace snapshot per PC

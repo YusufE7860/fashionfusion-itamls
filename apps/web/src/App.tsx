@@ -37,6 +37,9 @@ import { StoreBackups } from './pages/StoreBackups';
 import { RemoteConsole } from './pages/RemoteConsole';
 import { Mikrotik } from './pages/Mikrotik';
 import { AgentEnrollment } from './pages/AgentEnrollment';
+import { PinPads } from './pages/PinPads';
+import { HqAssets } from './pages/HqAssets';
+import { Departments } from './pages/Departments';
 import { useAuth } from './store/auth';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -94,6 +97,9 @@ export function App() {
         <Route path="mikrotik" element={<Mikrotik />} />
         <Route path="admin/agents"  element={<AgentEnrollment />} />
         <Route path="stores/agents" element={<AgentEnrollment />} />
+        <Route path="stores/pinpads" element={<PinPads />} />
+        <Route path="hq"             element={<HqAssets />} />
+        <Route path="admin/departments" element={<Departments />} />
       </Route>
     </Routes>
   );

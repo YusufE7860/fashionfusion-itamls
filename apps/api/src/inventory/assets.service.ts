@@ -13,6 +13,8 @@ export class CreateAssetDto {
   @IsOptional() @IsString() warrantyExpiry?: string;
   @IsOptional() @IsString() condition?: string;
   @IsOptional() @IsString() locationId?: string;
+  @IsOptional() @IsString() assignedStoreId?: string;
+  @IsOptional() @IsString() assignedDepartmentId?: string;
 }
 
 export class MoveAssetDto {
@@ -25,6 +27,9 @@ export interface ListAssetsQuery {
   status?: AssetStatusT;
   locationId?: string;
   categoryId?: string;
+  assignedStoreId?: string;
+  assignedDepartmentId?: string;
+  hqOnly?: string;   // "true" -> only assets whose location.type = HEAD_OFFICE
   q?: string;
 }
 
@@ -37,6 +42,11 @@ export class AssetsService {
     if (q.status) where.status = q.status;
     if (q.locationId) where.locationId = q.locationId;
     if (q.categoryId) where.sku = { categoryId: q.categoryId };
+    if (q.assignedStoreId) where.assignedStoreId = q.assignedStoreId;
+    if (q.assignedDepartmentId) where.assignedDepartmentId = q.assignedDepartmentId;
+    if (q.hqOnly === 'true') {
+      where.location = { type: 'HEAD_OFFICE' };
+    }
     if (q.q) {
       where.OR = [
         { assetTag: { contains: q.q, mode: 'insensitive' } },
@@ -53,9 +63,10 @@ export class AssetsService {
         location: true,
         assignedStore: true,
         assignedUser: true,
+        assignedDepartment: true,
       },
       orderBy: { assetTag: 'asc' },
-      take: 200,
+      take: 500,
     });
   }
 
@@ -101,7 +112,9 @@ export class AssetsService {
         warrantyExpiry: dto.warrantyExpiry ? new Date(dto.warrantyExpiry) : undefined,
         condition: dto.condition,
         locationId: dto.locationId,
-        status: AssetStatus.InStock,
+        assignedStoreId: dto.assignedStoreId,
+        assignedDepartmentId: dto.assignedDepartmentId,
+        status: dto.assignedStoreId || dto.assignedDepartmentId ? AssetStatus.InStore : AssetStatus.InStock,
       },
     });
     await this.prisma.assetHistory.create({
@@ -113,6 +126,26 @@ export class AssetsService {
       },
     });
     return a;
+  }
+
+  async assignToDepartment(id: string, departmentId: string | null, actorId: string) {
+    const a = await this.prisma.asset.findUnique({ where: { id } });
+    if (!a) throw new NotFoundException();
+    const updated = await this.prisma.asset.update({
+      where: { id },
+      data: {
+        assignedDepartmentId: departmentId,
+        // Assigning to a department implies leaving stock and being in service
+        status: departmentId ? AssetStatus.InStore : a.status,
+      },
+    });
+    await this.prisma.assetHistory.create({
+      data: {
+        assetId: id, eventType: departmentId ? 'ASSIGNED' : 'UNASSIGNED', actorId,
+        notes: departmentId ? `Assigned to department ${departmentId}` : 'Unassigned from department',
+      },
+    });
+    return updated;
   }
 
   async move(id: string, dto: MoveAssetDto, actorId: string) {

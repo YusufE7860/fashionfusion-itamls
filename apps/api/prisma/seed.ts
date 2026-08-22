@@ -25,6 +25,8 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.BackupsManage, Permissions.BackupsRead,
     Permissions.MikrotikRead, Permissions.MikrotikGenerate, Permissions.MikrotikManage,
     Permissions.AgentsRead, Permissions.AgentsEnroll, Permissions.AgentsManage,
+    Permissions.PinPadsRead, Permissions.PinPadsWrite,
+    Permissions.DepartmentsRead, Permissions.DepartmentsManage,
   ],
   [Roles.Technician]: [
     Permissions.CatalogRead,
@@ -40,6 +42,8 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.BackupsRead,
     Permissions.MikrotikRead, Permissions.MikrotikGenerate,
     Permissions.AgentsRead, Permissions.AgentsEnroll,
+    Permissions.PinPadsRead, Permissions.PinPadsWrite,
+    Permissions.DepartmentsRead,
   ],
   [Roles.StoreManager]: [
     Permissions.AssetsRead, Permissions.StockRead, Permissions.StoresRead,
@@ -279,6 +283,27 @@ async function main() {
     // A few in stock room
     await ensureAsset('FF-POS-SR-001', posSku, sr.id, undefined, 'IN_STOCK');
     await ensureAsset('FF-MON-SR-001', monSku, sr.id, undefined, 'IN_STOCK');
+  }
+
+  // HQ Departments — default set for Head Office asset assignment. Fully
+  // editable from the admin UI (rename, disable, or add new ones).
+  const departments = [
+    { code: 'HR',    name: 'HR',            sortOrder: 10 },
+    { code: 'ACC',   name: 'Accounts',      sortOrder: 20 },
+    { code: 'OPS',   name: 'Operations',    sortOrder: 30 },
+    { code: 'IT',    name: 'IT',            sortOrder: 40 },
+    { code: 'MERCH', name: 'Merchandising', sortOrder: 50 },
+    { code: 'DIR',   name: 'Directors',     sortOrder: 60 },
+    { code: 'WH',    name: 'Warehouse',     sortOrder: 70 },
+    { code: 'MAINT', name: 'Maintenance',   sortOrder: 80 },
+    { code: 'PLANT', name: 'Plant',         sortOrder: 90 },
+  ];
+  for (const d of departments) {
+    await prisma.department.upsert({
+      where: { code: d.code },
+      update: { sortOrder: d.sortOrder },
+      create: d,
+    });
   }
 
   // MikroTik network pools — one row per brand, seeded with the last

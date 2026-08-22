@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Boxes, Store, Truck, ShieldCheck, LogOut, Wrench,
-  FileBarChart, Bell, Printer, ChevronDown, Package, MonitorSmartphone,
+  FileBarChart, Bell, Printer, ChevronDown, Package, MonitorSmartphone, Building2,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/store/auth';
@@ -18,6 +18,7 @@ const NAV: NavEntry[] = [
   { kind: 'single', id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, to: '/', end: true },
   { kind: 'single', id: 'alerts',    label: 'Alerts',    icon: Bell,            to: '/alerts' },
   { kind: 'single', id: 'remote',    label: 'Remote Console', icon: MonitorSmartphone, to: '/remote' },
+  { kind: 'single', id: 'hq',        label: 'HQ Assets',      icon: Building2,         to: '/hq' },
 
   { kind: 'group', id: 'inventory', label: 'Inventory', icon: Boxes, items: [
     { to: '/assets',       label: 'Assets' },
@@ -52,13 +53,15 @@ const NAV: NavEntry[] = [
     { to: '/stores/wizard',  label: 'New Store Wizard' },
     { to: '/mikrotik',       label: 'MikroTik Configs' },
     { to: '/stores/agents',  label: 'PC Agent Enrollment' },
+    { to: '/stores/pinpads', label: 'PIN Pads (Nedbank)' },
   ] },
 
   { kind: 'single', id: 'reports', label: 'Reports', icon: FileBarChart, to: '/reports' },
 
   { kind: 'group', id: 'admin', label: 'Admin', icon: ShieldCheck, items: [
-    { to: '/admin/users',     label: 'Users & Access' },
-    { to: '/admin/templates', label: 'Store Templates' },
+    { to: '/admin/users',       label: 'Users & Access' },
+    { to: '/admin/departments', label: 'HQ Departments' },
+    { to: '/admin/templates',   label: 'Store Templates' },
     { to: '/admin/skus',      label: 'SKUs & Pricing' },
     { to: '/admin/activity',  label: 'Activity Log' },
     { to: '/admin/updates',   label: 'Updates' },

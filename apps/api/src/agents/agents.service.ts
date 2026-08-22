@@ -4,6 +4,7 @@ import {
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiKeysService } from '../discovery/api-keys.service';
+import { PinPadsService, AgentPinPadDto } from '../pinpads/pinpads.service';
 
 /**
  * PC-agent lifecycle:
@@ -43,11 +44,16 @@ export interface InventoryDto {
     name: string; version?: string; publisher?: string;
     installDate?: string; source?: string;
   }>;
+  pinPads?: AgentPinPadDto[];
 }
 
 @Injectable()
 export class AgentsService {
-  constructor(private prisma: PrismaService, private apiKeys: ApiKeysService) {}
+  constructor(
+    private prisma: PrismaService,
+    private apiKeys: ApiKeysService,
+    private pinPads: PinPadsService,
+  ) {}
 
   // ---------- Enrollment tokens ----------
   async issueToken(dto: IssueTokenDto, createdById?: string) {
@@ -196,7 +202,23 @@ export class AgentsService {
         },
       }),
     ]);
-    return { ok: true, ingested: entries.length };
+
+    // ---- PIN pads (Verifone/Nedbank) ----
+    let padsIngested = 0;
+    if (dto.pinPads?.length) {
+      const pc = await this.prisma.storePc.findUnique({
+        where: { id: pcId },
+        include: { store: { select: { id: true, code: true } } },
+      });
+      if (pc && pc.store) {
+        const res = await this.pinPads.ingestFromAgent(
+          pc.id, pc.store.id, pc.store.code, pc.name, dto.pinPads,
+        );
+        padsIngested = res.ingested;
+      }
+    }
+
+    return { ok: true, ingested: entries.length, pinPadsIngested: padsIngested };
   }
 
   // ---------- Reporting ----------

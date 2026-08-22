@@ -73,6 +73,68 @@ $entries = $entries |
     Where-Object { $_.name -and $_.name.Length -lt 300 } |
     Sort-Object -Property name, version -Unique
 
+# --- Verifone PIN pad detection (Nedbank inventory) ---
+# Verifone's USB VID is 11CA (hex). Every PIN pad plugged into this till
+# shows up under HKLM\SYSTEM\CurrentControlSet\Enum\USB\VID_11CA_PID_XXXX\<SERIAL>.
+# Some deployments use VeriFone's 4B04 VID on newer devices too — include both.
+# Fallback: also match Manufacturer strings for Ingenico-branded units in case
+# any store received a mixed-brand replacement, so nothing gets missed.
+$pinPads = @()
+$verifoneVids = @('VID_11CA', 'VID_4B04')
+
+try {
+    # Method 1: registry walk — most reliable, gives us the actual USB serial
+    foreach ($vid in $verifoneVids) {
+        $vidPath = "HKLM:\SYSTEM\CurrentControlSet\Enum\USB\$vid*"
+        Get-ChildItem $vidPath -ErrorAction SilentlyContinue | ForEach-Object {
+            $pidKey = $_
+            $pidValue = ($pidKey.PSChildName -split '_')[-1]   # "PID_0207" -> "0207"
+            Get-ChildItem $pidKey.PSPath -ErrorAction SilentlyContinue | ForEach-Object {
+                $serialKey = $_
+                $serial = $serialKey.PSChildName
+                # Skip Windows-generated serials (start with & means "no serial from device")
+                if ($serial -match '^&') { return }
+                $props = Get-ItemProperty $serialKey.PSPath -ErrorAction SilentlyContinue
+                $friendly = if ($props.FriendlyName) { $props.FriendlyName } elseif ($props.DeviceDesc) { ($props.DeviceDesc -split ';')[-1] } else { $null }
+                $mfg = if ($props.Mfg) { ($props.Mfg -split ';')[-1] } else { $null }
+                $pinPads += [pscustomobject]@{
+                    serialNo     = $serial
+                    model        = $friendly
+                    manufacturer = if ($mfg -and $mfg -notmatch '^Generic') { $mfg } else { 'Verifone' }
+                    productId    = "0x$pidValue"
+                    usbDeviceId  = "USB\$($vid)_PID_$pidValue\$serial"
+                }
+            }
+        }
+    }
+} catch { Log "Registry PIN pad scan failed: $($_.Exception.Message)" 'WARN' }
+
+# Method 2: WMI Win32_PnPEntity — catches devices that expose Verifone in
+# Manufacturer but aren't under VID_11CA (some newer USB-CDC composite units)
+try {
+    Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
+        Where-Object { $_.Manufacturer -match 'Verifone|VeriFone' -or $_.Name -match 'VeriFone|Verifone' } |
+        ForEach-Object {
+            # Try to extract serial from DeviceID (last segment)
+            $devId = $_.DeviceID
+            if ($devId -match 'USB\\.*\\(.+)$') {
+                $serial = $matches[1]
+                if ($serial -notmatch '^&' -and -not ($pinPads | Where-Object { $_.serialNo -eq $serial })) {
+                    $pinPads += [pscustomobject]@{
+                        serialNo     = $serial
+                        model        = $_.Name
+                        manufacturer = $_.Manufacturer
+                        productId    = $null
+                        usbDeviceId  = $devId
+                    }
+                }
+            }
+        }
+} catch {}
+
+$pinPads = @($pinPads | Where-Object { $_.serialNo -and $_.serialNo.Length -gt 3 } | Sort-Object serialNo -Unique)
+if ($pinPads.Count -gt 0) { Log ("Detected {0} Verifone PIN pad(s): {1}" -f $pinPads.Count, (($pinPads.serialNo) -join ', ')) }
+
 # --- host metadata ---
 $os  = Get-CimInstance Win32_OperatingSystem
 $cs  = Get-CimInstance Win32_ComputerSystem
@@ -89,6 +151,7 @@ $payload = @{
     ramGb        = if ($cs.TotalPhysicalMemory) { [int]([math]::Round($cs.TotalPhysicalMemory / 1GB)) } else { $null }
     ipAddress    = $ip
     entries      = @($entries)
+    pinPads      = @($pinPads)
 } | ConvertTo-Json -Depth 5 -Compress
 
 # --- POST ---

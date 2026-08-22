@@ -31,4 +31,10 @@ export class AssetsController {
   move(@Param('id') id: string, @Body() dto: MoveAssetDto, @CurrentUser('sub') uid: string) {
     return this.svc.move(id, dto, uid);
   }
+
+  @Post(':id/assign-department')
+  @RequirePermissions(Permissions.AssetsMove)
+  assignDept(@Param('id') id: string, @Body() dto: { departmentId: string | null }, @CurrentUser('sub') uid: string) {
+    return this.svc.assignToDepartment(id, dto.departmentId, uid);
+  }
 }

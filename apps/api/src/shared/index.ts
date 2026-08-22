@@ -62,6 +62,12 @@ export const Permissions = {
   AgentsRead: 'agents:read',
   AgentsEnroll: 'agents:enroll',
   AgentsManage: 'agents:manage',
+  // Verifone PIN pads (Nedbank inventory)
+  PinPadsRead: 'pinpads:read',
+  PinPadsWrite: 'pinpads:write',
+  // HQ Departments
+  DepartmentsRead: 'departments:read',
+  DepartmentsManage: 'departments:manage',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

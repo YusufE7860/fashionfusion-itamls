@@ -31,6 +31,8 @@ import { BackupsModule } from './backups/backups.module';
 import { RemoteModule } from './remote/remote.module';
 import { MikrotikModule } from './mikrotik/mikrotik.module';
 import { AgentsModule } from './agents/agents.module';
+import { PinPadsModule } from './pinpads/pinpads.module';
+import { DepartmentsModule } from './departments/departments.module';
 import { JwtAuthGuard } from './common/guards/jwt.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
@@ -68,6 +70,8 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     RemoteModule,
     MikrotikModule,
     AgentsModule,
+    PinPadsModule,
+    DepartmentsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
