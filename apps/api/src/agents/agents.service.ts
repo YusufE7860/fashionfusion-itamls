@@ -18,14 +18,16 @@ import { PinPadsService, AgentPinPadDto } from '../pinpads/pinpads.service';
  */
 
 export interface IssueTokenDto {
-  storeId: string;
+  scope?: 'STORE' | 'HQ';
+  storeId?: string;         // required when scope=STORE
+  departmentId?: string;    // required when scope=HQ
   usesRemaining?: number;
   expiresInHours?: number;
 }
 export interface EnrollDto {
   token: string;
   pcName: string;
-  role?: 'TILL' | 'BACKOFFICE';
+  role?: 'TILL' | 'BACKOFFICE' | 'HQ';
   osVersion?: string;
   osBuild?: string;
   cpuModel?: string;
@@ -57,8 +59,24 @@ export class AgentsService {
 
   // ---------- Enrollment tokens ----------
   async issueToken(dto: IssueTokenDto, createdById?: string) {
-    const store = await this.prisma.store.findUnique({ where: { id: dto.storeId } });
-    if (!store) throw new NotFoundException('Unknown store');
+    const scope = dto.scope ?? 'STORE';
+    let scopeName = ''; let storeCode: string | null = null;
+    let storeId: string | null = null; let departmentId: string | null = null;
+
+    if (scope === 'STORE') {
+      if (!dto.storeId) throw new BadRequestException('storeId required for STORE-scoped tokens');
+      const store = await this.prisma.store.findUnique({ where: { id: dto.storeId } });
+      if (!store) throw new NotFoundException('Unknown store');
+      storeId = store.id; storeCode = store.code; scopeName = store.name;
+    } else if (scope === 'HQ') {
+      if (!dto.departmentId) throw new BadRequestException('departmentId required for HQ-scoped tokens');
+      const dept = await this.prisma.department.findUnique({ where: { id: dto.departmentId } });
+      if (!dept) throw new NotFoundException('Unknown department');
+      departmentId = dept.id; storeCode = `HQ-${dept.code}`; scopeName = `HQ / ${dept.name}`;
+    } else {
+      throw new BadRequestException(`Unknown scope ${scope}`);
+    }
+
     // 12-char no-lookalike alphabet -- easy to read + type
     const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
     const bytes = randomBytes(12);
@@ -69,19 +87,21 @@ export class AgentsService {
       : new Date(Date.now() + 24 * 3600 * 1000);
     const rec = await this.prisma.enrollmentToken.create({
       data: {
-        token, storeId: store.id,
+        token, scope, storeId, departmentId,
         usesRemaining: dto.usesRemaining ?? 5,
         expiresAt, createdById,
       },
     });
-    return { ...rec, storeCode: store.code, storeName: store.name };
+    return { ...rec, storeCode, storeName: scopeName };
   }
 
-  async listTokens(storeId?: string) {
+  async listTokens(filter: { storeId?: string; departmentId?: string; scope?: string } = {}) {
+    const where: any = {};
+    if (filter.storeId)      where.storeId = filter.storeId;
+    if (filter.departmentId) where.departmentId = filter.departmentId;
+    if (filter.scope)        where.scope = filter.scope;
     return this.prisma.enrollmentToken.findMany({
-      where: storeId ? { storeId } : undefined,
-      orderBy: { createdAt: 'desc' },
-      take: 200,
+      where, orderBy: { createdAt: 'desc' }, take: 200,
     });
   }
 
@@ -102,26 +122,48 @@ export class AgentsService {
     if (t.usesRemaining <= 0) throw new UnauthorizedException('Token exhausted');
     if (t.expiresAt && t.expiresAt < new Date()) throw new UnauthorizedException('Token expired');
 
-    const store = await this.prisma.store.findUnique({ where: { id: t.storeId } });
-    if (!store) throw new UnauthorizedException('Store not found');
+    // Resolve target based on scope
+    let storeCode = '';
+    let scopeName = '';
+    let storeId: string | null = null;
+    let departmentId: string | null = null;
+    let apiKeyLabel = '';
 
-    // Upsert the PC row keyed by (storeId, name)
-    const pc = await this.prisma.storePc.upsert({
-      where: { storeId_name: { storeId: store.id, name: dto.pcName } },
-      create: {
-        storeId: store.id, name: dto.pcName,
-        role: dto.role ?? 'TILL',
-        agentInstalledAt: new Date(),
-        agentVersion: dto.agentVersion, osVersion: dto.osVersion, osBuild: dto.osBuild,
-        cpuModel: dto.cpuModel, ramGb: dto.ramGb, ipAddress: dto.ipAddress,
-      },
-      update: {
-        agentInstalledAt: new Date(),
-        agentVersion: dto.agentVersion, osVersion: dto.osVersion, osBuild: dto.osBuild,
-        cpuModel: dto.cpuModel, ramGb: dto.ramGb, ipAddress: dto.ipAddress,
-        lastSeenAt: new Date(),
-      },
-    });
+    if (t.scope === 'HQ') {
+      if (!t.departmentId) throw new UnauthorizedException('Malformed HQ token');
+      const dept = await this.prisma.department.findUnique({ where: { id: t.departmentId } });
+      if (!dept) throw new UnauthorizedException('Department not found');
+      departmentId = dept.id; storeCode = `HQ-${dept.code}`; scopeName = `HQ / ${dept.name}`;
+      apiKeyLabel = `Agent: HQ-${dept.code}/${dto.pcName}`;
+    } else {
+      if (!t.storeId) throw new UnauthorizedException('Malformed store token');
+      const store = await this.prisma.store.findUnique({ where: { id: t.storeId } });
+      if (!store) throw new UnauthorizedException('Store not found');
+      storeId = store.id; storeCode = store.code; scopeName = store.name;
+      apiKeyLabel = `Agent: ${store.code}/${dto.pcName}`;
+    }
+
+    // Upsert the PC row — keyed by (storeId|departmentId, name)
+    const existing = storeId
+      ? await this.prisma.storePc.findFirst({ where: { storeId, name: dto.pcName } })
+      : await this.prisma.storePc.findFirst({ where: { departmentId, name: dto.pcName } });
+
+    const pcData = {
+      role: dto.role ?? (t.scope === 'HQ' ? 'HQ' : 'TILL'),
+      agentInstalledAt: new Date(),
+      agentVersion: dto.agentVersion, osVersion: dto.osVersion, osBuild: dto.osBuild,
+      cpuModel: dto.cpuModel, ramGb: dto.ramGb, ipAddress: dto.ipAddress,
+      lastSeenAt: new Date(),
+    };
+
+    const pc = existing
+      ? await this.prisma.storePc.update({ where: { id: existing.id }, data: pcData })
+      : await this.prisma.storePc.create({
+          data: {
+            ...pcData, name: dto.pcName,
+            scope: t.scope, storeId, departmentId,
+          },
+        });
 
     // Revoke previous key so re-enrollment always returns a fresh one.
     if (pc.apiKeyId) {
@@ -131,13 +173,11 @@ export class AgentsService {
       });
     }
     const minted = await this.apiKeys.create(
-      `Agent: ${store.code}/${pc.name}`,
-      'AGENT',
-      t.createdById ?? undefined,
+      apiKeyLabel, 'AGENT', t.createdById ?? undefined,
     );
     await this.prisma.apiKey.update({
       where: { id: minted.id },
-      data: { storeId: store.id, pcId: pc.id },
+      data: { storeId: storeId ?? undefined, pcId: pc.id },
     });
     await this.prisma.storePc.update({
       where: { id: pc.id }, data: { apiKeyId: minted.id },
@@ -150,9 +190,10 @@ export class AgentsService {
     return {
       pcId: pc.id,
       pcName: pc.name,
-      storeId: store.id,
-      storeCode: store.code,
-      storeName: store.name,
+      scope: t.scope,
+      storeId, departmentId,
+      storeCode,
+      storeName: scopeName,
       agentKey: minted.key,
       agentKeyPrefix: minted.prefix,
       endpoints: {
@@ -203,7 +244,7 @@ export class AgentsService {
       }),
     ]);
 
-    // ---- PIN pads (Verifone/Nedbank) ----
+    // ---- PIN pads (Verifone/Nedbank) — store-scope only, HQ PCs don't have PIN pads ----
     let padsIngested = 0;
     if (dto.pinPads?.length) {
       const pc = await this.prisma.storePc.findUnique({
@@ -222,15 +263,27 @@ export class AgentsService {
   }
 
   // ---------- Reporting ----------
-  listPcs(storeId?: string) {
-    return this.prisma.storePc.findMany({
-      where: storeId ? { storeId } : undefined,
+  async listPcs(filter: { storeId?: string; departmentId?: string; scope?: string } = {}) {
+    const where: any = {};
+    if (filter.storeId)      where.storeId = filter.storeId;
+    if (filter.departmentId) where.departmentId = filter.departmentId;
+    if (filter.scope)        where.scope = filter.scope;
+    const pcs = await this.prisma.storePc.findMany({
+      where,
       include: {
         store: { select: { id: true, code: true, name: true } },
         _count: { select: { runs: true } },
       },
-      orderBy: [{ store: { code: 'asc' } }, { name: 'asc' }],
+      orderBy: [{ scope: 'asc' }, { name: 'asc' }],
     });
+    // Attach department info for HQ PCs (Prisma relation is optional and we
+    // don't have a StorePc.department relation, so hydrate manually).
+    const deptIds = [...new Set(pcs.map((p) => p.departmentId).filter(Boolean) as string[])];
+    const depts = deptIds.length
+      ? await this.prisma.department.findMany({ where: { id: { in: deptIds } }, select: { id: true, code: true, name: true } })
+      : [];
+    const byId = new Map(depts.map((d) => [d.id, d]));
+    return pcs.map((p) => ({ ...p, department: p.departmentId ? byId.get(p.departmentId) : null }));
   }
 
   pcSoftware(pcId: string) {

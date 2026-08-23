@@ -17,8 +17,10 @@ type NavEntry    = SingleItem | GroupItem;
 const NAV: NavEntry[] = [
   { kind: 'single', id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, to: '/', end: true },
   { kind: 'single', id: 'alerts',    label: 'Alerts',    icon: Bell,            to: '/alerts' },
-  { kind: 'single', id: 'remote',    label: 'Remote Console', icon: MonitorSmartphone, to: '/remote' },
-  { kind: 'single', id: 'hq',        label: 'HQ Assets',      icon: Building2,         to: '/hq' },
+  { kind: 'group', id: 'hq', label: 'Head Office', icon: Building2, items: [
+    { to: '/hq',        label: 'HQ Assets' },
+    { to: '/hq/agents', label: 'HQ Agent Enrollment' },
+  ] },
 
   { kind: 'group', id: 'inventory', label: 'Inventory', icon: Boxes, items: [
     { to: '/assets',       label: 'Assets' },

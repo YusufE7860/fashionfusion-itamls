@@ -34,7 +34,6 @@ import { ActivityLog } from './pages/ActivityLog';
 import { Software } from './pages/Software';
 import { Updates } from './pages/Updates';
 import { StoreBackups } from './pages/StoreBackups';
-import { RemoteConsole } from './pages/RemoteConsole';
 import { Mikrotik } from './pages/Mikrotik';
 import { AgentEnrollment } from './pages/AgentEnrollment';
 import { PinPads } from './pages/PinPads';
@@ -93,10 +92,10 @@ export function App() {
         <Route path="software" element={<Software />} />
         <Route path="admin/updates" element={<Updates />} />
         <Route path="stores/:id/backups" element={<StoreBackups />} />
-        <Route path="remote" element={<RemoteConsole />} />
         <Route path="mikrotik" element={<Mikrotik />} />
         <Route path="admin/agents"  element={<AgentEnrollment />} />
         <Route path="stores/agents" element={<AgentEnrollment />} />
+        <Route path="hq/agents"     element={<AgentEnrollment />} />
         <Route path="stores/pinpads" element={<PinPads />} />
         <Route path="hq"             element={<HqAssets />} />
         <Route path="admin/departments" element={<Departments />} />

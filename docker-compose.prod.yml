@@ -89,28 +89,7 @@ services:
     ports:
       - "${WEB_PORT:-80}:80"
 
-  mesh:
-    image: ghcr.io/ylianst/meshcentral:latest
-    container_name: itamls_mesh
-    restart: unless-stopped
-    ports:
-      - "${MESH_HTTPS_PORT:-4430}:443"
-    volumes:
-      - mesh_data:/opt/meshcentral/meshcentral-data
-      - mesh_files:/opt/meshcentral/meshcentral-files
-      - mesh_backup:/opt/meshcentral/meshcentral-backups
-    environment:
-      # Must match the IP or DNS the browser hits, otherwise WebSockets fail with
-      # "Invalid origin in HTTP request".
-      HOSTNAME:            "${MESH_HOSTNAME:-${IP_ADDRESS:-localhost}}"
-      ALLOW_NEW_ACCOUNTS:  "0"
-      IFRAME:              "1"
-      ALLOWED_ORIGIN:      "*"
-
 volumes:
   postgres_data:
   minio_data:
   redis_data:
-  mesh_data:
-  mesh_files:
-  mesh_backup:

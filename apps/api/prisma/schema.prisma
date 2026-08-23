@@ -574,9 +574,11 @@ model SoftwareAssignment {
 // One PC per store (till or back-office). Auto-created by the agent's first check-in.
 model StorePc {
   id                String   @id @default(cuid())
-  storeId           String
-  name              String                     // e.g. "POS1", "POS2", "BackOffice"
-  role              String   @default("TILL")  // TILL | BACKOFFICE
+  storeId           String?                        // null for HQ-scoped PCs
+  departmentId      String?                        // set for HQ PCs
+  scope             String   @default("STORE")     // STORE | HQ
+  name              String                     // e.g. "POS1", "POS2", "BackOffice", "HR-Laptop-01"
+  role              String   @default("TILL")  // TILL | BACKOFFICE | HQ
   backupPaths       String   @default("[]")    // JSON array of paths on the PC
   isActive          Boolean  @default(true)
   lastBackupAt      DateTime?
@@ -593,11 +595,13 @@ model StorePc {
   lastInventoryAt   DateTime?
   apiKeyId          String?                    // back-reference to per-PC ApiKey
 
-  store Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store Store?      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   runs  BackupRun[]
 
   @@unique([storeId, name])
+  @@unique([departmentId, name])
   @@index([storeId])
+  @@index([departmentId])
 }
 
 // One config per store — created automatically when a store is created.
@@ -758,7 +762,9 @@ model ApiKey {
 model EnrollmentToken {
   id            String    @id @default(cuid())
   token         String    @unique                 // opaque; short, human-friendly (12 chars)
-  storeId       String
+  scope         String    @default("STORE")       // STORE | HQ
+  storeId       String?                            // set when scope=STORE
+  departmentId  String?                            // set when scope=HQ
   usesRemaining Int       @default(5)
   expiresAt     DateTime?
   createdAt     DateTime  @default(now())
@@ -767,6 +773,7 @@ model EnrollmentToken {
   lastUsedAt    DateTime?
 
   @@index([storeId])
+  @@index([departmentId])
 }
 
 // ---------- Nedbank Verifone PIN pads ----------

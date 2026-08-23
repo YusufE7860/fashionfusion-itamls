@@ -18,8 +18,8 @@ export class AgentsController {
 
   @Get('enrollment-tokens')
   @RequirePermissions(Permissions.AgentsRead)
-  listTokens(@Query('storeId') storeId?: string) {
-    return this.svc.listTokens(storeId);
+  listTokens(@Query() q: { storeId?: string; departmentId?: string; scope?: string }) {
+    return this.svc.listTokens(q);
   }
 
   @Delete('enrollment-tokens/:id')
@@ -29,7 +29,9 @@ export class AgentsController {
   // ---- Admin: enrolled PCs ----
   @Get('pcs')
   @RequirePermissions(Permissions.AgentsRead)
-  listPcs(@Query('storeId') storeId?: string) { return this.svc.listPcs(storeId); }
+  listPcs(@Query() q: { storeId?: string; departmentId?: string; scope?: string }) {
+    return this.svc.listPcs(q);
+  }
 
   @Get('pcs/:id/software')
   @RequirePermissions(Permissions.AgentsRead)
