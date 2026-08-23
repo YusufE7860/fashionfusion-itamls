@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { TwofaService } from './twofa.service';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { TwofaService } from './twofa.service';
       secret: process.env.JWT_SECRET ?? 'dev-secret-change-me',
       signOptions: { expiresIn: process.env.JWT_EXPIRES_IN ?? '1d' },
     }),
+    UsersModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, TwofaService],

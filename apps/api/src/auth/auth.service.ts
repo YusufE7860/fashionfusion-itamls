@@ -49,6 +49,7 @@ export class AuthService {
         id: user.id, email: user.email, fullName: user.fullName,
         role: user.role.code, storeId: user.storeId,
         permissions, totpEnabled: user.totpEnabled,
+        mustChangePassword: user.mustChangePassword,
       },
     };
   }
@@ -72,6 +73,7 @@ export class AuthService {
       id: user.id, email: user.email, fullName: user.fullName,
       role: user.role.code, storeId: user.storeId,
       permissions: [...permSet], totpEnabled: user.totpEnabled,
+      mustChangePassword: user.mustChangePassword,
     };
   }
 }

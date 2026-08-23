@@ -44,6 +44,9 @@ export class UsersService {
         roleId: dto.roleId,
         storeId: dto.storeId || null,
         isActive: dto.isActive ?? true,
+        // Force a password change on first login — admin's initial password
+        // is a temporary handoff, not the real credential.
+        mustChangePassword: true,
       },
       include: { role: true, store: true },
     });
@@ -58,7 +61,30 @@ export class UsersService {
       throw new BadRequestException('Password must be at least 8 characters');
     }
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    return this.prisma.user.update({ where: { id }, data: { passwordHash } });
+    // Admin-driven reset: same principle as create — user must change on next login.
+    return this.prisma.user.update({
+      where: { id }, data: { passwordHash, mustChangePassword: true },
+    });
+  }
+
+  /** Self-service password change (used to satisfy the mustChangePassword flag). */
+  async changeOwnPassword(userId: string, currentPassword: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('New password must be at least 8 characters');
+    }
+    const u = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!u || !u.passwordHash) throw new BadRequestException('User has no password set');
+    const ok = await bcrypt.compare(currentPassword ?? '', u.passwordHash);
+    if (!ok) throw new BadRequestException('Current password is incorrect');
+    if (await bcrypt.compare(newPassword, u.passwordHash)) {
+      throw new BadRequestException('New password must be different from current');
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, mustChangePassword: false },
+    });
+    return { ok: true };
   }
 
   async byId(id: string) {

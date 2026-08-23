@@ -53,18 +53,19 @@ model RolePermission {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  fullName     String
-  passwordHash String?
-  adSid        String?  @unique
-  roleId       String
-  storeId      String?
-  isActive     Boolean  @default(true)
-  totpSecret   String?
-  totpEnabled  Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  email               String   @unique
+  fullName            String
+  passwordHash        String?
+  adSid               String?  @unique
+  roleId              String
+  storeId             String?
+  isActive            Boolean  @default(true)
+  totpSecret          String?
+  totpEnabled         Boolean  @default(false)
+  mustChangePassword  Boolean  @default(false)   // forces the change-password modal on next login
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   role  Role   @relation(fields: [roleId], references: [id])
   store Store? @relation(fields: [storeId], references: [id])

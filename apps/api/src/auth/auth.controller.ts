@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post } from '@nestjs/common';
 import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { TwofaService } from './twofa.service';
+import { UsersService } from '../users/users.service';
 import { Public } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -13,10 +14,18 @@ class LoginDto {
 class VerifyTotpDto {
   @IsString() token!: string;
 }
+class ChangePasswordDto {
+  @IsString() currentPassword!: string;
+  @IsString() @MinLength(8) newPassword!: string;
+}
 
 @Controller('auth')
 export class AuthController {
-  constructor(private auth: AuthService, private twofa: TwofaService) {}
+  constructor(
+    private auth: AuthService,
+    private twofa: TwofaService,
+    private users: UsersService,
+  ) {}
 
   @Public()
   @Post('login')
@@ -42,5 +51,15 @@ export class AuthController {
   @Post('2fa/disable')
   disable(@CurrentUser('sub') sub: string) {
     return this.twofa.disable(sub);
+  }
+
+  /**
+   * Self-service password change — used to satisfy the mustChangePassword
+   * flag after an admin creates the user or resets their password. Also
+   * available for a user changing their own password proactively.
+   */
+  @Post('change-password')
+  changePassword(@CurrentUser('sub') sub: string, @Body() dto: ChangePasswordDto) {
+    return this.users.changeOwnPassword(sub, dto.currentPassword, dto.newPassword);
   }
 }

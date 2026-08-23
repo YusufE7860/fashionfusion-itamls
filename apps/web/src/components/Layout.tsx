@@ -9,6 +9,7 @@ import clsx from 'clsx';
 import { useAuth } from '@/store/auth';
 import { api } from '@/api/client';
 import { FusionMark } from './FusionMark';
+import { ForceChangePasswordModal } from './ForceChangePasswordModal';
 
 type SingleItem  = { kind: 'single'; id: string; label: string; icon: any; to: string; end?: boolean };
 type GroupItem   = { kind: 'group';  id: string; label: string; icon: any; items: { to: string; label: string; end?: boolean }[] };
@@ -99,6 +100,7 @@ export function Layout() {
 
   return (
     <div className="grid h-full grid-cols-[280px_1fr] bg-white">
+      <ForceChangePasswordModal />
       {/* ---------- Sidebar ---------- */}
       <aside className="relative flex flex-col border-r border-ink-500 bg-sidebar-gradient">
         {/* Brand */}
