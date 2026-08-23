@@ -79,7 +79,19 @@ export class BackupsAgentController {
     });
     if (!pc) throw new BadRequestException('Unknown pcId');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const key_ = `backups/${pc.store.code}/${pc.name}/${stamp}.zip`;
+    // Store PCs land under backups/<storeCode>/... ; HQ PCs land under
+    // backups/HQ-<dept>/... — dept row isn't included here so we prefix HQ
+    // and use pcId as the deterministic sub-path.
+    let scopePath: string;
+    if (pc.store) {
+      scopePath = pc.store.code;
+    } else if (pc.departmentId) {
+      const dept = await this.prisma.department.findUnique({ where: { id: pc.departmentId } });
+      scopePath = `HQ-${dept?.code ?? pc.departmentId}`;
+    } else {
+      scopePath = 'unassigned';
+    }
+    const key_ = `backups/${scopePath}/${pc.name}/${stamp}.zip`;
     const run = await this.prisma.backupRun.create({
       data: { pcId: pc.id, status: 'RUNNING', storagePath: key_, sourceIp: ip },
     });
