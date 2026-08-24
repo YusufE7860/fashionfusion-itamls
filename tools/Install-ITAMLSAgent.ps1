@@ -192,12 +192,6 @@ function Install-ITAMLSAgent {
     Write-Host '   ================================================================' -ForegroundColor Green
 }
 
-Set-Alias -Name Install-ITAMLSAgent -Value Install-ITAMLSAgent -Scope Global -ErrorAction SilentlyContinue
-
-# When dot-sourced via iex, don't auto-run — the user calls Install-ITAMLSAgent with their token.
-if ($MyInvocation.InvocationName -notin @('.', '&', 'iex')) {
-    # Only auto-run when invoked directly with parameters
-    if ($args.Count -gt 0 -or $PSBoundParameters.Count -gt 0) {
-        # No-op — the function definition is what matters
-    }
-}
+# Nothing to auto-run here -- the .cmd installer dot-sources this file, then
+# calls Install-ITAMLSAgent with the user's token + API. When someone dot-
+# sources it via `iwr | iex` from a PS prompt, they call the function themselves.

@@ -129,13 +129,22 @@ set "PSFILE=%TEMP%\itamls-install-%RANDOM%.ps1"
 >> "%PSFILE%" echo # Allow TLS 1.2 and skip cert validation (dev / on-prem self-signed)
 >> "%PSFILE%" echo [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 >> "%PSFILE%" echo [Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+>> "%PSFILE%" echo $agentPs1 = Join-Path $env:TEMP ('itamls-agent-installer-' + [guid]::NewGuid().ToString('N') + '.ps1')
 >> "%PSFILE%" echo try {
 >> "%PSFILE%" echo     Write-Host '   ^> Loading installer from server...' -ForegroundColor Cyan
 >> "%PSFILE%" echo     $env:ITAMLS_API = '%API%'
+>> "%PSFILE%" echo     # Save the installer to a real .ps1 file, then dot-source it -- that
+>> "%PSFILE%" echo     # brings Install-ITAMLSAgent into the current scope reliably (IEX
+>> "%PSFILE%" echo     # sometimes doesn't when called from inside another temp script).
 >> "%PSFILE%" echo     $installerScript = (Invoke-WebRequest -Uri '%API%/tools/install-itamlsagent.ps1' -UseBasicParsing -TimeoutSec 30).Content
+>> "%PSFILE%" echo     Set-Content -Path $agentPs1 -Value $installerScript -Encoding UTF8
 >> "%PSFILE%" echo     Write-Host '   ^> Executing installer...' -ForegroundColor Cyan
->> "%PSFILE%" echo     Invoke-Expression $installerScript
+>> "%PSFILE%" echo     . $agentPs1
+>> "%PSFILE%" echo     if (-not (Get-Command Install-ITAMLSAgent -ErrorAction SilentlyContinue)) {
+>> "%PSFILE%" echo         throw 'Install-ITAMLSAgent function was not defined -- the downloaded script may be corrupt. Check ' + $agentPs1
+>> "%PSFILE%" echo     }
 >> "%PSFILE%" echo     Install-ITAMLSAgent -Token '%TOKEN%' -Api '%API%'
+>> "%PSFILE%" echo     Remove-Item $agentPs1 -Force -ErrorAction SilentlyContinue
 >> "%PSFILE%" echo     exit 0
 >> "%PSFILE%" echo } catch {
 >> "%PSFILE%" echo     Write-Host ''
@@ -145,6 +154,7 @@ set "PSFILE=%TEMP%\itamls-install-%RANDOM%.ps1"
 >> "%PSFILE%" echo         Write-Host ('   ' + $_.InvocationInfo.PositionMessage) -ForegroundColor DarkGray
 >> "%PSFILE%" echo     }
 >> "%PSFILE%" echo     Write-Host '   ---------------------------' -ForegroundColor Red
+>> "%PSFILE%" echo     Remove-Item $agentPs1 -Force -ErrorAction SilentlyContinue
 >> "%PSFILE%" echo     exit 1
 >> "%PSFILE%" echo }
 
