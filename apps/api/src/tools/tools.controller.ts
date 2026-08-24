@@ -1,4 +1,4 @@
-import { Controller, Get, NotFoundException, Res } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -117,13 +117,39 @@ export class ToolsController {
     fs.createReadStream(file).pipe(res);
   }
 
-  /** Double-click .cmd wrapper for non-technical store staff. */
+  /**
+   * Double-click .cmd wrapper. When called with ?token=XXX (and optionally
+   * ?api=https://...) we bake those values into the file so the operator
+   * just double-clicks and it runs — no manual entry. Without any query
+   * params, we serve the plain template and the .cmd prompts.
+   *
+   * Placeholders in the source file: __EMBEDDED_API__, __EMBEDDED_TOKEN__.
+   */
   @Public()
   @Get('install-itamlsagent.cmd')
-  serveCmdWrapper(@Res() res: Response) {
+  serveCmdWrapper(
+    @Res() res: Response,
+    @Query('token') token?: string,
+    @Query('api')   api?: string,
+  ) {
     const file = this.resolveToolFile('Install-ITAMLSAgent.cmd');
+    let body = fs.readFileSync(file, 'utf-8');
+
+    // Only substitute values that (a) were provided and (b) look sane.
+    // Regex-anchored on the placeholder to avoid accidentally replacing
+    // strings that happen to match part of the value.
+    if (token && /^[A-Z0-9]{6,32}$/i.test(token)) {
+      body = body.replace(/__EMBEDDED_TOKEN__/g, token.toUpperCase());
+    }
+    if (api && /^https?:\/\/[\w.\-]+(:\d+)?(\/[\w.\-/]*)?$/i.test(api)) {
+      body = body.replace(/__EMBEDDED_API__/g, api.replace(/\/$/, ''));
+    }
+
+    // Include the token in the filename when embedded, so it's obvious
+    // which .cmd goes to which store when the admin has several open.
+    const suffix = token && /^[A-Z0-9]{6,32}$/i.test(token) ? `-${token.toUpperCase()}` : '';
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', 'attachment; filename="Install-ITAMLSAgent.cmd"');
-    fs.createReadStream(file).pipe(res);
+    res.setHeader('Content-Disposition', `attachment; filename="Install-ITAMLSAgent${suffix}.cmd"`);
+    res.send(body);
   }
 }

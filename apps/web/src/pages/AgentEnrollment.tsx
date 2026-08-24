@@ -70,13 +70,21 @@ export function AgentEnrollment() {
   }, [lastIssued, apiBase]);
 
   function copy(text: string) { navigator.clipboard.writeText(text); }
-  function downloadCmd() {
-    fetch(`${apiBase}/tools/install-itamlsagent.cmd`, { headers: { Authorization: `Bearer ${token}` } })
+  function downloadCmd(embedToken?: string) {
+    // Bake the token + API URL into the .cmd on the server so the operator
+    // just double-clicks it — no manual entry on the PC.
+    const params = new URLSearchParams();
+    if (embedToken) params.set('token', embedToken);
+    params.set('api', apiBase);
+    const suffix = embedToken ? `-${embedToken}` : '';
+    fetch(`${apiBase}/tools/install-itamlsagent.cmd?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((r) => r.blob())
       .then((b) => {
         const url = URL.createObjectURL(b);
         const a = document.createElement('a');
-        a.href = url; a.download = 'Install-ITAMLSAgent.cmd'; a.click();
+        a.href = url; a.download = `Install-ITAMLSAgent${suffix}.cmd`; a.click();
       });
   }
 
@@ -209,10 +217,10 @@ export function AgentEnrollment() {
             </div>
 
             <div className="mt-3 flex items-center gap-2 text-xs">
-              <button className="btn-ghost" onClick={downloadCmd}>
-                <Download size={12} />Download double-click installer (.cmd)
+              <button className="btn-primary" onClick={() => downloadCmd(lastIssued.token)}>
+                <Download size={12} />Download one-click installer (.cmd)
               </button>
-              <span className="text-ink-300">— for non-technical staff, prompts for token + API URL</span>
+              <span className="text-ink-300">— token + API URL pre-baked, just double-click on the PC</span>
             </div>
           </div>
         )}
@@ -254,8 +262,14 @@ export function AgentEnrollment() {
                     <td className="py-2 text-xs">{t.expiresAt ? new Date(t.expiresAt).toLocaleString() : '—'}</td>
                     <td className="py-2 text-xs">{t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : '—'}</td>
                     <td className="py-2 text-right">
+                      {!dead && (
+                        <button className="btn-ghost" title="Download one-click installer with this token embedded"
+                          onClick={() => downloadCmd(t.token)}>
+                          <Download size={12} />.cmd
+                        </button>
+                      )}
                       {canManage && !dead && (
-                        <button className="btn-ghost text-rose-500" onClick={() => revoke.mutate(t.id)}>
+                        <button className="btn-ghost text-rose-500 ml-1" onClick={() => revoke.mutate(t.id)}>
                           <Trash2 size={12} />Revoke
                         </button>
                       )}

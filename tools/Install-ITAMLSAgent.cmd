@@ -62,33 +62,54 @@ echo.
 echo   ============================================================
 echo.
 
-REM --- Prefill API URL from a sibling file if the admin dropped one here ---
-set "DEFAULT_API="
-if exist "%~dp0api-url.txt" (
-    set /p DEFAULT_API=<"%~dp0api-url.txt"
-)
+REM --- Embedded values (replaced server-side when this .cmd is downloaded
+REM     from the ITAMLS "Download .cmd" button for a specific enrollment
+REM     token). If these placeholders are still present, we fall back to
+REM     prompting the user. ---
+set "API=__EMBEDDED_API__"
+set "TOKEN=__EMBEDDED_TOKEN__"
 
-if not "%DEFAULT_API%"=="" (
-    set /p "API=   API URL [%DEFAULT_API%]: "
-    if "!API!"=="" set "API=%DEFAULT_API%"
-) else (
-    echo   Enter the ITAMLS API URL, e.g. https://itamls.fashionfusion.local/api/v1
+REM --- API URL: prompt if not embedded ---
+if "%API%"=="__EMBEDDED_API__" (
+    echo   Enter the ITAMLS API URL. Examples:
+    echo      http://10.168.0.55/api/v1
+    echo      https://itamls.fashionfusion.local/api/v1
     set /p "API=   API URL: "
 )
 
 if "%API%"=="" (
     echo.
-    echo   ERROR: No API URL entered. Cannot continue.
+    echo   ERROR: No API URL provided. Cannot continue.
     goto :end
 )
 
-echo.
-echo   Enter the 12-character enrollment token you generated in ITAMLS.
-set /p "TOKEN=   Token: "
+REM Auto-prepend http:// if the user gave just an IP or hostname
+echo !API! | findstr /i /r "^http[s]*://" >nul
+if errorlevel 1 (
+    set "API=http://!API!"
+    echo   Note: added http:// prefix -^> !API!
+)
+
+REM Auto-append /api/v1 if the user forgot it
+echo !API! | findstr /i /l /c:"api/v" >nul
+if errorlevel 1 (
+    set "API=!API!/api/v1"
+    echo   Note: added /api/v1 path -^> !API!
+)
+
+REM --- Token: prompt if not embedded ---
+if "%TOKEN%"=="__EMBEDDED_TOKEN__" (
+    echo.
+    echo   Enter the 12-character enrollment token you generated in ITAMLS.
+    set /p "TOKEN=   Token: "
+) else (
+    echo.
+    echo   Using embedded enrollment token: !TOKEN!
+)
 
 if "%TOKEN%"=="" (
     echo.
-    echo   ERROR: No token entered. Cannot continue.
+    echo   ERROR: No token provided. Cannot continue.
     goto :end
 )
 
@@ -101,10 +122,13 @@ echo    PC:    %COMPUTERNAME%
 echo   ------------------------------------------------------------
 echo.
 
-REM --- Write the PowerShell installer to a temp file to sidestep
-REM     cmd's quoting hell for multi-line PS code. ---
+REM --- Write the PowerShell installer to a temp file. Using plain PS
+REM     syntax (not cmd-escaped) because the file is read directly by PS. ---
 set "PSFILE=%TEMP%\itamls-install-%RANDOM%.ps1"
 > "%PSFILE%" echo $ErrorActionPreference = 'Continue'
+>> "%PSFILE%" echo # Allow TLS 1.2 and skip cert validation (dev / on-prem self-signed)
+>> "%PSFILE%" echo [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+>> "%PSFILE%" echo [Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 >> "%PSFILE%" echo try {
 >> "%PSFILE%" echo     Write-Host '   ^> Loading installer from server...' -ForegroundColor Cyan
 >> "%PSFILE%" echo     $env:ITAMLS_API = '%API%'
@@ -117,7 +141,9 @@ set "PSFILE=%TEMP%\itamls-install-%RANDOM%.ps1"
 >> "%PSFILE%" echo     Write-Host ''
 >> "%PSFILE%" echo     Write-Host '   ---------- ERROR ----------' -ForegroundColor Red
 >> "%PSFILE%" echo     Write-Host ('   ' + $_.Exception.Message) -ForegroundColor Red
->> "%PSFILE%" echo     if ($_.ScriptStackTrace) { Write-Host ('   ' + ($_.ScriptStackTrace -replace \"`n\",\"`n   \")) -ForegroundColor DarkGray }
+>> "%PSFILE%" echo     if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
+>> "%PSFILE%" echo         Write-Host ('   ' + $_.InvocationInfo.PositionMessage) -ForegroundColor DarkGray
+>> "%PSFILE%" echo     }
 >> "%PSFILE%" echo     Write-Host '   ---------------------------' -ForegroundColor Red
 >> "%PSFILE%" echo     exit 1
 >> "%PSFILE%" echo }
