@@ -291,4 +291,37 @@ export class AgentsService {
       where: { pcId }, orderBy: { name: 'asc' }, take: 2000,
     });
   }
+
+  // ---------- Per-PC backup config ----------
+  async getPc(pcId: string) {
+    const pc = await this.prisma.storePc.findUnique({
+      where: { id: pcId },
+      include: { store: { select: { id: true, code: true, name: true } } },
+    });
+    if (!pc) throw new NotFoundException();
+    let paths: string[] = [];
+    try { const p = JSON.parse(pc.backupPaths); paths = Array.isArray(p) ? p : []; } catch {}
+    const dept = pc.departmentId
+      ? await this.prisma.department.findUnique({ where: { id: pc.departmentId }, select: { id: true, code: true, name: true } })
+      : null;
+    return { ...pc, backupPathsList: paths, department: dept };
+  }
+
+  async updatePcBackupPaths(pcId: string, paths: string[]) {
+    const pc = await this.prisma.storePc.findUnique({ where: { id: pcId } });
+    if (!pc) throw new NotFoundException();
+    const clean = (paths ?? [])
+      .map((p) => (typeof p === 'string' ? p.trim() : ''))
+      .filter((p) => p.length > 0 && p.length < 500);
+    return this.prisma.storePc.update({
+      where: { id: pcId },
+      data: { backupPaths: JSON.stringify(clean) },
+    });
+  }
+
+  async setPcActive(pcId: string, isActive: boolean) {
+    const pc = await this.prisma.storePc.findUnique({ where: { id: pcId } });
+    if (!pc) throw new NotFoundException();
+    return this.prisma.storePc.update({ where: { id: pcId }, data: { isActive } });
+  }
 }

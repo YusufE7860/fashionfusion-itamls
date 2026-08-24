@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, Get, Headers, Ip, Param, Post, Query, Req,
+  Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Query, Req,
 } from '@nestjs/common';
 import { AgentsService, EnrollDto, InventoryDto, IssueTokenDto } from './agents.service';
 import { RequirePermissions, Public } from '../common/decorators/permissions.decorator';
@@ -36,6 +36,22 @@ export class AgentsController {
   @Get('pcs/:id/software')
   @RequirePermissions(Permissions.AgentsRead)
   pcSoftware(@Param('id') id: string) { return this.svc.pcSoftware(id); }
+
+  @Get('pcs/:id')
+  @RequirePermissions(Permissions.AgentsRead)
+  getPc(@Param('id') id: string) { return this.svc.getPc(id); }
+
+  @Patch('pcs/:id/backup-paths')
+  @RequirePermissions(Permissions.AgentsManage)
+  updatePcBackupPaths(@Param('id') id: string, @Body() dto: { paths: string[] }) {
+    return this.svc.updatePcBackupPaths(id, dto.paths ?? []);
+  }
+
+  @Patch('pcs/:id/active')
+  @RequirePermissions(Permissions.AgentsManage)
+  setPcActive(@Param('id') id: string, @Body() dto: { isActive: boolean }) {
+    return this.svc.setPcActive(id, !!dto.isActive);
+  }
 
   // ---- Public: called by the installer/agent ----
   @Public()

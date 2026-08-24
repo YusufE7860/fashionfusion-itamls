@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
 import {
   AlertTriangle, Copy, Download, KeyRound, MonitorSmartphone, PlusCircle, RefreshCw, Trash2, Terminal, Store, Building2,
+  FolderOpen, Save, X, Power,
 } from 'lucide-react';
 
 type StoreT = { id: string; code: string; name: string };
@@ -23,8 +24,21 @@ type Pc = {
   agentVersion?: string; osVersion?: string; ipAddress?: string;
   lastSeenAt?: string; lastInventoryAt?: string; lastBackupAt?: string;
   agentInstalledAt?: string;
+  backupPaths?: string;
+  backupPathsList?: string[];
+  isActive?: boolean;
   _count?: { runs: number };
 };
+
+// Common backup path presets so the operator doesn't have to type from scratch
+const PATH_PRESETS: { label: string; path: string; note?: string }[] = [
+  { label: 'Desktop',         path: 'C:\\Users\\%USERNAME%\\Desktop' },
+  { label: 'Documents',       path: 'C:\\Users\\%USERNAME%\\Documents' },
+  { label: 'Downloads',       path: 'C:\\Users\\%USERNAME%\\Downloads' },
+  { label: 'POS data folder', path: 'C:\\POS\\Data', note: 'Adjust to your POS software' },
+  { label: 'IIS wwwroot',     path: 'C:\\inetpub\\wwwroot' },
+  { label: 'SQL backups',     path: 'C:\\Program Files\\Microsoft SQL Server\\MSSQL\\Backup' },
+];
 
 type Mode = 'STORE' | 'HQ';
 
@@ -92,6 +106,39 @@ export function AgentEnrollment() {
     queryKey: ['pc-software', selectedPc],
     queryFn: () => api.get<any[]>(`/agents/pcs/${selectedPc}/software`).then((r) => r.data),
     enabled: !!selectedPc,
+  });
+
+  // --- Backup config modal state ---
+  const [backupPc, setBackupPc] = useState<Pc | null>(null);
+  const [backupPaths, setBackupPaths] = useState<string[]>([]);
+  const [newPath, setNewPath] = useState('');
+
+  const pcDetails = useQuery({
+    queryKey: ['pc', backupPc?.id],
+    queryFn: () => api.get<Pc>(`/agents/pcs/${backupPc!.id}`).then((r) => r.data),
+    enabled: !!backupPc,
+  });
+
+  // When PC details load, hydrate the editable list
+  useEffect(() => {
+    if (pcDetails.data?.backupPathsList) {
+      setBackupPaths(pcDetails.data.backupPathsList);
+    }
+  }, [pcDetails.data]);
+
+  const saveBackupPaths = useMutation({
+    mutationFn: () => api.patch(`/agents/pcs/${backupPc!.id}/backup-paths`, { paths: backupPaths }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent-pcs'] });
+      qc.invalidateQueries({ queryKey: ['pc', backupPc?.id] });
+      setBackupPc(null);
+    },
+  });
+
+  const togglePcActive = useMutation({
+    mutationFn: ({ pcId, isActive }: { pcId: string; isActive: boolean }) =>
+      api.patch(`/agents/pcs/${pcId}/active`, { isActive }).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent-pcs'] }),
   });
 
   const canIssue = mode === 'STORE' ? !!storeId : !!departmentId;
@@ -333,9 +380,22 @@ export function AgentEnrollment() {
                   <td className="py-2 text-xs">{pc.lastInventoryAt ? new Date(pc.lastInventoryAt).toLocaleString() : '—'}</td>
                   <td className="py-2 text-xs">{pc.lastBackupAt ? new Date(pc.lastBackupAt).toLocaleString() : '—'}</td>
                   <td className="py-2 text-right">
-                    <button className="btn-ghost" onClick={() => setSelectedPc(pc.id === selectedPc ? null : pc.id)}>
-                      {pc.id === selectedPc ? 'Hide' : 'View'}
-                    </button>
+                    <div className="flex justify-end gap-1">
+                      <button className="btn-ghost" title="Configure backup folders"
+                        onClick={() => { setBackupPc(pc); setNewPath(''); }}>
+                        <FolderOpen size={12} />Backup
+                      </button>
+                      {canManage && (
+                        <button className={`btn-ghost ${pc.isActive === false ? 'text-emerald-600' : 'text-amber-600'}`}
+                          title={pc.isActive === false ? 'Enable this PC' : 'Disable this PC'}
+                          onClick={() => togglePcActive.mutate({ pcId: pc.id, isActive: !(pc.isActive !== false) })}>
+                          <Power size={12} />{pc.isActive === false ? 'Enable' : 'Disable'}
+                        </button>
+                      )}
+                      <button className="btn-ghost" onClick={() => setSelectedPc(pc.id === selectedPc ? null : pc.id)}>
+                        {pc.id === selectedPc ? 'Hide' : 'Software'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -380,6 +440,120 @@ export function AgentEnrollment() {
           </div>
         )}
       </section>
+
+      {/* ---------- Backup config modal ---------- */}
+      {backupPc && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-xl bg-white p-5 shadow-2xl">
+            <div className="mb-3 flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-ink-50">Backup config — {backupPc.name}</h3>
+                <p className="text-xs text-ink-300">
+                  {backupPc.scope === 'HQ'
+                    ? `HQ / ${backupPc.department?.name ?? '—'}`
+                    : backupPc.store ? `${backupPc.store.code} — ${backupPc.store.name}` : ''}
+                </p>
+                <p className="mt-1 text-xs text-ink-300">
+                  These folders are zipped and uploaded every day at 02:00. Empty list = nothing gets backed up.
+                </p>
+              </div>
+              <button className="btn-ghost" onClick={() => setBackupPc(null)}><X size={14} /></button>
+            </div>
+
+            {pcDetails.isLoading && <div className="text-xs text-ink-300">Loading…</div>}
+            {pcDetails.data && (
+              <>
+                {/* Current paths */}
+                <div className="mb-3">
+                  <label className="label">Folders to back up</label>
+                  {backupPaths.length === 0 ? (
+                    <div className="rounded border border-dashed border-ink-500 bg-slate-50 p-3 text-center text-xs text-ink-300">
+                      No folders configured yet. Add one below or pick a preset.
+                    </div>
+                  ) : (
+                    <ul className="space-y-1">
+                      {backupPaths.map((p, i) => (
+                        <li key={i} className="flex items-center gap-2 rounded border border-ink-500 bg-white p-2">
+                          <FolderOpen size={12} className="text-ink-300" />
+                          <input className="field flex-1 font-mono text-xs" value={p}
+                            onChange={(e) => setBackupPaths(backupPaths.map((x, j) => j === i ? e.target.value : x))} />
+                          <button className="btn-ghost text-rose-500"
+                            onClick={() => setBackupPaths(backupPaths.filter((_, j) => j !== i))}>
+                            <Trash2 size={12} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Add a custom path */}
+                <div className="mb-3">
+                  <label className="label">Add a folder path</label>
+                  <div className="flex items-center gap-2">
+                    <input className="field flex-1 font-mono text-xs"
+                      placeholder="e.g. C:\POS\Data"
+                      value={newPath}
+                      onChange={(e) => setNewPath(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newPath.trim()) {
+                          setBackupPaths([...backupPaths, newPath.trim()]);
+                          setNewPath('');
+                        }
+                      }} />
+                    <button className="btn-primary"
+                      disabled={!newPath.trim()}
+                      onClick={() => { setBackupPaths([...backupPaths, newPath.trim()]); setNewPath(''); }}>
+                      <PlusCircle size={12} />Add
+                    </button>
+                  </div>
+                </div>
+
+                {/* Presets */}
+                <div className="mb-4">
+                  <label className="label">Quick add</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PATH_PRESETS.map((preset) => {
+                      const already = backupPaths.includes(preset.path);
+                      return (
+                        <button key={preset.path}
+                          className={`rounded border px-2 py-1 text-[11px] transition-colors ${
+                            already
+                              ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                              : 'border-ink-500 bg-white text-ink-100 hover:border-brand-400 hover:bg-brand-50'
+                          }`}
+                          disabled={already}
+                          title={preset.note ?? preset.path}
+                          onClick={() => setBackupPaths([...backupPaths, preset.path])}>
+                          {already ? '✓ ' : '+ '}{preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between border-t border-ink-500 pt-3">
+                  <div className="text-xs text-ink-300">
+                    {backupPaths.length} folder{backupPaths.length === 1 ? '' : 's'} configured
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="btn-ghost" onClick={() => setBackupPc(null)}>Cancel</button>
+                    <button className="btn-primary" disabled={saveBackupPaths.isPending || !canManage}
+                      onClick={() => saveBackupPaths.mutate()}>
+                      <Save size={12} />{saveBackupPaths.isPending ? 'Saving…' : 'Save backup config'}
+                    </button>
+                  </div>
+                </div>
+                {saveBackupPaths.isError && (
+                  <div className="mt-2 text-xs text-rose-600">
+                    {(saveBackupPaths.error as any)?.response?.data?.message ?? 'Failed to save'}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }
