@@ -6,8 +6,8 @@ import { useAuth } from '@/store/auth';
 import { FusionMark } from '@/components/FusionMark';
 
 export function Login() {
-  const [email, setEmail] = useState('admin@fashionfusion.local');
-  const [password, setPassword] = useState('password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [totpToken, setTotpToken] = useState('');
   const [needs2fa, setNeeds2fa] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,11 +82,14 @@ export function Login() {
             <div>
               <label className="label">Email</label>
               <input className="field" type="email" value={email}
+                     autoComplete="username"
+                     placeholder="you@fashionfusion.local"
                      onChange={(e) => setEmail(e.target.value)} required disabled={needs2fa} />
             </div>
             <div>
               <label className="label">Password</label>
               <input className="field" type="password" value={password}
+                     autoComplete="current-password"
                      onChange={(e) => setPassword(e.target.value)} required disabled={needs2fa} />
             </div>
             {needs2fa && (

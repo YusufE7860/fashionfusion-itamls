@@ -197,31 +197,34 @@ async function main() {
     }
   }
 
-  // Sample stores
-  const mediumTpl = await prisma.storeTemplate.findUnique({ where: { code: 'MEDIUM' } });
-  const largeTpl = await prisma.storeTemplate.findUnique({ where: { code: 'LARGE' } });
-  const sampleStores = [
-    { code: '001', name: 'Gateway',       region: 'KZN',          entity: 'FASHION_FUSION', tpl: largeTpl?.id  },
-    { code: '002', name: 'Pavilion',      region: 'KZN',          entity: 'FASHION_FUSION', tpl: mediumTpl?.id },
-    { code: '003', name: 'Chatsworth',    region: 'KZN',          entity: 'FASHION_FUSION', tpl: mediumTpl?.id },
-    { code: '004', name: 'Sandton',       region: 'Gauteng',      entity: 'FASHION_FUSION', tpl: largeTpl?.id  },
-    { code: '005', name: 'Canal Walk',    region: 'Western Cape', entity: 'FASHION_FUSION', tpl: mediumTpl?.id },
-    { code: 'E01', name: 'EVLV Galleria', region: 'KZN',          entity: 'EVLV',           tpl: mediumTpl?.id },
-    { code: 'E02', name: 'EVLV Boardwalk',region: 'Eastern Cape', entity: 'EVLV',           tpl: mediumTpl?.id },
-  ];
-  for (const s of sampleStores) {
-    const loc = await ensureLocation(`STR-${s.code}`, `Store ${s.code} - ${s.name}`, LocationType.Store, s.region);
-    const existing = await prisma.store.findUnique({ where: { code: s.code } });
-    if (!existing) {
-      await prisma.store.create({
-        data: {
-          code: s.code, name: s.name, region: s.region, entity: s.entity,
-          locationId: loc.id, templateId: s.tpl ?? null, status: StoreStatus.Open,
-          openedAt: new Date(),
-        },
-      });
-    } else if (existing.entity !== s.entity) {
-      await prisma.store.update({ where: { id: existing.id }, data: { entity: s.entity } });
+  // Sample stores — ONLY when SEED_SAMPLE_DATA=true. Production wipes /
+  // re-seeds must never re-populate demo stores.
+  if (process.env.SEED_SAMPLE_DATA === 'true') {
+    const mediumTpl = await prisma.storeTemplate.findUnique({ where: { code: 'MEDIUM' } });
+    const largeTpl = await prisma.storeTemplate.findUnique({ where: { code: 'LARGE' } });
+    const sampleStores = [
+      { code: '001', name: 'Gateway',       region: 'KZN',          entity: 'FASHION_FUSION', tpl: largeTpl?.id  },
+      { code: '002', name: 'Pavilion',      region: 'KZN',          entity: 'FASHION_FUSION', tpl: mediumTpl?.id },
+      { code: '003', name: 'Chatsworth',    region: 'KZN',          entity: 'FASHION_FUSION', tpl: mediumTpl?.id },
+      { code: '004', name: 'Sandton',       region: 'Gauteng',      entity: 'FASHION_FUSION', tpl: largeTpl?.id  },
+      { code: '005', name: 'Canal Walk',    region: 'Western Cape', entity: 'FASHION_FUSION', tpl: mediumTpl?.id },
+      { code: 'E01', name: 'EVLV Galleria', region: 'KZN',          entity: 'EVLV',           tpl: mediumTpl?.id },
+      { code: 'E02', name: 'EVLV Boardwalk',region: 'Eastern Cape', entity: 'EVLV',           tpl: mediumTpl?.id },
+    ];
+    for (const s of sampleStores) {
+      const loc = await ensureLocation(`STR-${s.code}`, `Store ${s.code} - ${s.name}`, LocationType.Store, s.region);
+      const existing = await prisma.store.findUnique({ where: { code: s.code } });
+      if (!existing) {
+        await prisma.store.create({
+          data: {
+            code: s.code, name: s.name, region: s.region, entity: s.entity,
+            locationId: loc.id, templateId: s.tpl ?? null, status: StoreStatus.Open,
+            openedAt: new Date(),
+          },
+        });
+      } else if (existing.entity !== s.entity) {
+        await prisma.store.update({ where: { id: existing.id }, data: { entity: s.entity } });
+      }
     }
   }
 
@@ -240,52 +243,56 @@ async function main() {
     });
   }
 
-  // Demo users (password = password)
-  await ensureUser('admin@fashionfusion.local', 'Group IT Admin', Roles.Administrator, 'password');
-  await ensureUser('itmanager@fashionfusion.local', 'Priya Naidoo', Roles.ITManager, 'password');
-  await ensureUser('tech@fashionfusion.local', 'Thabo Nkosi', Roles.Technician, 'password');
-  const store001 = await prisma.store.findUnique({ where: { code: '001' } });
-  await ensureUser('store001@fashionfusion.local', 'Lerato Khumalo (Gateway)', Roles.StoreManager, 'password', store001?.id);
-  await ensureUser('finance@fashionfusion.local', 'Anil Patel', Roles.Finance, 'password');
-  await ensureUser('auditor@fashionfusion.local', 'Internal Audit', Roles.Auditor, 'password');
+  // Admin user is always seeded so the app is usable out of the box.
+  // Default password: from ADMIN_INITIAL_PASSWORD env var, or 'password' as
+  // fallback. Either way, mustChangePassword=true is enforced on User.create
+  // -- see users.service.ts -- so first login forces a change.
+  const adminPassword = process.env.ADMIN_INITIAL_PASSWORD || 'password';
+  await ensureUser('admin@fashionfusion.local', 'Group IT Admin', Roles.Administrator, adminPassword);
 
-  // Seed some example assets in stock room and at Gateway
-  const posSku = await prisma.sku.findUnique({ where: { code: 'POS-DELL-3000' } });
-  const monSku = await prisma.sku.findUnique({ where: { code: 'MON-DELL-24' } });
-  const slipSku = await prisma.sku.findUnique({ where: { code: 'PR-EPSON-TMM30' } });
+  // Demo users + sample assets — ONLY when SEED_SAMPLE_DATA=true.
+  if (process.env.SEED_SAMPLE_DATA === 'true') {
+    await ensureUser('itmanager@fashionfusion.local', 'Priya Naidoo', Roles.ITManager, 'password');
+    await ensureUser('tech@fashionfusion.local', 'Thabo Nkosi', Roles.Technician, 'password');
+    const store001 = await prisma.store.findUnique({ where: { code: '001' } });
+    await ensureUser('store001@fashionfusion.local', 'Lerato Khumalo (Gateway)', Roles.StoreManager, 'password', store001?.id);
+    await ensureUser('finance@fashionfusion.local', 'Anil Patel', Roles.Finance, 'password');
+    await ensureUser('auditor@fashionfusion.local', 'Internal Audit', Roles.Auditor, 'password');
 
-  async function ensureAsset(tag: string, sku: { id: string; unitCostCents: number; warrantyMonths: number }, locId: string, store?: { id: string }, status='IN_STORE') {
-    const exists = await prisma.asset.findUnique({ where: { assetTag: tag } });
-    if (exists) return exists;
-    const purchase = new Date(); purchase.setMonth(purchase.getMonth() - 6);
-    const warranty = new Date(); warranty.setMonth(warranty.getMonth() + (sku.warrantyMonths - 6));
-    return prisma.asset.create({
-      data: {
-        assetTag: tag, serialNo: `${tag}-SN`, skuId: sku.id,
-        purchaseDate: purchase, purchaseCostCents: sku.unitCostCents,
-        currentValueCents: Math.round(sku.unitCostCents * 0.85),
-        warrantyExpiry: warranty,
-        condition: 'GOOD',
-        locationId: locId,
-        assignedStoreId: store?.id,
-        status,
-      },
-    });
-  }
+    // Sample assets in stock room and at Gateway
+    const posSku = await prisma.sku.findUnique({ where: { code: 'POS-DELL-3000' } });
+    const monSku = await prisma.sku.findUnique({ where: { code: 'MON-DELL-24' } });
+    const slipSku = await prisma.sku.findUnique({ where: { code: 'PR-EPSON-TMM30' } });
 
-  if (posSku && monSku && slipSku && store001) {
-    // 4 POS PCs in Gateway
-    await ensureAsset('FF-POS-G-001', posSku, store001.locationId, store001);
-    await ensureAsset('FF-POS-G-002', posSku, store001.locationId, store001);
-    await ensureAsset('FF-POS-G-003', posSku, store001.locationId, store001);
-    await ensureAsset('FF-POS-G-004', posSku, store001.locationId, store001);
-    // 4 monitors
-    for (let i=1;i<=4;i++) await ensureAsset(`FF-MON-G-00${i}`, monSku, store001.locationId, store001);
-    // 4 slip printers
-    for (let i=1;i<=4;i++) await ensureAsset(`FF-SLIP-G-00${i}`, slipSku, store001.locationId, store001);
-    // A few in stock room
-    await ensureAsset('FF-POS-SR-001', posSku, sr.id, undefined, 'IN_STOCK');
-    await ensureAsset('FF-MON-SR-001', monSku, sr.id, undefined, 'IN_STOCK');
+    async function ensureAsset(tag: string, sku: { id: string; unitCostCents: number; warrantyMonths: number }, locId: string, store?: { id: string }, status='IN_STORE') {
+      const exists = await prisma.asset.findUnique({ where: { assetTag: tag } });
+      if (exists) return exists;
+      const purchase = new Date(); purchase.setMonth(purchase.getMonth() - 6);
+      const warranty = new Date(); warranty.setMonth(warranty.getMonth() + (sku.warrantyMonths - 6));
+      return prisma.asset.create({
+        data: {
+          assetTag: tag, serialNo: `${tag}-SN`, skuId: sku.id,
+          purchaseDate: purchase, purchaseCostCents: sku.unitCostCents,
+          currentValueCents: Math.round(sku.unitCostCents * 0.85),
+          warrantyExpiry: warranty,
+          condition: 'GOOD',
+          locationId: locId,
+          assignedStoreId: store?.id,
+          status,
+        },
+      });
+    }
+
+    if (posSku && monSku && slipSku && store001) {
+      await ensureAsset('FF-POS-G-001', posSku, store001.locationId, store001);
+      await ensureAsset('FF-POS-G-002', posSku, store001.locationId, store001);
+      await ensureAsset('FF-POS-G-003', posSku, store001.locationId, store001);
+      await ensureAsset('FF-POS-G-004', posSku, store001.locationId, store001);
+      for (let i=1;i<=4;i++) await ensureAsset(`FF-MON-G-00${i}`, monSku, store001.locationId, store001);
+      for (let i=1;i<=4;i++) await ensureAsset(`FF-SLIP-G-00${i}`, slipSku, store001.locationId, store001);
+      await ensureAsset('FF-POS-SR-001', posSku, sr.id, undefined, 'IN_STOCK');
+      await ensureAsset('FF-MON-SR-001', monSku, sr.id, undefined, 'IN_STOCK');
+    }
   }
 
   // HQ Departments — default set for Head Office asset assignment. Fully
