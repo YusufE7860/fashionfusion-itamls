@@ -49,7 +49,25 @@ function Install-ITAMLSAgent {
     )
 
     $ErrorActionPreference = 'Stop'
-    function LogS($m, $lvl='INFO') { $t=(Get-Date).ToString('HH:mm:ss'); Write-Host "[$t] [$lvl] $m" }
+    function LogS($m, $lvl='INFO') {
+        $t = (Get-Date).ToString('HH:mm:ss')
+        $color = switch ($lvl) {
+            'OK'    { 'Green' }
+            'WARN'  { 'Yellow' }
+            'ERROR' { 'Red' }
+            'STEP'  { 'Cyan' }
+            default { 'White' }
+        }
+        Write-Host "   [$t] " -NoNewline -ForegroundColor DarkGray
+        Write-Host "[$lvl] " -NoNewline -ForegroundColor $color
+        Write-Host $m
+    }
+    function Step($n, $of, $msg) {
+        Write-Host ''
+        Write-Host "   ================================================================" -ForegroundColor DarkCyan
+        Write-Host "    STEP $n / $of - $msg" -ForegroundColor Cyan
+        Write-Host "   ================================================================" -ForegroundColor DarkCyan
+    }
 
     # Elevation check
     $current = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -63,7 +81,8 @@ function Install-ITAMLSAgent {
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
     # --- 1. Enrol ---
-    LogS "Enrolling $PcName with $Api"
+    Step 1 5 "Enrolling this PC with ITAMLS"
+    LogS "Contacting $Api/agents/enroll as $PcName"
     $os  = Get-CimInstance Win32_OperatingSystem
     $cs  = Get-CimInstance Win32_ComputerSystem
     $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
@@ -89,9 +108,10 @@ function Install-ITAMLSAgent {
     } catch {
         throw "Enrolment failed: $($_.Exception.Message). Verify the token hasn't expired and the API URL is reachable from this PC."
     }
-    LogS "Enrolled — pcId $($res.pcId), store $($res.storeCode), key $($res.agentKeyPrefix)..." 'OK'
+    LogS "Enrolled OK - pcId $($res.pcId), scope $($res.storeCode), key $($res.agentKeyPrefix)..." 'OK'
 
     # --- 2. Save config (chmod-equivalent: strip inheritance, admins+SYSTEM only) ---
+    Step 2 5 "Saving agent config"
     $cfgPath = Join-Path $installDir 'agent.json'
     $config = [pscustomobject]@{
         apiBase   = $Api
@@ -110,21 +130,24 @@ function Install-ITAMLSAgent {
         $acl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Administrators','FullControl','Allow')))
         Set-Acl $cfgPath $acl
     } catch { LogS "Could not lock down $cfgPath : $($_.Exception.Message)" 'WARN' }
-    LogS "Wrote $cfgPath"
+    LogS "Wrote $cfgPath (admins + SYSTEM only)" 'OK'
 
     # --- 3. Download agent scripts ---
+    Step 3 5 "Downloading agent scripts"
     foreach ($script in @('Invoke-ITAMLSInventory.ps1','Invoke-ITAMLSBackup.ps1')) {
         $dest = Join-Path $installDir $script
         $url  = "$Api/tools/$($script.ToLower())"
         try {
-            LogS "Downloading $script"
+            LogS "GET $url"
             Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 60
+            LogS "Saved to $dest" 'OK'
         } catch {
             LogS "Could not download $script from $url : $($_.Exception.Message)" 'WARN'
         }
     }
 
     # --- 4. Scheduled tasks ---
+    Step 4 5 "Registering scheduled tasks"
     function Register-ITAMLSTask {
         param([string]$Name, [string]$Script, [string]$Time, [hashtable]$ExtraArgs = @{})
         $extraArgLine = ''
@@ -141,7 +164,7 @@ function Install-ITAMLSAgent {
         Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction SilentlyContinue
         Register-ScheduledTask -TaskName $Name -Action $action -Trigger @($trigger, $bootTrigger) `
             -Settings $settings -Principal $principal -Force | Out-Null
-        LogS "Scheduled task '$Name' registered ($Time daily + 5min post-boot)"
+        LogS "Task '$Name' registered ($Time daily + 5min post-boot)" 'OK'
     }
 
     Register-ITAMLSTask -Name 'ITAMLS-Inventory' -Script 'Invoke-ITAMLSInventory.ps1' -Time '03:00'
@@ -149,22 +172,24 @@ function Install-ITAMLSAgent {
         -ExtraArgs @{ ApiBase = $Api; ApiKey = $res.agentKey; StoreCode = $res.storeCode; PcName = $res.pcName }
 
     # --- 5. First inventory push ---
-    LogS 'Running first inventory push...'
+    Step 5 5 "Running first inventory push"
     try {
         & "$installDir\Invoke-ITAMLSInventory.ps1" -ConfigPath $cfgPath
-        LogS 'First inventory push complete.' 'OK'
+        LogS 'First inventory push complete' 'OK'
     } catch {
         LogS "First inventory push failed (task will retry tomorrow): $($_.Exception.Message)" 'WARN'
     }
 
     Write-Host ''
-    Write-Host '============================================================' -ForegroundColor Green
-    Write-Host " ITAMLS agent installed on $PcName" -ForegroundColor Green
-    Write-Host "   Store:   $($res.storeCode) ($($res.storeName))" -ForegroundColor Green
-    Write-Host "   PC ID:   $($res.pcId)" -ForegroundColor Green
-    Write-Host "   Config:  $cfgPath" -ForegroundColor Green
-    Write-Host "   Tasks:   ITAMLS-Inventory (daily 03:00), ITAMLS-Backup (daily 02:00)" -ForegroundColor Green
-    Write-Host '============================================================' -ForegroundColor Green
+    Write-Host '   ================================================================' -ForegroundColor Green
+    Write-Host "    AGENT INSTALLED ON $PcName" -ForegroundColor Green
+    Write-Host '   ================================================================' -ForegroundColor Green
+    Write-Host "    Scope:      $($res.storeCode) ($($res.storeName))" -ForegroundColor Green
+    Write-Host "    PC ID:      $($res.pcId)" -ForegroundColor Green
+    Write-Host "    Config:     $cfgPath" -ForegroundColor Green
+    Write-Host "    Inventory:  daily 03:00 + 5 min post-boot" -ForegroundColor Green
+    Write-Host "    Backup:     daily 02:00 + 5 min post-boot" -ForegroundColor Green
+    Write-Host '   ================================================================' -ForegroundColor Green
 }
 
 Set-Alias -Name Install-ITAMLSAgent -Value Install-ITAMLSAgent -Scope Global -ErrorAction SilentlyContinue
