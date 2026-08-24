@@ -8,19 +8,21 @@ import { Public } from '../common/decorators/permissions.decorator';
  * Serves bootstrap scripts (Kaseya discovery PowerShell) over HTTP so endpoints
  * can grab them with a single Invoke-WebRequest. The script itself contains no
  * secrets — the API key and API URL are passed as parameters at runtime.
+ *
+ * Resolution order (highest priority first):
+ *  1. /repo/tools/...          — live git-mounted volume (updated by `git pull`
+ *                                without needing a docker rebuild)
+ *  2. /app/tools/...           — baked into the image at build time
+ *  3. <cwd>/../../tools/...    — local `pnpm dev` from apps/api
+ *  4. <cwd>/tools/...          — local from the repo root
+ *
+ * This is important: prior to this change, only path 2 was checked, which
+ * meant every edit to a .cmd or .ps1 file required a full docker rebuild.
+ * Now `git pull` on the host is enough for tool file changes to go live.
  */
 @Controller('tools')
 export class ToolsController {
-  // Resolve from the monorepo root: <repo>/tools/Invoke-ITAMLSDiscovery.ps1
-  // process.cwd() during `pnpm api:dev` is apps/api/
-  private resolveScript() {
-    const candidates = [
-      path.resolve(process.cwd(), '..', '..', 'tools', 'Invoke-ITAMLSDiscovery.ps1'),
-      path.resolve(process.cwd(), 'tools', 'Invoke-ITAMLSDiscovery.ps1'),
-    ];
-    for (const c of candidates) if (fs.existsSync(c)) return c;
-    throw new NotFoundException('Discovery script not found on the API server.');
-  }
+  private resolveScript() { return this.resolveToolFile('Invoke-ITAMLSDiscovery.ps1'); }
 
   @Public()
   @Get('discover.ps1')
@@ -31,14 +33,7 @@ export class ToolsController {
     fs.createReadStream(file).pipe(res);
   }
 
-  private resolveBackupScript() {
-    const candidates = [
-      path.resolve(process.cwd(), '..', '..', 'tools', 'Invoke-ITAMLSBackup.ps1'),
-      path.resolve(process.cwd(), 'tools', 'Invoke-ITAMLSBackup.ps1'),
-    ];
-    for (const c of candidates) if (fs.existsSync(c)) return c;
-    throw new NotFoundException('Backup script not found on the API server.');
-  }
+  private resolveBackupScript() { return this.resolveToolFile('Invoke-ITAMLSBackup.ps1'); }
 
   @Public()
   @Get('backup.ps1')
@@ -49,14 +44,7 @@ export class ToolsController {
     fs.createReadStream(file).pipe(res);
   }
 
-  private resolveMeshScript() {
-    const candidates = [
-      path.resolve(process.cwd(), '..', '..', 'tools', 'Install-ITAMLSMeshAgent.ps1'),
-      path.resolve(process.cwd(), 'tools', 'Install-ITAMLSMeshAgent.ps1'),
-    ];
-    for (const c of candidates) if (fs.existsSync(c)) return c;
-    throw new NotFoundException('Mesh agent script not found on the API server.');
-  }
+  private resolveMeshScript() { return this.resolveToolFile('Install-ITAMLSMeshAgent.ps1'); }
 
   @Public()
   @Get('mesh-agent.ps1')
@@ -67,14 +55,19 @@ export class ToolsController {
     fs.createReadStream(file).pipe(res);
   }
 
-  // ---------- PC agent installer + companions ----------
+  // ---------- Central tool-file resolver ----------
+  // /repo/tools/... comes FIRST -- that's the git-mounted volume the
+  // updater and manual `git pull` write to. This means script edits go
+  // live without rebuilding the API image.
   private resolveToolFile(name: string) {
+    const repoDir = process.env.REPO_DIR ?? '/repo';
     const candidates = [
-      path.resolve(process.cwd(), '..', '..', 'tools', name),
-      path.resolve(process.cwd(), 'tools', name),
+      path.resolve(repoDir, 'tools', name),                            // git-mounted volume (prod)
+      path.resolve(process.cwd(), '..', '..', 'tools', name),          // pnpm dev from apps/api
+      path.resolve(process.cwd(), 'tools', name),                      // baked into image / repo root
     ];
     for (const c of candidates) if (fs.existsSync(c)) return c;
-    throw new NotFoundException(`${name} not found on the API server.`);
+    throw new NotFoundException(`${name} not found on the API server. Checked: ${candidates.join(' , ')}`);
   }
 
   /** Bootstrap loader — piped through `iwr ... | iex` on the PC. */
