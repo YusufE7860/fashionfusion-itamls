@@ -167,6 +167,9 @@ async function main() {
   await ensureSku('OFFICE-PC-DELL', 'Dell OptiPlex Office PC', 'Desktop PCs', 'Dell', 'OptiPlex 5000', 14500_00);
   await ensureSku('LBL-ZEBRA-ZD420', 'Zebra ZD420 Label Printer', 'Label Printers', 'Zebra', 'ZD420', 6800_00);
   await ensureSku('AP-MK-CAP-AC', 'MikroTik cAP ac Access Point', 'Access Points', 'MikroTik', 'cAP ac', 1900_00);
+  // Fallback SKU for PCs auto-discovered via the agent. Admin can reassign
+  // to a specific SKU (Dell / HP / Lenovo model) via the asset detail page.
+  await ensureSku('AUTO-DISC-PC', 'Auto-discovered PC (unclassified)', 'Desktop PCs', 'Unknown', 'Auto-discovered', 0, true, 12, 4);
 
   // Locations
   const ho = await ensureLocation('HO', 'Head Office', LocationType.HeadOffice, 'KZN');

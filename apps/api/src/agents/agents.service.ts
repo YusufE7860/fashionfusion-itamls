@@ -165,6 +165,77 @@ export class AgentsService {
           },
         });
 
+    // ---- Auto-create / link an Asset row in the register ----
+    // Every enrolled PC should show up in the asset list. If one already
+    // exists for this hostname, reuse it; otherwise create one against the
+    // AUTO-DISC-PC fallback SKU. Admin can reassign to a proper SKU later.
+    let assetId = pc.assetId ?? null;
+    if (!assetId) {
+      const existing = await this.prisma.asset.findFirst({
+        where: { hostname: dto.pcName },
+      });
+      if (existing) {
+        assetId = existing.id;
+      } else {
+        const fallbackSku = await this.prisma.sku.findUnique({ where: { code: 'AUTO-DISC-PC' } });
+        if (fallbackSku) {
+          // Resolve a location: for HQ, use the HEAD_OFFICE; for stores, use the store's location
+          let locationId: string | null = null;
+          if (storeId) {
+            const s = await this.prisma.store.findUnique({ where: { id: storeId }, select: { locationId: true } });
+            locationId = s?.locationId ?? null;
+          } else {
+            const ho = await this.prisma.location.findFirst({ where: { type: 'HEAD_OFFICE' }, select: { id: true } });
+            locationId = ho?.id ?? null;
+          }
+          // Build a stable asset tag from the hostname. If a collision would
+          // happen (rare), append a short random suffix.
+          let assetTag = `AUTO-${dto.pcName}`.toUpperCase().replace(/[^A-Z0-9-]/g, '-').slice(0, 60);
+          const dupe = await this.prisma.asset.findUnique({ where: { assetTag } });
+          if (dupe) assetTag = `${assetTag}-${randomBytes(2).toString('hex').toUpperCase()}`;
+
+          const asset = await this.prisma.asset.create({
+            data: {
+              assetTag, skuId: fallbackSku.id,
+              hostname: dto.pcName,
+              osVersion: dto.osVersion, cpuModel: dto.cpuModel, ramGb: dto.ramGb,
+              lastSeenAt: new Date(),
+              locationId, source: 'AGENT',
+              status: 'IN_STORE',
+              assignedStoreId: storeId ?? undefined,
+              assignedDepartmentId: departmentId ?? undefined,
+              condition: 'GOOD',
+            },
+          });
+          await this.prisma.assetHistory.create({
+            data: {
+              assetId: asset.id, eventType: 'AUTO_DISCOVERED',
+              toLocationId: locationId ?? undefined,
+              notes: `Auto-created from agent enrollment (${t.scope === 'HQ' ? scopeName : storeCode})`,
+            },
+          });
+          assetId = asset.id;
+        }
+      }
+      if (assetId) {
+        await this.prisma.storePc.update({ where: { id: pc.id }, data: { assetId } });
+      }
+    } else {
+      // Update existing linked asset with latest hardware info + assignment
+      await this.prisma.asset.update({
+        where: { id: assetId },
+        data: {
+          hostname: dto.pcName,
+          osVersion: dto.osVersion ?? undefined,
+          cpuModel: dto.cpuModel ?? undefined,
+          ramGb: dto.ramGb ?? undefined,
+          lastSeenAt: new Date(),
+          assignedStoreId: storeId ?? undefined,
+          assignedDepartmentId: departmentId ?? undefined,
+        },
+      });
+    }
+
     // Revoke previous key so re-enrollment always returns a fresh one.
     if (pc.apiKeyId) {
       await this.prisma.apiKey.update({
@@ -243,6 +314,26 @@ export class AgentsService {
         },
       }),
     ]);
+
+    // ---- Refresh the linked Asset row with the latest hardware info ----
+    // The enroll flow creates the Asset; on each inventory we keep OS / CPU
+    // / RAM / lastSeenAt current so the asset detail page is always fresh.
+    try {
+      const linkedPc = await this.prisma.storePc.findUnique({
+        where: { id: pcId }, select: { assetId: true },
+      });
+      if (linkedPc?.assetId) {
+        await this.prisma.asset.update({
+          where: { id: linkedPc.assetId },
+          data: {
+            osVersion: dto.osVersion ?? undefined,
+            cpuModel:  dto.cpuModel  ?? undefined,
+            ramGb:     dto.ramGb     ?? undefined,
+            lastSeenAt: new Date(),
+          },
+        });
+      }
+    } catch { /* non-fatal — inventory ingest itself already succeeded */ }
 
     // ---- PIN pads (Verifone/Nedbank) — store-scope only, HQ PCs don't have PIN pads ----
     let padsIngested = 0;

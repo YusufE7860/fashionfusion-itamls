@@ -595,6 +595,7 @@ model StorePc {
   ipAddress         String?
   lastInventoryAt   DateTime?
   apiKeyId          String?                    // back-reference to per-PC ApiKey
+  assetId           String?                    // linked Asset row in the register
 
   store Store?      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   runs  BackupRun[]
