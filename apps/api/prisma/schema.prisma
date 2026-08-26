@@ -912,7 +912,7 @@ model MikrotikConfig {
   wgHubPublicKey    String
   wgHubEndpoint     String
   wgHubEndpointPort Int      @default(443)
-  wgTunnelIp        String                       // "172.31.254.x/32" — allocated by hub team
+  wgTunnelIp        String   @default("")        // "172.31.254.x/32" — allocated by hub team, filled in later
   remoteWinboxBlock String                       // pasted by user; embedded verbatim
   configText        String                       @db.Text
   createdAt         DateTime @default(now())

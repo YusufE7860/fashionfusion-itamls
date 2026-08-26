@@ -226,9 +226,13 @@ export function Mikrotik() {
               onChange={(e) => setForm({ ...form, dhcpRangeEnd: e.target.value })} />
           </div>
           <div>
-            <label className="label">WireGuard tunnel IP (from DC team)</label>
-            <input className="field" placeholder="172.31.254.15/32" value={form.wgTunnelIp}
+            <label className="label">WireGuard tunnel IP (optional)</label>
+            <input className="field" placeholder="172.31.254.15/32 — fill in later"
+              value={form.wgTunnelIp}
               onChange={(e) => setForm({ ...form, wgTunnelIp: e.target.value })} />
+            <p className="mt-1 text-[11px] text-ink-300">
+              Leave blank if the DC team hasn't assigned one yet — the generator will output a commented placeholder for you to fill in later.
+            </p>
           </div>
 
           {/* Wireless */}

@@ -47,7 +47,7 @@ export interface GenerateDto {
   wgHubPublicKey?: string;
   wgHubEndpoint?: string;
   wgHubEndpointPort?: number;
-  wgTunnelIp: string;           // 172.31.254.x/32 — from DC team
+  wgTunnelIp?: string;          // 172.31.254.x/32 — from DC team; optional, can be filled in later
   remoteWinboxBlock: string;    // pasted verbatim
   dhcpRangeStart?: string;      // default "<net>.100"
   dhcpRangeEnd?: string;        // default "<net>.200"
@@ -112,7 +112,9 @@ export class MikrotikService {
     if (!dto.siteCode?.trim()) throw new BadRequestException('siteCode is required');
     if (!dto.ssid?.trim())   throw new BadRequestException('ssid is required');
     if (!dto.wpaPsk?.trim()) throw new BadRequestException('wpaPsk is required');
-    if (!dto.wgTunnelIp?.trim()) throw new BadRequestException('wgTunnelIp is required (get from DC team)');
+    // wgTunnelIp is optional -- the DC team assigns it after the router is
+    // configured. When left blank we emit a commented placeholder that the
+    // technician uncomments once the assignment arrives.
     if (!dto.remoteWinboxBlock?.trim()) throw new BadRequestException('remoteWinboxBlock is required (paste from your snippets)');
 
     const pool = await this.prisma.mikrotikNetworkPool.findUnique({ where: { brand: dto.brand } });
@@ -150,7 +152,7 @@ export class MikrotikService {
       lanGateway, lanNetwork, cidr: 24,
       dhcpRangeStart, dhcpRangeEnd,
       wgListenPort, wgHubPublicKey, wgHubEndpoint, wgHubEndpointPort,
-      wgTunnelIp: dto.wgTunnelIp,
+      wgTunnelIp: dto.wgTunnelIp?.trim() || '',
       remoteWinboxBlock: dto.remoteWinboxBlock.trim(),
     });
 
@@ -165,7 +167,7 @@ export class MikrotikService {
           wan2Type, wan2Iface, wan2PppoeUser: dto.wan2PppoeUser, wan2PppoePassword: dto.wan2PppoePassword,
           ssid: dto.ssid, wpaPsk: dto.wpaPsk,
           wgListenPort, wgHubPublicKey, wgHubEndpoint: wgHubEndpoint,
-          wgHubEndpointPort, wgTunnelIp: dto.wgTunnelIp,
+          wgHubEndpointPort, wgTunnelIp: dto.wgTunnelIp?.trim() || '',
           remoteWinboxBlock: dto.remoteWinboxBlock.trim(),
           configText,
           createdById: dto.createdById,
@@ -235,8 +237,13 @@ export class MikrotikService {
       legRoutes(2, f.wan2Iface, f.wan2Type, `${f.lanGateway.replace(/\.\d+$/, '.100')}`),
     ].join('\n');
 
-    // Ensure wgTunnelIp has a mask; typical DC allocation is /32 on 172.31.254.x
-    const wgAddr = /\//.test(f.wgTunnelIp) ? f.wgTunnelIp : `${f.wgTunnelIp}/32`;
+    // Ensure wgTunnelIp has a mask; typical DC allocation is /32 on 172.31.254.x.
+    // Empty string = the operator will fill it in later after the DC team
+    // assigns one -- we emit a commented placeholder in the config.
+    const wgIpProvided = !!f.wgTunnelIp?.trim();
+    const wgAddr = wgIpProvided
+      ? (/\//.test(f.wgTunnelIp) ? f.wgTunnelIp : `${f.wgTunnelIp}/32`)
+      : '<172.31.254.X>/32';
 
     return `# Generated ${date} by ITAMLS MikroTik config generator
 # NEW STORE build for site: ${f.identity}  (brand: ${f.brand})
@@ -247,7 +254,11 @@ export class MikrotikService {
 #      site-specific user, password and DC certificate.
 #   2. Verify the WireGuard peer public-key printed on this router matches
 #      what the DC hub has registered against ${wgAddr}.
-#   3. Confirm both WAN uplinks come up green.
+#   3. Confirm both WAN uplinks come up green.${wgIpProvided ? '' : `
+#   4. **WireGuard tunnel IP NOT SET** — the /ip address line for
+#      wireguard1-vdc-tunnel is commented out below. Once the DC team
+#      assigns a /32 (typical: 172.31.254.X), uncomment that line and set
+#      the correct address, then apply just that fragment via /import.`}
 #
 # The RemoteWinbox VPN block (SSTP client + profile) below was pasted in
 # from the operator's per-site snippet.
@@ -362,7 +373,11 @@ add allowed-address=0.0.0.0/0 comment=";/ cfg-2506a0 /; VDC backup tunnel for si
 remove [find where interface=bridge-lan]
 add address=${f.lanGateway}/${f.cidr} interface=bridge-lan network=${f.lanNetwork}
 remove [find where interface=${wgTunnelName}]
-add address=${wgAddr} comment=";/ cfg-2506a0 /;" interface=${wgTunnelName} network=172.31.254.0
+${wgIpProvided
+  ? `add address=${wgAddr} comment=";/ cfg-2506a0 /;" interface=${wgTunnelName} network=172.31.254.0`
+  : `# WireGuard tunnel IP not yet assigned. When the DC team gives you the /32,
+# replace <172.31.254.X> below and uncomment this line:
+# add address=${wgAddr} comment=";/ cfg-2506a0 /;" interface=${wgTunnelName} network=172.31.254.0`}
 ${pppoeClientLines ? '\n/interface pppoe-client\n' + pppoeClientLines : ''}
 ${dhcpClientLines  ? '\n/ip dhcp-client\n'         + dhcpClientLines  : ''}
 
