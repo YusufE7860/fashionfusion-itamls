@@ -185,6 +185,31 @@ export class MikrotikService {
     return saved;
   }
 
+  // ---------- Helpers ----------
+  /**
+   * Emit /interface ethernet `set` lines to rename the factory ether ports to
+   * whatever the operator picked in the form (default: ether1-WAN1 + ether5-WAN2).
+   * We derive the ORIGINAL port name from the desired name by stripping the
+   * `-WAN{n}` suffix — so `ether1-WAN1` -> match default-name `ether1`.
+   * If the desired name doesn't start with `ether`, we skip that rename (e.g.
+   * PPPoE fiber uplinks may use pseudo-names like `pppoe-out1`).
+   */
+  private renameEthernetPorts(wan1: string, wan2: string): string[] {
+    const lines: string[] = [];
+    for (const wanName of [wan1, wan2]) {
+      const m = wanName.match(/^(ether\d+)-WAN\d+$/i);
+      if (!m) continue;
+      const original = m[1];
+      lines.push(`# find default-name=${original} -> ${wanName} (safe no-op if already renamed)`);
+      lines.push(`:local iface [/interface ethernet find where default-name=${original}]`);
+      lines.push(`:if ([:len $iface] > 0) do={ /interface ethernet set $iface name=${wanName} }`);
+    }
+    if (lines.length === 0) {
+      lines.push('# (no ethernet renames needed for the selected WAN interfaces)');
+    }
+    return lines;
+  }
+
   // ---------- Renderer ----------
   private render(f: {
     identity: string; siteCode: string; brand: string;
@@ -263,12 +288,23 @@ export class MikrotikService {
 # The RemoteWinbox VPN block (SSTP client + profile) below was pasted in
 # from the operator's per-site snippet.
 
+# ---- Rename ethernet ports so subsequent references resolve ----
+# On a factory-fresh RouterOS device the ports are ether1..etherN. All later
+# steps refer to ${f.wan1Iface} / ${f.wan2Iface} etc, so we must rename first.
+# Matching on default-name means this is a safe no-op on routers that have
+# already been through this template (the second run finds nothing to rename).
+/interface ethernet
+${this.renameEthernetPorts(f.wan1Iface, f.wan2Iface).join('\n')}
+
 /interface bridge
 remove [find where name=bridge-lan]
 add name=bridge-lan
 
-/interface wireless
-set [ find default-name=wlan1 ] disabled=no mode=ap-bridge ssid="${f.ssid}"
+# Wireless: only apply if this router has a built-in wireless module.
+# Wireless-less routers (RB4011, hEX etc) have no wlan1 so we skip cleanly
+# instead of failing the import.
+:local wlan [/interface wireless find where default-name=wlan1]
+:if ([:len $wlan] > 0) do={ /interface wireless set $wlan disabled=no mode=ap-bridge ssid="${f.ssid}" }
 
 /interface wireguard
 remove [find where name=${wgTunnelName}]
@@ -293,9 +329,9 @@ add comment=";/ cfg-2506a0 /;" exclude=zone-VDC,zone-WAN name=zone-LAN
 remove [find where name=ints-LLDP]
 add comment=";/ cfg-2506a0 /;" include=zone-LAN name=ints-LLDP
 
-/interface wireless security-profiles
-set [ find default=yes ] authentication-types=wpa-psk,wpa2-psk mode=dynamic-keys \\
-    supplicant-identity=MikroTik wpa-pre-shared-key=${f.wpaPsk} wpa2-pre-shared-key=${f.wpaPsk}
+# Wireless security profile — same conditional guard as above.
+:local wsp [/interface wireless security-profiles find where default=yes]
+:if ([:len $wsp] > 0) do={ /interface wireless security-profiles set $wsp authentication-types=wpa-psk,wpa2-psk mode=dynamic-keys supplicant-identity=MikroTik wpa-pre-shared-key=${f.wpaPsk} wpa2-pre-shared-key=${f.wpaPsk} }
 
 /ip ipsec proposal
 set [ find default=yes ] disabled=yes
@@ -338,8 +374,8 @@ remove [find where interface=ether3]
 add bridge=bridge-lan interface=ether3
 remove [find where interface=ether5]
 add bridge=bridge-lan interface=ether5
-remove [find where interface=wlan1]
-add bridge=bridge-lan interface=wlan1
+# wlan1 bridge port — only if the router has a wireless module
+:if ([:len [/interface find where name=wlan1]] > 0) do={ /interface bridge port remove [find where interface=wlan1]; /interface bridge port add bridge=bridge-lan interface=wlan1 }
 
 /ip firewall connection tracking
 set udp-timeout=10s
