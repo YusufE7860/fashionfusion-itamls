@@ -107,6 +107,40 @@ export class MikrotikService {
     return c;
   }
 
+  /**
+   * Delete a generated config. If it happens to hold the highest thirdOctet
+   * currently allocated for its brand, rewind the pool's lastThirdOctet so
+   * the next generation reuses that number — avoids "wasted" allocations
+   * from accidental double-clicks.
+   */
+  async deleteConfig(id: string) {
+    const c = await this.prisma.mikrotikConfig.findUnique({ where: { id } });
+    if (!c) throw new NotFoundException();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.mikrotikConfig.delete({ where: { id } });
+      const pool = await tx.mikrotikNetworkPool.findUnique({ where: { brand: c.brand } });
+      if (pool && c.thirdOctet === pool.lastThirdOctet) {
+        // Find the new highest octet among remaining configs for this brand
+        const remaining = await tx.mikrotikConfig.findMany({
+          where: { brand: c.brand },
+          orderBy: { thirdOctet: 'desc' },
+          take: 1,
+          select: { thirdOctet: true },
+        });
+        // If no configs left, we can't tell where the "manual floor" is —
+        // just decrement by 1 rather than reset to zero. Admin can adjust
+        // the pool manually if this ever undershoots.
+        const nextLast = remaining[0]?.thirdOctet ?? Math.max(pool.lastThirdOctet - 1, 0);
+        if (nextLast !== pool.lastThirdOctet) {
+          await tx.mikrotikNetworkPool.update({
+            where: { brand: c.brand }, data: { lastThirdOctet: nextLast },
+          });
+        }
+      }
+    });
+    return { ok: true };
+  }
+
   async generate(dto: GenerateDto) {
     if (!dto.brand)          throw new BadRequestException('brand is required');
     if (!dto.siteCode?.trim()) throw new BadRequestException('siteCode is required');

@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { CreateStoreDto, StoresService } from './stores.service';
+import { BulkCreateStoresDto, CreateStoreDto, StoresService } from './stores.service';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Permissions } from '../shared';
 
@@ -13,4 +13,8 @@ export class StoresController {
   @Post()
   @RequirePermissions(Permissions.StoresWrite)
   create(@Body() dto: CreateStoreDto) { return this.svc.create(dto); }
+
+  @Post('bulk')
+  @RequirePermissions(Permissions.StoresWrite)
+  bulk(@Body() dto: BulkCreateStoresDto) { return this.svc.bulkCreate(dto); }
 }

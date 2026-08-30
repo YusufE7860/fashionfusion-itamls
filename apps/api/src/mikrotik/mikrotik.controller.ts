@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { GenerateDto, MikrotikService } from './mikrotik.service';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -47,4 +47,8 @@ export class MikrotikController {
   generate(@Body() dto: GenerateDto, @Req() req: any) {
     return this.svc.generate({ ...dto, createdById: req.user?.sub });
   }
+
+  @Delete('configs/:id')
+  @RequirePermissions(Permissions.MikrotikManage)
+  deleteConfig(@Param('id') id: string) { return this.svc.deleteConfig(id); }
 }

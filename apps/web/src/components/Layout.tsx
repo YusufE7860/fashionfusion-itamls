@@ -19,8 +19,9 @@ const NAV: NavEntry[] = [
   { kind: 'single', id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, to: '/', end: true },
   { kind: 'single', id: 'alerts',    label: 'Alerts',    icon: Bell,            to: '/alerts' },
   { kind: 'group', id: 'hq', label: 'Head Office', icon: Building2, items: [
-    { to: '/hq',        label: 'HQ Assets' },
-    { to: '/hq/agents', label: 'HQ Agent Enrollment' },
+    { to: '/hq',             label: 'HQ Assets' },
+    { to: '/hq/departments', label: 'HQ Departments' },
+    { to: '/hq/agents',      label: 'HQ Agent Enrollment' },
   ] },
 
   { kind: 'group', id: 'inventory', label: 'Inventory', icon: Boxes, items: [

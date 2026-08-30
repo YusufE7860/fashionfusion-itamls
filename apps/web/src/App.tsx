@@ -99,6 +99,7 @@ export function App() {
         <Route path="stores/pinpads" element={<PinPads />} />
         <Route path="hq"             element={<HqAssets />} />
         <Route path="admin/departments" element={<Departments />} />
+        <Route path="hq/departments"    element={<Departments />} />
       </Route>
     </Routes>
   );

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
-import { Download, Copy, RefreshCw, Router as RouterIcon, Save, Settings2 } from 'lucide-react';
+import { Download, Copy, RefreshCw, Router as RouterIcon, Save, Settings2, CheckCircle2, Trash2 } from 'lucide-react';
 
 type Pool = {
   brand: string;
@@ -89,6 +89,23 @@ export function Mikrotik() {
       qc.invalidateQueries({ queryKey: ['mk-pools'] });
       qc.invalidateQueries({ queryKey: ['mk-preview', form.brand] });
       qc.invalidateQueries({ queryKey: ['mk-configs'] });
+      // Clear the site code + DHCP range so a stray second click doesn't
+      // silently allocate ANOTHER /24 for the same store. The user must
+      // deliberately fill in a new site code to generate again.
+      setForm((f) => ({ ...f, siteCode: '', dhcpRangeStart: '', dhcpRangeEnd: '' }));
+      // Scroll the generated output into view so success is obvious
+      setTimeout(() => {
+        document.getElementById('mk-generated-output')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    },
+  });
+
+  const deleteConfig = useMutation({
+    mutationFn: (id: string) => api.delete(`/mikrotik/configs/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mk-configs'] });
+      qc.invalidateQueries({ queryKey: ['mk-pools'] });
+      qc.invalidateQueries({ queryKey: ['mk-preview'] });
     },
   });
 
@@ -303,19 +320,30 @@ export function Mikrotik() {
         </div>
 
         <div className="mt-4 flex items-center gap-2">
-          <button className="btn-primary" disabled={!canGen || generate.isPending}
+          <button className="btn-primary" disabled={!canGen || generate.isPending || !form.siteCode.trim()}
             onClick={() => generate.mutate()}>
             {generate.isPending ? 'Generating…' : 'Generate config'}
           </button>
           {generate.isError && <span className="text-xs text-rose-600">{(generate.error as any)?.response?.data?.message ?? 'Failed'}</span>}
+          {!form.siteCode.trim() && generated && (
+            <span className="text-xs text-ink-300">Enter a new site code to generate another config.</span>
+          )}
         </div>
       </section>
 
       {/* Generated output */}
       {generated && (
-        <section className="card mb-4 p-4">
+        <section id="mk-generated-output" className="card mb-4 border-2 border-emerald-300 bg-emerald-50/40 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-700">Generated .rsc — {generated.identity}</h2>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={18} className="text-emerald-600" />
+              <div>
+                <h2 className="text-sm font-semibold text-emerald-800">Config generated — {generated.identity}</h2>
+                <p className="text-[11px] text-emerald-700">
+                  LAN <span className="font-mono">{generated.lanGateway}/{generated.cidr}</span> · saved to history below
+                </p>
+              </div>
+            </div>
             <div className="flex gap-2">
               <button className="btn-ghost" onClick={copyConfig}><Copy size={13}/>Copy</button>
               <button className="btn-primary" onClick={() => downloadConfig(generated.id, generated.identity)}>
@@ -349,9 +377,23 @@ export function Mikrotik() {
                   <td className="py-2 text-xs">{c.brand}</td>
                   <td className="py-2 font-mono text-xs">{c.lanGateway}/{c.cidr}</td>
                   <td className="py-2 text-right">
-                    <button className="btn-ghost" onClick={() => downloadConfig(c.id, c.identity)}>
-                      <Download size={12}/>.rsc
-                    </button>
+                    <div className="flex justify-end gap-1">
+                      <button className="btn-ghost" title="Download .rsc" onClick={() => downloadConfig(c.id, c.identity)}>
+                        <Download size={12}/>.rsc
+                      </button>
+                      {canManage && (
+                        <button className="btn-ghost text-rose-500"
+                          title={`Delete this config${c.thirdOctet ? ` (releases /24 .${c.thirdOctet} back to the pool if it's the newest)` : ''}`}
+                          disabled={deleteConfig.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Delete ${c.identity} (${c.lanGateway}/${c.cidr})?\n\nIf this is the newest config for its brand the IP range will be released back to the pool.`)) {
+                              deleteConfig.mutate(c.id);
+                            }
+                          }}>
+                          <Trash2 size={12}/>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
