@@ -201,6 +201,7 @@ model Store {
   storePcs       StorePc[]
   backupJob      BackupJob?
   userAccess     UserStoreAccess[]
+  dvrs           Dvr[]
 }
 
 // ---------- Inventory ----------
