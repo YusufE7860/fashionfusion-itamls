@@ -107,7 +107,22 @@ export function Dvrs() {
       <PageHeader
         title="CCTV / DVRs"
         subtitle="Track and monitor Dahua & Hikvision DVRs at every store"
-        actions={<button className="btn-ghost" onClick={() => dvrs.refetch()}><RefreshCw size={13} />Refresh</button>}
+        actions={
+          <>
+            <button className="btn-ghost" onClick={() => dvrs.refetch()}><RefreshCw size={13} />Refresh</button>
+            {canWrite && (
+              <button className="btn-primary" onClick={() => {
+                // Open the form. If a store is filter-selected, pre-select it;
+                // otherwise force the user to pick a store in the form.
+                setEditingId(null);
+                setAddForStoreId(storeFilter || (stores.data?.[0]?.id ?? ''));
+                setForm({ ...emptyForm });
+              }}>
+                <Plus size={13} />Add DVR
+              </button>
+            )}
+          </>
+        }
       />
 
       {/* Filters */}
