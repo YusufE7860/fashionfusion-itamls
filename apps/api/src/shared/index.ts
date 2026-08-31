@@ -68,6 +68,11 @@ export const Permissions = {
   // HQ Departments
   DepartmentsRead: 'departments:read',
   DepartmentsManage: 'departments:manage',
+  // CCTV DVRs
+  DvrsRead: 'dvrs:read',       // scoped by UserStoreAccess unless DvrsReadAll
+  DvrsReadAll: 'dvrs:read:all', // bypass store filter (admins / IT team)
+  DvrsWrite: 'dvrs:write',
+  StoreAccessManage: 'store-access:manage',   // grant/revoke user store visibility
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

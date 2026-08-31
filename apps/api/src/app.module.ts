@@ -33,6 +33,7 @@ import { MikrotikModule } from './mikrotik/mikrotik.module';
 import { AgentsModule } from './agents/agents.module';
 import { PinPadsModule } from './pinpads/pinpads.module';
 import { DepartmentsModule } from './departments/departments.module';
+import { DvrsModule } from './dvrs/dvrs.module';
 import { JwtAuthGuard } from './common/guards/jwt.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
@@ -72,6 +73,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     AgentsModule,
     PinPadsModule,
     DepartmentsModule,
+    DvrsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

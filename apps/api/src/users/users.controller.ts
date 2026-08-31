@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
 import { CreateUserDto, UsersService } from './users.service';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Permissions } from '../shared';
@@ -50,4 +50,15 @@ export class UsersController {
   @Get('permissions')
   @RequirePermissions(Permissions.UsersManage)
   perms() { return this.users.listPermissions(); }
+
+  // ---- Per-user store access ----
+  @Get('users/:id/store-access')
+  @RequirePermissions(Permissions.StoreAccessManage)
+  listStoreAccess(@Param('id') id: string) { return this.users.listStoreAccess(id); }
+
+  @Post('users/:id/store-access')
+  @RequirePermissions(Permissions.StoreAccessManage)
+  setStoreAccess(@Param('id') id: string, @Body() body: { storeIds: string[] }, @Req() req: any) {
+    return this.users.setStoreAccess(id, body.storeIds ?? [], req.user?.sub);
+  }
 }

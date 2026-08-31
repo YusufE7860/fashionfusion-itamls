@@ -70,6 +70,11 @@ export const Permissions = {
   // HQ Departments
   DepartmentsRead: 'departments:read',
   DepartmentsManage: 'departments:manage',
+  // CCTV DVRs
+  DvrsRead: 'dvrs:read',
+  DvrsReadAll: 'dvrs:read:all',
+  DvrsWrite: 'dvrs:write',
+  StoreAccessManage: 'store-access:manage',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

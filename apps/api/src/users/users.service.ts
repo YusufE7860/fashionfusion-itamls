@@ -146,4 +146,37 @@ export class UsersService {
 
   listRoles() { return this.prisma.role.findMany({ orderBy: { code: 'asc' } }); }
   listPermissions() { return this.prisma.permission.findMany({ orderBy: { code: 'asc' } }); }
+
+  // ---------- Per-user store access ----------
+  async listStoreAccess(userId: string) {
+    const rows = await this.prisma.userStoreAccess.findMany({
+      where: { userId },
+      include: { store: { select: { id: true, code: true, name: true, region: true } } },
+    });
+    return rows.map((r) => ({ ...r.store, grantedAt: r.grantedAt, grantedBy: r.grantedBy }));
+  }
+
+  async setStoreAccess(userId: string, storeIds: string[], grantedBy?: string) {
+    // Replace-all semantics: whatever list you pass is now the definitive set.
+    const wanted = new Set(storeIds ?? []);
+    const existing = await this.prisma.userStoreAccess.findMany({
+      where: { userId }, select: { storeId: true },
+    });
+    const existingSet = new Set(existing.map((e) => e.storeId));
+    const toAdd = [...wanted].filter((s) => !existingSet.has(s));
+    const toRemove = [...existingSet].filter((s) => !wanted.has(s));
+
+    await this.prisma.$transaction([
+      ...(toRemove.length
+        ? [this.prisma.userStoreAccess.deleteMany({ where: { userId, storeId: { in: toRemove } } })]
+        : []),
+      ...(toAdd.length
+        ? [this.prisma.userStoreAccess.createMany({
+            data: toAdd.map((storeId) => ({ userId, storeId, grantedBy })),
+            skipDuplicates: true,
+          })]
+        : []),
+    ]);
+    return this.listStoreAccess(userId);
+  }
 }

@@ -58,6 +58,7 @@ const NAV: NavEntry[] = [
     { to: '/mikrotik',       label: 'MikroTik Configs' },
     { to: '/stores/agents',  label: 'PC Agent Enrollment' },
     { to: '/stores/pinpads', label: 'PIN Pads (Nedbank)' },
+    { to: '/stores/dvrs',    label: 'CCTV / DVRs' },
   ] },
 
   { kind: 'single', id: 'reports', label: 'Reports', icon: FileBarChart, to: '/reports' },

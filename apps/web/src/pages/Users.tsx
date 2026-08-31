@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
-import { ChevronDown, ChevronRight, Check, X, Minus, Plus, KeyRound, Power } from 'lucide-react';
+import { ChevronDown, ChevronRight, Check, X, Minus, Plus, KeyRound, Power, Store as StoreIcon } from 'lucide-react';
 import clsx from 'clsx';
 
 // Modules group the granular permissions for the UI
@@ -116,6 +116,7 @@ export function Users() {
 
 function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; open: boolean; onToggle: () => void }) {
   const qc = useQueryClient();
+  const [showStoreAccess, setShowStoreAccess] = useState(false);
   const detail = useQuery({
     queryKey: ['user', user.id, 'detail'],
     queryFn: () => api.get(`/users/${user.id}`).then((r) => r.data),
@@ -219,6 +220,9 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
                         }}>
                   <Power size={12}/>{user.isActive ? 'Disable user' : 'Enable user'}
                 </button>
+                <button className="btn-ghost" onClick={() => setShowStoreAccess(true)}>
+                  <StoreIcon size={12}/>Store access
+                </button>
                 <p className="w-full text-xs text-ink-300">
                   Changing role replaces the inherited permission set. Per-permission overrides still apply on top.
                 </p>
@@ -283,6 +287,125 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
           )}
         </div>
       )}
+
+      {showStoreAccess && (
+        <StoreAccessModal
+          userId={user.id}
+          userName={user.fullName}
+          onClose={() => setShowStoreAccess(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------- Per-user store access ----------
+function StoreAccessModal({ userId, userName, onClose }: { userId: string; userName: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const stores = useQuery({ queryKey: ['stores'], queryFn: () => api.get('/stores').then((r) => r.data) });
+  const access = useQuery({
+    queryKey: ['user', userId, 'store-access'],
+    queryFn: () => api.get(`/users/${userId}/store-access`).then((r) => r.data as Array<{ id: string }>),
+  });
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [q, setQ] = useState('');
+
+  useMemo(() => {
+    if (access.data) setSelected(new Set(access.data.map((s) => s.id)));
+  }, [access.data]);
+
+  const save = useMutation({
+    mutationFn: () => api.post(`/users/${userId}/store-access`, { storeIds: [...selected] }).then((r) => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['user', userId, 'store-access'] }); onClose(); },
+  });
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return (stores.data ?? []).filter((s: any) =>
+      !needle ||
+      s.code.toLowerCase().includes(needle) ||
+      s.name.toLowerCase().includes(needle) ||
+      (s.region ?? '').toLowerCase().includes(needle),
+    );
+  }, [stores.data, q]);
+
+  const byRegion = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const s of filtered) {
+      const key = s.region ?? '—';
+      const list = map.get(key) ?? [];
+      list.push(s); map.set(key, list);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filtered]);
+
+  function toggle(id: string) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelected(next);
+  }
+  function selectRegion(list: any[], on: boolean) {
+    const next = new Set(selected);
+    for (const s of list) on ? next.add(s.id) : next.delete(s.id);
+    setSelected(next);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl bg-white p-4 shadow-2xl">
+        <div className="mb-3 flex items-start justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-ink-50">Store access — {userName}</h3>
+            <p className="mt-1 text-xs text-ink-300">
+              Tick the stores this user should see (DVRs, and future store-scoped views). Administrators + IT Managers see everything regardless of this list.
+            </p>
+          </div>
+          <button className="btn-ghost" onClick={onClose}><X size={13} /></button>
+        </div>
+
+        <div className="mb-2 flex items-center gap-2">
+          <input className="field flex-1" placeholder="Search stores…" value={q}
+            onChange={(e) => setQ(e.target.value)} />
+          <span className="text-xs text-ink-300">{selected.size} selected</span>
+        </div>
+
+        <div className="mb-3 flex-1 overflow-y-auto">
+          {byRegion.map(([region, list]) => {
+            const allSelected = list.every((s) => selected.has(s.id));
+            return (
+              <div key={region} className="mb-3">
+                <div className="mb-1 flex items-center justify-between border-b border-ink-500/40 pb-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-300">{region} ({list.length})</div>
+                  <button className="text-[11px] text-brand-600 hover:underline"
+                    onClick={() => selectRegion(list, !allSelected)}>
+                    {allSelected ? 'Deselect region' : 'Select all in region'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 md:grid-cols-3">
+                  {list.map((s) => (
+                    <label key={s.id} className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-slate-50">
+                      <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} />
+                      <span className="font-mono text-ink-300">{s.code}</span>
+                      <span className="truncate">{s.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {byRegion.length === 0 && (
+            <div className="py-4 text-center text-xs text-ink-300">No stores match.</div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-ink-500/40 pt-3">
+          <button className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
+            {save.isPending ? 'Saving…' : 'Save access'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

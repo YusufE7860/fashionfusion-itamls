@@ -80,6 +80,7 @@ model User {
   prApproved     PurchaseRequest[] @relation("PrApprover")
 
   permissionOverrides UserPermissionOverride[]
+  storeAccess         UserStoreAccess[]
 }
 
 // ---------- Catalog / Master Data ----------
@@ -199,6 +200,7 @@ model Store {
   tonerOrderLines TonerOrderLine[]
   storePcs       StorePc[]
   backupJob      BackupJob?
+  userAccess     UserStoreAccess[]
 }
 
 // ---------- Inventory ----------
@@ -776,6 +778,51 @@ model EnrollmentToken {
 
   @@index([storeId])
   @@index([departmentId])
+}
+
+// ---------- Per-user store access (used by DVRs and other store-scoped views) ----------
+// Grant an Area Manager / Auditor / Loss-Prevention person visibility to
+// specific stores only. Anyone with the DvrsReadAll permission (typically
+// Administrator + IT Manager) bypasses this and sees everything.
+model UserStoreAccess {
+  userId    String
+  storeId   String
+  grantedAt DateTime @default(now())
+  grantedBy String?
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, storeId])
+  @@index([storeId])
+}
+
+// ---------- CCTV DVRs (Dahua / Hikvision) ----------
+// One row per DVR at a store. Credentials are stored in plain text so the
+// snapshot proxy can talk to the device; reads are gated by dvrs:read and
+// only the snapshot/web-launch endpoints ever expose them further.
+model Dvr {
+  id          String    @id @default(cuid())
+  storeId     String
+  name        String                              // "Front cameras", "Back office", etc.
+  brand       String                              // DAHUA | HIKVISION | OTHER
+  model       String?
+  serialNo    String?
+  ipAddress   String                              // reachable via store WireGuard/SSTP tunnel
+  httpPort    Int       @default(80)
+  rtspPort    Int       @default(554)
+  channels    Int       @default(4)
+  username    String    @default("admin")
+  password    String                              // required to fetch snapshots
+  notes       String?
+  lastSeenAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([brand])
 }
 
 // ---------- Nedbank Verifone PIN pads ----------

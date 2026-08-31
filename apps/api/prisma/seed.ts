@@ -27,6 +27,8 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.AgentsRead, Permissions.AgentsEnroll, Permissions.AgentsManage,
     Permissions.PinPadsRead, Permissions.PinPadsWrite,
     Permissions.DepartmentsRead, Permissions.DepartmentsManage,
+    Permissions.DvrsRead, Permissions.DvrsReadAll, Permissions.DvrsWrite,
+    Permissions.StoreAccessManage,
   ],
   [Roles.Technician]: [
     Permissions.CatalogRead,
@@ -44,11 +46,13 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.AgentsRead, Permissions.AgentsEnroll,
     Permissions.PinPadsRead, Permissions.PinPadsWrite,
     Permissions.DepartmentsRead,
+    Permissions.DvrsRead, Permissions.DvrsReadAll, Permissions.DvrsWrite,
   ],
   [Roles.StoreManager]: [
     Permissions.AssetsRead, Permissions.StockRead, Permissions.StoresRead,
     Permissions.ProcurementCreate, Permissions.WarrantiesRead, Permissions.IbtReceive,
     Permissions.TonerOrderReceive,
+    Permissions.DvrsRead,   // sees only their store(s) via UserStoreAccess
   ],
   [Roles.Finance]: [
     Permissions.CatalogRead, Permissions.AssetsRead, Permissions.StockRead,
@@ -60,6 +64,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.AssetsRead, Permissions.StockRead, Permissions.StoresRead, Permissions.StoresAudit,
     Permissions.RepairsRead, Permissions.WarrantiesRead, Permissions.ReportsRead,
     Permissions.ReportsExport, Permissions.AuditLogRead,
+    Permissions.DvrsRead,   // sees only stores they audit via UserStoreAccess
   ],
 };
 
