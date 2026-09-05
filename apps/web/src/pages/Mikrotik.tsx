@@ -38,7 +38,7 @@ const emptyForm = {
   wan1PppoeUser: '',
   wan1PppoePassword: '',
   wan2Type: 'DHCP' as 'DHCP' | 'PPPOE',
-  wan2Iface: 'ether5-WAN2',
+  wan2Iface: 'ether4-WAN2',
   wan2PppoeUser: '',
   wan2PppoePassword: '',
   ssid: '',

@@ -171,7 +171,9 @@ export class MikrotikService {
     const wan1Type  = dto.wan1Type  ?? 'DHCP';
     const wan2Type  = dto.wan2Type  ?? 'DHCP';
     const wan1Iface = dto.wan1Iface ?? 'ether1-WAN1';
-    const wan2Iface = dto.wan2Iface ?? 'ether5-WAN2';
+    // Default WAN2 = ether4 to match the FF standard port layout
+    // (ether1=WAN1, ether2/3=LAN, ether4=WAN2, ether5=LAN, wlan1=LAN).
+    const wan2Iface = dto.wan2Iface ?? 'ether4-WAN2';
 
     const wgListenPort      = dto.wgListenPort      ?? 51820;
     const wgHubPublicKey    = dto.wgHubPublicKey    ?? 'N3x2X1+bvBeKsWb790Tef92R9BS/Zaa8t3OMCX8NGGc=';
@@ -220,6 +222,30 @@ export class MikrotikService {
   }
 
   // ---------- Helpers ----------
+  /**
+   * Emit the /interface bridge port lines for the router. LAN ports = every
+   * physical ether port (ether2..ether5) that isn't one of the two chosen
+   * WAN uplinks. Derives the underlying ether name from either "etherN" or
+   * "etherN-WAN{n}" so switching WAN2 from ether5 to ether4 in the form
+   * always picks the right LAN set.
+   */
+  private bridgePortLines(wan1: string, wan2: string): string[] {
+    const wanRootEther = (name: string): string | null => {
+      const m = name.match(/^(ether\d+)(-WAN\d+)?$/i);
+      return m ? m[1].toLowerCase() : null;
+    };
+    const wanEthers = new Set([wanRootEther(wan1), wanRootEther(wan2)].filter(Boolean) as string[]);
+    // Only include ports that are actually present on typical hardware
+    // (ether2..ether5). ether1 is conventionally WAN1 -- if the operator ever
+    // picks it as LAN this loop still emits it correctly.
+    const candidates = ['ether2', 'ether3', 'ether4', 'ether5'];
+    const lanPorts = candidates.filter((p) => !wanEthers.has(p));
+    return lanPorts.flatMap((p) => [
+      `remove [find where interface=${p}]`,
+      `add bridge=bridge-lan interface=${p}`,
+    ]);
+  }
+
   /**
    * Emit /interface ethernet `set` lines to rename the factory ether ports to
    * whatever the operator picked in the form (default: ether1-WAN1 + ether5-WAN2).
@@ -296,6 +322,27 @@ export class MikrotikService {
       legRoutes(2, f.wan2Iface, f.wan2Type, `${f.lanGateway.replace(/\.\d+$/, '.100')}`),
     ].join('\n');
 
+    // ---- Post-generation validation (informational banner) ----
+    // Catches the kinds of foot-guns that broke earlier configs:
+    //   * WAN interface accidentally on the LAN bridge
+    //   * LAN port ended up in the WAN list
+    //   * WAN1 == WAN2 (typo)
+    // We emit warnings in the header comment rather than failing the
+    // generate outright, so the operator sees them before importing.
+    const warnings: string[] = [];
+    const wanRoot = (n: string) => (n.match(/^(ether\d+)/i) ?? [null, null])[1]?.toLowerCase();
+    const w1 = wanRoot(f.wan1Iface), w2 = wanRoot(f.wan2Iface);
+    if (w1 && w2 && w1 === w2) warnings.push(`WAN1 and WAN2 both resolve to ${w1} — pick different ports.`);
+    // Bridge ports come from bridgePortLines(); make sure neither WAN root is in that set
+    const bridgeLanCandidates = new Set(['ether2', 'ether3', 'ether4', 'ether5']);
+    for (const w of [w1, w2].filter(Boolean) as string[]) bridgeLanCandidates.delete(w);
+    if ([w1, w2].some((w) => w && !['ether1','ether2','ether3','ether4','ether5'].includes(w))) {
+      warnings.push(`WAN interface names outside ether1..ether5 detected — verify port mapping manually.`);
+    }
+    const warningsBlock = warnings.length
+      ? `# ⚠️  VALIDATION WARNINGS (review before applying):\n${warnings.map((w) => `#     - ${w}`).join('\n')}\n#\n`
+      : '';
+
     // Ensure wgTunnelIp has a mask; typical DC allocation is /32 on 172.31.254.x.
     // Empty string = the operator will fill it in later after the DC team
     // assigns one -- we emit a commented placeholder in the config.
@@ -307,6 +354,13 @@ export class MikrotikService {
     return `# Generated ${date} by ITAMLS MikroTik config generator
 # NEW STORE build for site: ${f.identity}  (brand: ${f.brand})
 # Built on the FF_Wonderpark_Mall gold-standard template.
+#
+# PORT LAYOUT (derived from the form):
+#   WAN1 = ${f.wan1Iface}          (${f.wan1Type})
+#   WAN2 = ${f.wan2Iface}          (${f.wan2Type})
+#   LAN  = every other ether + wlan1 (bridged as bridge-lan)
+#
+${warningsBlock}#
 #
 # MANUAL STEPS AFTER APPLYING:
 #   1. MSP must add the SSTP VDC tunnel (sstp1-vdc-tunnel) with the
@@ -402,14 +456,23 @@ remove [find where name=alt-wan2]
 add comment=";/ cfg-2606a0 /; Multiple uplinks - force via WAN 2" fib name=alt-wan2
 
 /interface bridge port
-remove [find where interface=ether2]
-add bridge=bridge-lan interface=ether2
-remove [find where interface=ether3]
-add bridge=bridge-lan interface=ether3
-remove [find where interface=ether5]
-add bridge=bridge-lan interface=ether5
+# LAN ports = every ether that ISN'T a WAN uplink. We derive this from
+# ${f.wan1Iface} / ${f.wan2Iface} so switching WAN2 from ether5 to ether4
+# in the form always yields the right mapping. Also removes any stale
+# bridge entries left behind on the WAN ports before we recreate.
+${this.bridgePortLines(f.wan1Iface, f.wan2Iface).join('\n')}
+# Belt-and-braces: strip the WAN ports out of the bridge if a prior run
+# accidentally left them there (safe no-op on a fresh router).
+/interface bridge port remove [find where interface=${f.wan1Iface}]
+/interface bridge port remove [find where interface=${f.wan2Iface}]
 # wlan1 bridge port — only if the router has a wireless module
 :if ([:len [/interface find where name=wlan1]] > 0) do={ /interface bridge port remove [find where interface=wlan1]; /interface bridge port add bridge=bridge-lan interface=wlan1 }
+
+# ---- Kill stale DHCP clients on ports no longer used as WAN ----
+# When the operator changed WAN2 from ether5 to ether4 (or vice versa),
+# an earlier import left a "stopped invalid" DHCP client bound to the
+# now-orphaned port. Remove any DHCP client that isn't on a current WAN.
+/ip dhcp-client remove [find where interface!=${f.wan1Iface} and interface!=${f.wan2Iface}]
 
 /ip firewall connection tracking
 set udp-timeout=10s
@@ -489,7 +552,14 @@ add action=accept chain=forward     comment=";/ cfg-2506a0 /;" connection-state=
 add action=accept chain=postrouting comment=";/ cfg-2506a0 /;" connection-state=untracked
 
 /ip firewall nat
-add action=masquerade chain=srcnat comment=";/ cfg-2606a0 /; Local outbound - masquerade" \\
+# LAN clients out to internet: masquerade the store's /24 explicitly.
+# src-address-type=local only matches traffic ORIGINATING on the router
+# itself, not client traffic being forwarded, so it silently broke LAN
+# internet on many builds. Using the concrete LAN subnet is bullet-proof.
+add action=masquerade chain=srcnat comment=";/ cfg-2606a0 /; LAN outbound internet" \\
+    src-address=${f.lanNetwork}/${f.cidr} out-interface-list=WAN
+# Also keep the router's own outbound masqueraded (backups, updates, etc)
+add action=masquerade chain=srcnat comment=";/ cfg-2606a0 /; Router-originated outbound" \\
     out-interface-list=WAN src-address-type=local
 
 /ip firewall raw
