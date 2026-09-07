@@ -437,6 +437,17 @@ remove [find where name=sstp-int-defaults]
 add change-tcp-mss=yes comment=";/ cfg-2506a0 /;" name=sstp-int-defaults only-one=yes \\
     use-encryption=required use-ipv6=no use-mpls=no use-upnp=no
 
+# ---- Pre-clean any objects the pasted RemoteWinbox block below will
+# ---- try to add. The block uses raw \`/ppp profile add\`,
+# ---- \`/interface sstp-client add\` and \`/user add\` with no existence
+# ---- check, so on a router that has been through this template before
+# ---- (or has RemoteWinbox already provisioned) the whole /import aborts
+# ---- at the first duplicate. This pre-clean makes the pasted block safe
+# ---- to re-run.
+/ppp profile remove [find where name="RWB_sstp_profile"]
+/interface sstp-client remove [find where name=RemoteWinboxVPN-ZA]
+/user remove [find where comment~"Remote Winbox user"]
+
 # ---- RemoteWinbox VPN (pasted verbatim per-site) ----
 ${f.remoteWinboxBlock}
 # ---- end RemoteWinbox block ----
