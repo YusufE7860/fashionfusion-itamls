@@ -30,7 +30,16 @@ type Config = {
   createdAt: string; configText?: string;
 };
 
-const emptyForm = {
+const emptyForm: {
+  brand: string; siteCode: string;
+  wan1Type: 'DHCP' | 'PPPOE'; wan1Iface: string; wan1PppoeUser: string; wan1PppoePassword: string;
+  wan2Type: 'DHCP' | 'PPPOE'; wan2Iface: string; wan2PppoeUser: string; wan2PppoePassword: string;
+  ssid: string; wpaPsk: string;
+  wgListenPort: number; wgHubPublicKey: string; wgHubEndpoint: string; wgHubEndpointPort: number;
+  wgTunnelIp: string; remoteWinboxBlock: string;
+  dhcpRangeStart: string; dhcpRangeEnd: string;
+  portCount: 4 | 5;
+} = {
   brand: 'FASHION_FUSION',
   siteCode: '',
   wan1Type: 'DHCP' as 'DHCP' | 'PPPOE',
@@ -51,6 +60,7 @@ const emptyForm = {
   remoteWinboxBlock: '',
   dhcpRangeStart: '',
   dhcpRangeEnd: '',
+  portCount: 5,
 };
 
 export function Mikrotik() {
@@ -249,6 +259,38 @@ export function Mikrotik() {
               onChange={(e) => setForm({ ...form, wgTunnelIp: e.target.value })} />
             <p className="mt-1 text-[11px] text-ink-300">
               Leave blank if the DC team hasn't assigned one yet — the generator will output a commented placeholder for you to fill in later.
+            </p>
+          </div>
+
+          {/* MikroTik hardware selector */}
+          <div className="md:col-span-3">
+            <label className="label">MikroTik hardware</label>
+            <div className="inline-flex rounded-lg border border-ink-500 p-1">
+              <button type="button"
+                className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  form.portCount === 5 ? 'bg-brand-500 text-white' : 'text-ink-200 hover:bg-ink-600'
+                }`}
+                onClick={() => setForm({ ...form, portCount: 5,
+                  // Reset LAN-side WAN2 default when switching to 5-port
+                  wan2Iface: form.wan2Iface === 'ether5-WAN2' ? 'ether5-WAN2' : 'ether4-WAN2',
+                })}>
+                5-port (hAP ac³, RB4011, etc)
+              </button>
+              <button type="button"
+                className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  form.portCount === 4 ? 'bg-brand-500 text-white' : 'text-ink-200 hover:bg-ink-600'
+                }`}
+                onClick={() => setForm({ ...form, portCount: 4,
+                  // On a 4-port model, ether5 doesn't exist -- force WAN2 to ether4
+                  wan2Iface: 'ether4-WAN2',
+                })}>
+                4-port (hAP ac, RB750Gr3, etc)
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-ink-300">
+              {form.portCount === 5
+                ? 'LAN ports: whatever ether2–5 aren’t used as WAN, plus wlan1 if the router has it.'
+                : 'This router has ether1–ether4 only. WAN2 will be forced to ether4; LAN gets ether2–3 (+ wlan1 on hAP ac).'}
             </p>
           </div>
 

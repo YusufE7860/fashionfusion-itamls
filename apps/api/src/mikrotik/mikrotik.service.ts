@@ -39,6 +39,7 @@ export interface GenerateDto {
   wan1PppoePassword?: string;
   wan2Type?: 'DHCP' | 'PPPOE';
   wan2Iface?: string;
+  portCount?: 4 | 5;             // MikroTik model port count (default 5)
   wan2PppoeUser?: string;
   wan2PppoePassword?: string;
   ssid: string;
@@ -179,6 +180,7 @@ export class MikrotikService {
     const wgHubPublicKey    = dto.wgHubPublicKey    ?? 'N3x2X1+bvBeKsWb790Tef92R9BS/Zaa8t3OMCX8NGGc=';
     const wgHubEndpoint     = dto.wgHubEndpoint     ?? '160.119.193.152';
     const wgHubEndpointPort = dto.wgHubEndpointPort ?? 443;
+    const portCount: 4 | 5  = (dto.portCount === 4) ? 4 : 5;
 
     const configText = this.render({
       identity, siteCode: dto.siteCode, brand: pool.displayName,
@@ -190,6 +192,7 @@ export class MikrotikService {
       wgListenPort, wgHubPublicKey, wgHubEndpoint, wgHubEndpointPort,
       wgTunnelIp: dto.wgTunnelIp?.trim() || '',
       remoteWinboxBlock: dto.remoteWinboxBlock.trim(),
+      portCount,
     });
 
     // Persist + bump the pool in one transaction.
@@ -229,21 +232,27 @@ export class MikrotikService {
    * "etherN-WAN{n}" so switching WAN2 from ether5 to ether4 in the form
    * always picks the right LAN set.
    */
-  private bridgePortLines(wan1: string, wan2: string): string[] {
+  private bridgePortLines(wan1: string, wan2: string, portCount: 4 | 5): string[] {
     const wanRootEther = (name: string): string | null => {
       const m = name.match(/^(ether\d+)(-WAN\d+)?$/i);
       return m ? m[1].toLowerCase() : null;
     };
     const wanEthers = new Set([wanRootEther(wan1), wanRootEther(wan2)].filter(Boolean) as string[]);
-    // Only include ports that are actually present on typical hardware
-    // (ether2..ether5). ether1 is conventionally WAN1 -- if the operator ever
-    // picks it as LAN this loop still emits it correctly.
-    const candidates = ['ether2', 'ether3', 'ether4', 'ether5'];
+    // Only enumerate the physical ports this hardware actually has.
+    // 4-port models (hAP ac, RB750Gr3) have ether1..ether4; 5-port models
+    // (hAP ac³, RB4011 etc) have ether1..ether5 (RB4011 has 10 but ether6+
+    // are traditionally trunked/switched and not touched by this template).
+    const candidates = portCount === 4
+      ? ['ether2', 'ether3', 'ether4']
+      : ['ether2', 'ether3', 'ether4', 'ether5'];
     const lanPorts = candidates.filter((p) => !wanEthers.has(p));
-    return lanPorts.flatMap((p) => [
-      `remove [find where interface=${p}]`,
-      `add bridge=bridge-lan interface=${p}`,
-    ]);
+    // :if guards for extra safety even when portCount matches -- catches
+    // unusual firmware that renames ports differently.
+    return lanPorts.map((p) =>
+      `:if ([:len [/interface find where name=${p}]] > 0) do={ ` +
+      `/interface bridge port remove [find where interface=${p}]; ` +
+      `/interface bridge port add bridge=bridge-lan interface=${p} }`
+    );
   }
 
   /**
@@ -280,6 +289,7 @@ export class MikrotikService {
     dhcpRangeStart: string; dhcpRangeEnd: string;
     wgListenPort: number; wgHubPublicKey: string; wgHubEndpoint: string; wgHubEndpointPort: number;
     wgTunnelIp: string; remoteWinboxBlock: string;
+    portCount: 4 | 5;
   }): string {
     const date = new Date().toISOString().slice(0, 10);
     const wgTunnelName = 'wireguard1-vdc-tunnel';
@@ -355,10 +365,11 @@ export class MikrotikService {
 # NEW STORE build for site: ${f.identity}  (brand: ${f.brand})
 # Built on the FF_Wonderpark_Mall gold-standard template.
 #
+# TARGET HARDWARE: ${f.portCount}-port MikroTik
 # PORT LAYOUT (derived from the form):
 #   WAN1 = ${f.wan1Iface}          (${f.wan1Type})
 #   WAN2 = ${f.wan2Iface}          (${f.wan2Type})
-#   LAN  = every other ether + wlan1 (bridged as bridge-lan)
+#   LAN  = every other ether (of ether2..ether${f.portCount}) + wlan1
 #
 ${warningsBlock}#
 #
@@ -471,11 +482,12 @@ add comment=";/ cfg-2606a0 /; Multiple uplinks - force via WAN 2" fib name=alt-w
 # ${f.wan1Iface} / ${f.wan2Iface} so switching WAN2 from ether5 to ether4
 # in the form always yields the right mapping. Also removes any stale
 # bridge entries left behind on the WAN ports before we recreate.
-${this.bridgePortLines(f.wan1Iface, f.wan2Iface).join('\n')}
+${this.bridgePortLines(f.wan1Iface, f.wan2Iface, f.portCount).join('\n')}
 # Belt-and-braces: strip the WAN ports out of the bridge if a prior run
-# accidentally left them there (safe no-op on a fresh router).
-/interface bridge port remove [find where interface=${f.wan1Iface}]
-/interface bridge port remove [find where interface=${f.wan2Iface}]
+# accidentally left them there (safe no-op on a fresh router). Guarded
+# with :if so it doesn't error on models that lack the port entirely.
+:if ([:len [/interface find where name=${f.wan1Iface}]] > 0) do={ /interface bridge port remove [find where interface=${f.wan1Iface}] }
+:if ([:len [/interface find where name=${f.wan2Iface}]] > 0) do={ /interface bridge port remove [find where interface=${f.wan2Iface}] }
 # wlan1 bridge port — only if the router has a wireless module
 :if ([:len [/interface find where name=wlan1]] > 0) do={ /interface bridge port remove [find where interface=wlan1]; /interface bridge port add bridge=bridge-lan interface=wlan1 }
 
@@ -483,7 +495,10 @@ ${this.bridgePortLines(f.wan1Iface, f.wan2Iface).join('\n')}
 # When the operator changed WAN2 from ether5 to ether4 (or vice versa),
 # an earlier import left a "stopped invalid" DHCP client bound to the
 # now-orphaned port. Remove any DHCP client that isn't on a current WAN.
-/ip dhcp-client remove [find where interface!=${f.wan1Iface} and interface!=${f.wan2Iface}]
+:foreach c in=[/ip dhcp-client find] do={
+  :local ifn [/ip dhcp-client get $c interface];
+  :if ($ifn != "${f.wan1Iface}" and $ifn != "${f.wan2Iface}") do={ /ip dhcp-client remove $c }
+}
 
 /ip firewall connection tracking
 set udp-timeout=10s
