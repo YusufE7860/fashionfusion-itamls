@@ -13,8 +13,16 @@
 
 # ---- HTTPS :WEB_PORT (default 41235) ----
 # The real app. Caddy auto-provisions + auto-renews the TLS cert for
-# APP_FQDN using the HTTP-01 challenge on port 80.
+# APP_FQDN using the HTTP-01 challenge on port 80. We disable TLS-ALPN-01
+# explicitly because we haven't opened port 443 externally, and the failed
+# ALPN attempt would otherwise spam the log every renewal.
 {$APP_FQDN}:{$WEB_PORT} {
+	tls {
+		issuer acme {
+			disable_tlsalpn_challenge
+		}
+	}
+
 	# Allow 32 MB uploads (invoices, decommission certs, backup manifests, etc)
 	request_body {
 		max_size 32MB
