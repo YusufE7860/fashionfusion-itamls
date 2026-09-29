@@ -1,0 +1,70 @@
+{
+	# Cert issuance email — shown in Let's Encrypt notifications
+	email {$ACME_EMAIL}
+}
+
+# ---- HTTP :80 ----
+# Only used for Let's Encrypt HTTP-01 challenges + redirect to HTTPS.
+# Caddy answers /.well-known/acme-challenge/... automatically here,
+# and 301-redirects everything else to the real HTTPS URL on WEB_PORT.
+:80 {
+	# ACME challenge is handled by Caddy automatically; the redirect below
+	# doesn't interfere with it.
+	redir https://{$APP_FQDN}:{$WEB_PORT}{uri} permanent
+}
+
+# ---- HTTPS :WEB_PORT (default 41235) ----
+# The real app. Caddy auto-provisions + auto-renews the TLS cert for
+# APP_FQDN using the HTTP-01 challenge on port 80.
+{$APP_FQDN}:{$WEB_PORT} {
+	# --- API traffic goes to the Nest container ---
+	# We match /api/* and forward to the api container on its internal port
+	# 4000. The web container (nginx) also has a matching /api rule and
+	# would work if we forwarded everything there, but going straight to
+	# api avoids an extra hop.
+	handle /api/* {
+		reverse_proxy api:4000 {
+			# Preserve original client info for the API's activity log
+			header_up Host              {host}
+			header_up X-Real-IP         {remote_host}
+			header_up X-Forwarded-For   {remote_host}
+			header_up X-Forwarded-Proto https
+			# Same 32MB upload cap the old nginx.conf used (invoices etc)
+			request_body {
+				max_size 32MB
+			}
+			transport http {
+				read_timeout  120s
+				write_timeout 120s
+			}
+		}
+	}
+
+	# --- Everything else goes to the SPA served by the web container ---
+	handle {
+		reverse_proxy web:80 {
+			header_up Host              {host}
+			header_up X-Real-IP         {remote_host}
+			header_up X-Forwarded-For   {remote_host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# Security headers
+	header {
+		# Force HTTPS for a year (only clients that already trust the cert)
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Basic anti-clickjacking / MIME-sniffing
+		X-Frame-Options            "SAMEORIGIN"
+		X-Content-Type-Options     "nosniff"
+		Referrer-Policy            "strict-origin-when-cross-origin"
+		# Don't leak the Caddy version
+		-Server
+	}
+
+	# Log to stdout (visible via docker logs itamls_caddy)
+	log {
+		output stdout
+		format console
+	}
+}

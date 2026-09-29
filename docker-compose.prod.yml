@@ -86,10 +86,40 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    # No public ports -- Caddy is the only thing exposed to the internet.
+    expose:
+      - "80"
+
+  # Reverse proxy + automatic TLS via Let's Encrypt.
+  # Listens on:
+  #   80          -- HTTP-01 ACME challenge only, then 301 redirect to HTTPS
+  #   ${WEB_PORT} -- the actual app on HTTPS (matches the external URL:
+  #                  https://it.ffgsa.co.za:41235)
+  # Router NAT on the ITAMLS server's uplink needs to forward both public 80
+  # and public ${WEB_PORT} to the server. Port 80 is required (even briefly)
+  # for Let's Encrypt to issue and renew certs via the HTTP-01 challenge.
+  caddy:
+    image: caddy:2-alpine
+    container_name: itamls_caddy
+    restart: unless-stopped
+    depends_on:
+      - web
+      - api
     ports:
-      - "${WEB_PORT:-80}:80"
+      - "80:80"
+      - "${WEB_PORT:-41235}:${WEB_PORT:-41235}"
+    environment:
+      APP_FQDN:  ${APP_FQDN:-it.ffgsa.co.za}
+      WEB_PORT:  ${WEB_PORT:-41235}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@ffgsa.co.za}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   postgres_data:
   minio_data:
   redis_data:
+  caddy_data:
+  caddy_config:
