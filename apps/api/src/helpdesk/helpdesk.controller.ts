@@ -1,10 +1,15 @@
-import { Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Controller, Get, Post, Query } from '@nestjs/common';
 import { HelpdeskService } from './helpdesk.service';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Permissions } from '../shared';
 
-@Controller('helpdesk')
-export class HelpdeskController {
+/**
+ * LEGACY: external-helpdesk integration (Kaseya / Freshdesk sync).
+ * The native ticket system lives at HelpdeskController in ./tickets.controller.
+ * This lives under /helpdesk/external to avoid path collisions.
+ */
+@Controller('helpdesk/external')
+export class HelpdeskExternalController {
   constructor(private svc: HelpdeskService) {}
 
   @Get('tickets')

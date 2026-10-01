@@ -73,6 +73,13 @@ export const Permissions = {
   DvrsReadAll: 'dvrs:read:all', // bypass store filter (admins / IT team)
   DvrsWrite: 'dvrs:write',
   StoreAccessManage: 'store-access:manage',   // grant/revoke user store visibility
+  // Helpdesk
+  TicketsRead: 'tickets:read',                // scoped by UserStoreAccess unless TicketsReadAll
+  TicketsReadAll: 'tickets:read:all',         // full queue (IT)
+  TicketsWrite: 'tickets:write',              // create + comment on own; edit own if not yet worked
+  TicketsAssign: 'tickets:assign',            // assign / reassign / close
+  TicketsManageCategories: 'tickets:manage:categories',
+  TicketsReports: 'tickets:reports',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

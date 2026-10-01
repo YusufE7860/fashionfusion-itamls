@@ -40,6 +40,11 @@ import { PinPads } from './pages/PinPads';
 import { HqAssets } from './pages/HqAssets';
 import { Departments } from './pages/Departments';
 import { Dvrs } from './pages/Dvrs';
+import { HelpdeskQueue } from './pages/HelpdeskQueue';
+import { HelpdeskNew } from './pages/HelpdeskNew';
+import { HelpdeskDetail } from './pages/HelpdeskDetail';
+import { HelpdeskReports } from './pages/HelpdeskReports';
+import { HelpdeskAdmin } from './pages/HelpdeskAdmin';
 import { useAuth } from './store/auth';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -102,6 +107,11 @@ export function App() {
         <Route path="admin/departments" element={<Departments />} />
         <Route path="hq/departments"    element={<Departments />} />
         <Route path="stores/dvrs"       element={<Dvrs />} />
+        <Route path="helpdesk"                element={<HelpdeskQueue />} />
+        <Route path="helpdesk/new"            element={<HelpdeskNew />} />
+        <Route path="helpdesk/tickets/:id"    element={<HelpdeskDetail />} />
+        <Route path="helpdesk/reports"        element={<HelpdeskReports />} />
+        <Route path="helpdesk/admin"          element={<HelpdeskAdmin />} />
       </Route>
     </Routes>
   );

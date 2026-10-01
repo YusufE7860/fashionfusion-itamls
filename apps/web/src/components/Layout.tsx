@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Boxes, Store, Truck, ShieldCheck, LogOut, Wrench,
-  FileBarChart, Bell, Printer, ChevronDown, Package, MonitorSmartphone, Building2,
+  FileBarChart, Bell, Printer, ChevronDown, Package, MonitorSmartphone, Building2, LifeBuoy,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/store/auth';
@@ -42,6 +42,13 @@ const NAV: NavEntry[] = [
   { kind: 'group', id: 'service', label: 'Service', icon: Wrench, items: [
     { to: '/repairs',    label: 'Repairs' },
     { to: '/warranties', label: 'Warranties' },
+  ] },
+
+  { kind: 'group', id: 'helpdesk', label: 'Helpdesk', icon: LifeBuoy, items: [
+    { to: '/helpdesk',         label: 'Queue' },
+    { to: '/helpdesk/new',     label: 'Log a call' },
+    { to: '/helpdesk/reports', label: 'Reports' },
+    { to: '/helpdesk/admin',   label: 'Configuration' },
   ] },
 
   { kind: 'group', id: 'toner', label: 'Toner', icon: Printer, items: [

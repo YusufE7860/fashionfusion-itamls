@@ -81,6 +81,14 @@ model User {
 
   permissionOverrides UserPermissionOverride[]
   storeAccess         UserStoreAccess[]
+
+  // Helpdesk relations
+  ticketsReported       Ticket[]           @relation("TicketReporter")
+  ticketsAssigned       Ticket[]           @relation("TicketAssignedTo")
+  ticketComments        TicketComment[]    @relation("TicketCommentAuthor")
+  ticketEvents          TicketEvent[]      @relation("TicketEventActor")
+  ticketAttachments     TicketAttachment[] @relation("TicketAttachmentUploader")
+  categoriesDefaultFor  TicketCategory[]   @relation("CategoryDefaultAssignee")
 }
 
 // ---------- Catalog / Master Data ----------
@@ -202,6 +210,7 @@ model Store {
   backupJob      BackupJob?
   userAccess     UserStoreAccess[]
   dvrs           Dvr[]
+  tickets        Ticket[]
 }
 
 // ---------- Inventory ----------
@@ -245,6 +254,7 @@ model Asset {
   history  AssetHistory[]
   repairs  Repair[]
   ibtLines IbtLine[]
+  tickets  Ticket[]
 }
 
 // ---------- HQ departments ----------
@@ -261,7 +271,8 @@ model Department {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  assets Asset[]
+  assets  Asset[]
+  tickets Ticket[]
 }
 
 model AssetHistory {
@@ -729,6 +740,155 @@ model TonerOrderLine {
   tonerType  TonerType  @relation(fields: [tonerTypeId], references: [id])
 
   @@unique([orderId, storeId, tonerTypeId])
+}
+
+// ==========================================================================
+// Native Helpdesk / Ticketing
+// ==========================================================================
+// Store staff (StoreManager) log tickets against their store; IT queue works
+// them. Store-scoped visibility for non-IT users. Full audit trail via
+// TicketEvent, comment thread via TicketComment, SLA on Ticket itself.
+
+model Ticket {
+  id            String   @id @default(cuid())
+  code          String   @unique                  // human-readable: FF-2610-0001
+  subject       String
+  description   String                              // markdown allowed
+  status        String   @default("NEW")           // NEW | ASSIGNED | IN_PROGRESS | WAITING_ON_USER | RESOLVED | CLOSED | REOPENED
+  priority      String   @default("P3")            // P1 (critical) - P4 (low)
+  source        String   @default("APP")           // APP | EMAIL | PHONE | AGENT
+
+  // Who / where
+  reporterId    String                              // the user who logged it
+  storeId       String?                             // where it happened (nullable for HQ tickets)
+  departmentId  String?                             // HQ tickets
+  assetId       String?                             // affected asset (optional)
+  assignedToId  String?                             // IT user working on it
+  categoryId    String
+
+  // SLA tracking
+  slaPolicyId       String?
+  slaFirstResponseBy DateTime?
+  slaResolveBy       DateTime?
+  firstResponseAt    DateTime?
+  resolvedAt         DateTime?
+  closedAt           DateTime?
+  reopenedAt         DateTime?
+  slaBreachedResponse Boolean @default(false)
+  slaBreachedResolve  Boolean @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reporter    User    @relation("TicketReporter",   fields: [reporterId],   references: [id])
+  assignedTo  User?   @relation("TicketAssignedTo", fields: [assignedToId], references: [id])
+  store       Store?  @relation(fields: [storeId], references: [id])
+  department  Department? @relation(fields: [departmentId], references: [id])
+  asset       Asset?  @relation(fields: [assetId], references: [id])
+  category    TicketCategory @relation(fields: [categoryId], references: [id])
+  slaPolicy   SlaPolicy?     @relation(fields: [slaPolicyId], references: [id])
+
+  comments    TicketComment[]
+  events      TicketEvent[]
+  attachments TicketAttachment[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([storeId])
+  @@index([departmentId])
+  @@index([assignedToId])
+  @@index([reporterId])
+  @@index([categoryId])
+  @@index([createdAt])
+}
+
+model TicketCategory {
+  id                 String   @id @default(cuid())
+  code               String   @unique              // POS, NET, PERIPH, SW, ACCT, MISC
+  name               String
+  description        String?
+  defaultPriority    String   @default("P3")
+  defaultAssigneeId  String?                        // auto-assign new tickets here
+  slaPolicyId        String?                        // default SLA for this category
+  sortOrder          Int      @default(100)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  defaultAssignee User?      @relation("CategoryDefaultAssignee", fields: [defaultAssigneeId], references: [id])
+  slaPolicy       SlaPolicy? @relation(fields: [slaPolicyId], references: [id])
+  tickets         Ticket[]
+}
+
+model SlaPolicy {
+  id                     String   @id @default(cuid())
+  code                   String   @unique         // DEFAULT, VIP, AFTER_HOURS, etc.
+  name                   String
+  description            String?
+  // Response = time from creation until first tech comment / assignment ack
+  // Resolve  = time from creation until status = RESOLVED
+  // Stored per-priority in minutes
+  p1FirstResponseMinutes Int      @default(60)
+  p1ResolveMinutes       Int      @default(240)   // 4h
+  p2FirstResponseMinutes Int      @default(240)   // 4h
+  p2ResolveMinutes       Int      @default(1440)  // 24h
+  p3FirstResponseMinutes Int      @default(480)   // 8h
+  p3ResolveMinutes       Int      @default(2880)  // 48h
+  p4FirstResponseMinutes Int      @default(1440)  // 24h
+  p4ResolveMinutes       Int      @default(7200)  // 5d
+  businessHoursOnly      Boolean  @default(false) // if true, only count 08:00-17:00 M-F
+  isDefault              Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  categories TicketCategory[]
+  tickets    Ticket[]
+}
+
+model TicketComment {
+  id         String   @id @default(cuid())
+  ticketId   String
+  authorId   String
+  body       String
+  isInternal Boolean  @default(false)              // hidden from reporter
+  createdAt  DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User   @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([ticketId])
+}
+
+model TicketEvent {
+  id         String   @id @default(cuid())
+  ticketId   String
+  actorId    String?
+  eventType  String                                 // CREATED | ASSIGNED | STATUS_CHANGED | PRIORITY_CHANGED | CATEGORY_CHANGED | COMMENT_ADDED | ATTACHMENT_ADDED | SLA_BREACHED | REOPENED | CLOSED
+  fromValue  String?
+  toValue    String?
+  notes      String?
+  occurredAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actor  User?  @relation("TicketEventActor", fields: [actorId], references: [id])
+
+  @@index([ticketId, occurredAt])
+}
+
+model TicketAttachment {
+  id           String   @id @default(cuid())
+  ticketId     String
+  uploadedById String
+  filename     String
+  storageKey   String                                // MinIO object key
+  sizeBytes    Int
+  contentType  String?
+  createdAt    DateTime @default(now())
+
+  ticket     Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  uploadedBy User   @relation("TicketAttachmentUploader", fields: [uploadedById], references: [id])
+
+  @@index([ticketId])
 }
 
 model HelpdeskLink {

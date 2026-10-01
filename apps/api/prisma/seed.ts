@@ -29,6 +29,8 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.DepartmentsRead, Permissions.DepartmentsManage,
     Permissions.DvrsRead, Permissions.DvrsReadAll, Permissions.DvrsWrite,
     Permissions.StoreAccessManage,
+    Permissions.TicketsRead, Permissions.TicketsReadAll, Permissions.TicketsWrite,
+    Permissions.TicketsAssign, Permissions.TicketsManageCategories, Permissions.TicketsReports,
   ],
   [Roles.Technician]: [
     Permissions.CatalogRead,
@@ -47,12 +49,15 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.PinPadsRead, Permissions.PinPadsWrite,
     Permissions.DepartmentsRead,
     Permissions.DvrsRead, Permissions.DvrsReadAll, Permissions.DvrsWrite,
+    Permissions.TicketsRead, Permissions.TicketsReadAll,
+    Permissions.TicketsWrite, Permissions.TicketsAssign, Permissions.TicketsReports,
   ],
   [Roles.StoreManager]: [
     Permissions.AssetsRead, Permissions.StockRead, Permissions.StoresRead,
     Permissions.ProcurementCreate, Permissions.WarrantiesRead, Permissions.IbtReceive,
     Permissions.TonerOrderReceive,
     Permissions.DvrsRead,   // sees only their store(s) via UserStoreAccess
+    Permissions.TicketsRead, Permissions.TicketsWrite,  // log calls + see own store's queue
   ],
   [Roles.Finance]: [
     Permissions.CatalogRead, Permissions.AssetsRead, Permissions.StockRead,
@@ -65,6 +70,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.RepairsRead, Permissions.WarrantiesRead, Permissions.ReportsRead,
     Permissions.ReportsExport, Permissions.AuditLogRead,
     Permissions.DvrsRead,   // sees only stores they audit via UserStoreAccess
+    Permissions.TicketsRead, Permissions.TicketsReports,   // read-only visibility for their stores
   ],
 };
 
@@ -333,6 +339,44 @@ async function main() {
       where: { brand: p.brand },
       update: { displayName: p.displayName, identityPrefix: p.identityPrefix, ipPrefix: p.ipPrefix },
       create: { ...p, cidr: 23 },
+    });
+  }
+
+  // ---------- Helpdesk defaults ----------
+  // One default SLA policy the shop starts with; can be edited or new ones
+  // added in Admin > Helpdesk > SLA Policies.
+  const defaultSla = await prisma.slaPolicy.upsert({
+    where: { code: 'DEFAULT' },
+    update: {},
+    create: {
+      code: 'DEFAULT',
+      name: 'Default SLA',
+      description: 'Standard retail-support timings — override per category if needed.',
+      p1FirstResponseMinutes: 60,    p1ResolveMinutes: 240,     // 1h / 4h
+      p2FirstResponseMinutes: 240,   p2ResolveMinutes: 1440,    // 4h / 24h
+      p3FirstResponseMinutes: 480,   p3ResolveMinutes: 2880,    // 8h / 48h
+      p4FirstResponseMinutes: 1440,  p4ResolveMinutes: 7200,    // 24h / 5d
+      businessHoursOnly: false,
+      isDefault: true,
+    },
+  });
+
+  // Default categories — cover typical retail-IT support work.
+  const categories = [
+    { code: 'POS',    name: 'POS / Till',            defaultPriority: 'P1', sortOrder: 10 },
+    { code: 'NET',    name: 'Network / Connectivity', defaultPriority: 'P2', sortOrder: 20 },
+    { code: 'PERIPH', name: 'Peripheral / Hardware',  defaultPriority: 'P3', sortOrder: 30 },
+    { code: 'CCTV',   name: 'CCTV / DVR',             defaultPriority: 'P3', sortOrder: 40 },
+    { code: 'SW',     name: 'Software / Apps',        defaultPriority: 'P3', sortOrder: 50 },
+    { code: 'ACCT',   name: 'Account / Access',       defaultPriority: 'P3', sortOrder: 60 },
+    { code: 'REQ',    name: 'IT Request',             defaultPriority: 'P4', sortOrder: 70 },
+    { code: 'MISC',   name: 'Other / Miscellaneous',  defaultPriority: 'P4', sortOrder: 99 },
+  ];
+  for (const c of categories) {
+    await prisma.ticketCategory.upsert({
+      where: { code: c.code },
+      update: { name: c.name, sortOrder: c.sortOrder },
+      create: { ...c, slaPolicyId: defaultSla.id },
     });
   }
 

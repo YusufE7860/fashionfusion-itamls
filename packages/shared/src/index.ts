@@ -75,6 +75,13 @@ export const Permissions = {
   DvrsReadAll: 'dvrs:read:all',
   DvrsWrite: 'dvrs:write',
   StoreAccessManage: 'store-access:manage',
+  // Helpdesk
+  TicketsRead: 'tickets:read',
+  TicketsReadAll: 'tickets:read:all',
+  TicketsWrite: 'tickets:write',
+  TicketsAssign: 'tickets:assign',
+  TicketsManageCategories: 'tickets:manage:categories',
+  TicketsReports: 'tickets:reports',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 
