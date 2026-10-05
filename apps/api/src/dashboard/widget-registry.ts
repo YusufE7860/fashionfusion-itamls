@@ -259,16 +259,19 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
       // StockLevel + Sku.reorderLevel approach — if your schema differs, adjust here.
       // We fall back to zero-count SKUs if minimum stock isn't defined.
       try {
-        const skus = await prisma.sku.findMany({
+        const p = prisma as any;
+        const skus = await p.sku.findMany({
           where: { reorderLevel: { gt: 0 } },
           select: { id: true, code: true, name: true, reorderLevel: true },
           take: 100,
         }).catch(() => [] as any[]);
-        const levels = await prisma.stockLevel.groupBy({
-          by: ['skuId'],
-          _sum: { quantity: true },
-          where: { skuId: { in: skus.map((s: any) => s.id) } },
-        }).catch(() => [] as any[]);
+        const levels = await (p.stockLevel?.groupBy
+          ? p.stockLevel.groupBy({
+              by: ['skuId'],
+              _sum: { quantity: true },
+              where: { skuId: { in: skus.map((s: any) => s.id) } },
+            })
+          : Promise.resolve([] as any[])).catch(() => [] as any[]);
         const bySku = new Map(levels.map((l: any) => [l.skuId, l._sum.quantity ?? 0]));
         const items = skus
           .map((s: any) => ({ ...s, qty: bySku.get(s.id) ?? 0 }))
@@ -292,9 +295,8 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     defaultWidth: 'L',
     fetch: async ({ prisma }) => {
       try {
-        const stores = await prisma.store.findMany({
+        const stores = await (prisma as any).store.findMany({
           select: { id: true, code: true, name: true },
-          where: { isActive: true },
           orderBy: { code: 'asc' },
           take: 100,
         });
@@ -316,7 +318,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     defaultWidth: 'S',
     fetch: async ({ prisma }) => {
       try {
-        const total = await prisma.dvr.count();
+        const total = await (prisma as any).dvr.count();
         return { value: total, sub: 'DVRs tracked', intent: 'ok' };
       } catch { return { value: 0 }; }
     },
@@ -331,9 +333,13 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     defaultWidth: 'S',
     fetch: async ({ prisma }) => {
       try {
-        const total = await prisma.agentPc.count();
+        const p = prisma as any;
+        // Prisma model name varies by project (agentPc / pc / enrolledPc) — try common ones
+        const model = p.agentPc ?? p.pc ?? p.enrolledPc;
+        if (!model) return { value: 0, sub: 'agents model not found' };
+        const total = await model.count();
         const since = new Date(Date.now() - 3_600_000);
-        const online = await prisma.agentPc.count({ where: { lastSeenAt: { gte: since } } });
+        const online = await model.count({ where: { lastSeenAt: { gte: since } } });
         return { value: `${online}/${total}`, sub: 'online now', intent: online < total ? 'warning' : 'ok' };
       } catch { return { value: 0 }; }
     },
@@ -348,7 +354,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     defaultWidth: 'S',
     fetch: async ({ prisma }) => {
       try {
-        const value = await prisma.pinPad.count({ where: { status: 'IN_TRANSIT' } });
+        const value = await (prisma as any).pinPad.count({ where: { status: 'IN_TRANSIT' } });
         return { value, sub: 'awaiting confirmation' };
       } catch { return { value: 0 }; }
     },
