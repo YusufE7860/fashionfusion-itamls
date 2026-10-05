@@ -42,11 +42,11 @@ export async function pop3FetchAll(cfg: Pop3Config): Promise<{ messages: Pop3Mes
   // Server greeting
   await readReply();
 
-  await write(`USER ${cfg.user}`); await readReply(true);
-  await write(`PASS ${cfg.pass}`); await readReply(true);
+  await write(`USER ${cfg.user}`); await readReply();
+  await write(`PASS ${cfg.pass}`); await readReply();
 
   // How many messages?
-  await write(`STAT`); const statLine = await readReply(true);
+  await write(`STAT`); const statLine = await readReply();
   // "+OK <count> <total-bytes>"
   const [, countStr] = statLine.split(/\s+/);
   const count = parseInt(countStr, 10) || 0;
@@ -78,7 +78,7 @@ export async function pop3FetchAll(cfg: Pop3Config): Promise<{ messages: Pop3Mes
   return {
     messages,
     async deleteAll(nums: number[]) {
-      for (const n of nums) { await write(`DELE ${n}`); await readReply(true); }
+      for (const n of nums) { await write(`DELE ${n}`); await readReply(); }
     },
     async close() {
       try { await write('QUIT'); await readReply(); } catch {}
