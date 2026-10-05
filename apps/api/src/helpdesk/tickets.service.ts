@@ -581,7 +581,7 @@ Code: ${ticket.code}
 Priority: ${ticket.priority}
 Category: ${ticket.category.name}
 Store: ${ticket.store?.code ?? '—'} ${ticket.store?.name ?? ''}
-Reporter: ${ticket.reporter.fullName}
+Reporter: ${ticket.reporter?.fullName ?? ticket.externalReporterName ?? ticket.externalReporterEmail ?? '—'}
 
 ${ticket.description}
 

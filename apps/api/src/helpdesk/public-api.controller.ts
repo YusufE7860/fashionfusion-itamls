@@ -159,11 +159,12 @@ export class PublicHelpdeskController {
     @Param('code') code: string,
     @Body() body: { body: string },
   ) {
-    const { reporter } = await this.authAndResolveReporter(apiKey, reporterEmail);
+    const { actorId } = await this.authAndResolveReporter(apiKey, reporterEmail, undefined, undefined);
+    if (!actorId) throw new UnauthorizedException('No actor available to attribute the comment to');
     const t = await this.prisma.ticket.findUnique({ where: { code: code.toUpperCase() } });
     if (!t) throw new BadRequestException('Ticket not found');
     await this.tickets.addComment(t.id, body.body, false, {
-      userId: reporter.id,
+      userId: actorId,
       permissions: ['tickets:read', 'tickets:read:all', 'tickets:write'],
     });
     return { ok: true };
