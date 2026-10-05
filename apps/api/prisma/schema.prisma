@@ -96,6 +96,7 @@ model User {
   ticketAttachments     TicketAttachment[] @relation("TicketAttachmentUploader")
   categoriesDefaultFor  TicketCategory[]   @relation("CategoryDefaultAssignee")
   cannedResponsesCreated CannedResponse[]  @relation("CannedResponseCreator")
+  dashboardWidgets    DashboardWidget[]
 }
 
 // ---------- Catalog / Master Data ----------
@@ -840,6 +841,26 @@ model TicketCategory {
   slaPolicy        SlaPolicy?       @relation(fields: [slaPolicyId], references: [id])
   tickets          Ticket[]
   cannedResponses  CannedResponse[]
+}
+
+// Per-user dashboard widgets. Each user picks what shows on their home
+// dashboard; the API's widget registry defines which types exist and how to
+// fetch their data. config is widget-specific (e.g. storeId filter).
+model DashboardWidget {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String                      // widget type key (from the server's registry)
+  title     String?                     // optional override; default comes from the registry
+  config    Json?                       // widget-specific settings (filters, thresholds, etc.)
+  position  Int      @default(0)        // sort order
+  width     String   @default("M")      // S / M / L — grid columns to span
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, position])
 }
 
 // Reusable snippets technicians can paste into a comment with placeholders

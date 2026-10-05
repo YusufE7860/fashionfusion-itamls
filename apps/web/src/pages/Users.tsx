@@ -2,21 +2,97 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
-import { ChevronDown, ChevronRight, Check, X, Minus, Plus, KeyRound, Power, Store as StoreIcon } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, KeyRound, Power, Store as StoreIcon, RotateCcw, X } from 'lucide-react';
 import clsx from 'clsx';
 
-// Modules group the granular permissions for the UI
-const MODULE_GROUPS: { label: string; perms: string[] }[] = [
-  { label: 'Admin',            perms: ['users:manage', 'roles:manage', 'auditlog:read'] },
-  { label: 'Catalog',          perms: ['catalog:read', 'catalog:write'] },
-  { label: 'Assets',           perms: ['assets:read', 'assets:write', 'assets:move', 'assets:dispose'] },
-  { label: 'Stock',            perms: ['stock:read', 'stock:write'] },
-  { label: 'GRV',              perms: ['grv:create', 'grv:confirm'] },
-  { label: 'IBT',              perms: ['ibt:create', 'ibt:approve', 'ibt:dispatch', 'ibt:receive'] },
-  { label: 'Procurement',      perms: ['procurement:create', 'procurement:approve:it', 'procurement:approve:finance', 'suppliers:manage'] },
-  { label: 'Service',          perms: ['repairs:read', 'repairs:write', 'warranties:read'] },
-  { label: 'Stores',           perms: ['stores:read', 'stores:write', 'store:wizard', 'stores:audit'] },
-  { label: 'Reports',          perms: ['reports:read', 'reports:export'] },
+/**
+ * Permissions grouped by module. Each permission has a friendly label so the
+ * UI reads like plain English instead of permission codes.
+ */
+type Perm = { code: string; label: string };
+type ModuleGroup = { label: string; icon?: string; perms: Perm[] };
+
+const MODULE_GROUPS: ModuleGroup[] = [
+  { label: 'Admin & security', perms: [
+    { code: 'users:manage',         label: 'Manage users and roles' },
+    { code: 'roles:manage',         label: 'Edit role definitions' },
+    { code: 'auditlog:read',        label: 'View audit log' },
+    { code: 'store:access:manage',  label: 'Set per-user store access' },
+  ]},
+  { label: 'Catalog & SKUs', perms: [
+    { code: 'catalog:read',  label: 'View catalog (SKUs, suppliers)' },
+    { code: 'catalog:write', label: 'Add/edit SKUs' },
+  ]},
+  { label: 'Assets', perms: [
+    { code: 'assets:read',    label: 'View assets' },
+    { code: 'assets:write',   label: 'Add/edit assets' },
+    { code: 'assets:move',    label: 'Move assets between locations' },
+    { code: 'assets:dispose', label: 'Dispose / write off assets' },
+  ]},
+  { label: 'Stock', perms: [
+    { code: 'stock:read',  label: 'View stock levels' },
+    { code: 'stock:write', label: 'Adjust stock' },
+  ]},
+  { label: 'GRV (goods received)', perms: [
+    { code: 'grv:create',  label: 'Capture GRVs' },
+    { code: 'grv:confirm', label: 'Confirm / post GRVs' },
+  ]},
+  { label: 'IBT (branch transfers)', perms: [
+    { code: 'ibt:create',   label: 'Request transfers' },
+    { code: 'ibt:approve',  label: 'Approve transfers' },
+    { code: 'ibt:dispatch', label: 'Dispatch transfers' },
+    { code: 'ibt:receive',  label: 'Receive transfers' },
+  ]},
+  { label: 'Procurement', perms: [
+    { code: 'procurement:create',           label: 'Raise purchase requests' },
+    { code: 'procurement:approve:it',       label: 'IT approval of purchases' },
+    { code: 'procurement:approve:finance',  label: 'Finance approval of purchases' },
+    { code: 'suppliers:manage',             label: 'Manage suppliers' },
+  ]},
+  { label: 'Repairs & warranties', perms: [
+    { code: 'repairs:read',    label: 'View repairs' },
+    { code: 'repairs:write',   label: 'Log and update repairs' },
+    { code: 'warranties:read', label: 'View warranty dashboard' },
+  ]},
+  { label: 'Stores', perms: [
+    { code: 'stores:read',   label: 'View stores' },
+    { code: 'stores:write',  label: 'Add / edit stores' },
+    { code: 'store:wizard',  label: 'Run new-store wizard' },
+    { code: 'stores:audit',  label: 'Audit stores' },
+  ]},
+  { label: 'HQ & departments', perms: [
+    { code: 'departments:read',  label: 'View HQ departments' },
+    { code: 'departments:write', label: 'Manage HQ departments' },
+  ]},
+  { label: 'Helpdesk', perms: [
+    { code: 'tickets:read',              label: 'View tickets assigned to me / my store' },
+    { code: 'tickets:read:all',          label: 'View ALL tickets (not just mine)' },
+    { code: 'tickets:write',             label: 'Log and comment on tickets' },
+    { code: 'tickets:assign',            label: 'Assign tickets and change priority' },
+    { code: 'tickets:reports',           label: 'View helpdesk reports' },
+    { code: 'tickets:manage:categories', label: 'Manage categories & SLA policies' },
+    { code: 'tickets:manage:webhooks',   label: 'Manage outbound webhooks' },
+  ]},
+  { label: 'DVRs & CCTV', perms: [
+    { code: 'dvrs:read',  label: 'View DVRs & live snapshots' },
+    { code: 'dvrs:write', label: 'Add / edit DVRs' },
+  ]},
+  { label: 'PIN pads', perms: [
+    { code: 'pinpads:read',  label: 'View PIN pads' },
+    { code: 'pinpads:write', label: 'Dispatch / confirm / return PIN pads' },
+  ]},
+  { label: 'MikroTik generator', perms: [
+    { code: 'mikrotik:read',  label: 'View generated configs' },
+    { code: 'mikrotik:write', label: 'Generate / edit MikroTik configs' },
+  ]},
+  { label: 'PC agents', perms: [
+    { code: 'agents:read',  label: 'View enrolled PCs' },
+    { code: 'agents:write', label: 'Manage enrolment tokens / PCs' },
+  ]},
+  { label: 'Reports (global)', perms: [
+    { code: 'reports:read',   label: 'View reports' },
+    { code: 'reports:export', label: 'Export reports (CSV/PDF)' },
+  ]},
 ];
 
 export function Users() {
@@ -122,6 +198,24 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
     queryFn: () => api.get(`/users/${user.id}`).then((r) => r.data),
     enabled: open,
   });
+  // Permissions actually seeded in the DB — used to filter MODULE_GROUPS so
+  // we don't show checkboxes for codes the backend won't accept.
+  const allPerms = useQuery({
+    queryKey: ['perms-list'],
+    queryFn: () => api.get('/permissions').then((r) => r.data as Array<{ code: string }>),
+    enabled: open,
+    staleTime: 5 * 60_000,
+  });
+  const knownPerms = useMemo(
+    () => new Set((allPerms.data ?? []).map((p) => p.code)),
+    [allPerms.data],
+  );
+  const visibleGroups = useMemo(
+    () => MODULE_GROUPS
+      .map((g) => ({ ...g, perms: g.perms.filter((p) => knownPerms.has(p.code)) }))
+      .filter((g) => g.perms.length > 0),
+    [knownPerms],
+  );
 
   const updateRole = useMutation({
     mutationFn: (roleId: string) => api.patch(`/users/${user.id}/role`, { roleId }).then((r) => r.data),
@@ -231,56 +325,122 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
                 </p>
               </div>
 
-              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-ink-200">Module access</h4>
-              <p className="mb-3 text-xs text-ink-200">
-                <span className="inline-flex items-center gap-1 rounded bg-ink-700/60 px-2 py-0.5">
-                  <Minus size={11}/> Inherit from role
-                </span>{' '}
-                <span className="inline-flex items-center gap-1 rounded bg-emerald-500/15 px-2 py-0.5 text-emerald-300">
-                  <Check size={11}/> Grant
-                </span>{' '}
-                <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-2 py-0.5 text-rose-300">
-                  <X size={11}/> Deny
-                </span>
-                {' '}— click a permission to cycle.
-              </p>
+              <div className="mb-3 flex items-center justify-between">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-ink-200">Module access</h4>
+                <p className="text-[11px] text-ink-300">
+                  Tick a box to grant access, untick to deny. Yellow = different from role default.
+                </p>
+              </div>
 
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                {MODULE_GROUPS.map((g) => (
-                  <div key={g.label} className="rounded-lg border border-ink-500/40 bg-ink-700/30 p-3">
-                    <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-brand-300">{g.label}</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {g.perms.map((code) => {
-                        const eff = effectOf(code);
-                        const active = isEffective(code);
-                        return (
+                {visibleGroups.map((g) => {
+                  // Compute module-level master state so you can see at a glance
+                  const allOn = g.perms.every((p) => isEffective(p.code));
+                  const allOff = g.perms.every((p) => !isEffective(p.code));
+                  const moduleState: 'all' | 'none' | 'some' = allOn ? 'all' : allOff ? 'none' : 'some';
+                  const anyOverride = g.perms.some((p) => effectOf(p.code) !== 'INHERIT');
+
+                  return (
+                    <div key={g.label} className="rounded-lg border border-ink-500/40 bg-ink-700/30 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[12px] font-bold text-brand-300">{g.label}</span>
+                          <span className={clsx(
+                            'rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase',
+                            moduleState === 'all'  && 'bg-emerald-500/15 text-emerald-300',
+                            moduleState === 'some' && 'bg-amber-500/15 text-amber-300',
+                            moduleState === 'none' && 'bg-ink-700/60 text-ink-300',
+                          )}>
+                            {moduleState === 'all' ? 'Full' : moduleState === 'some' ? 'Partial' : 'None'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
                           <button
-                            key={code}
+                            type="button"
+                            className="text-[10px] text-brand-300 hover:underline"
                             onClick={() => {
-                              const next: 'INHERIT' | 'GRANT' | 'DENY' =
-                                eff === 'INHERIT' ? (active ? 'DENY' : 'GRANT')
-                                : eff === 'GRANT' ? 'DENY' : 'INHERIT';
-                              setOverride.mutate({ permissionCode: code, effect: next });
+                              for (const p of g.perms) {
+                                if (!isEffective(p.code)) setOverride.mutate({ permissionCode: p.code, effect: 'GRANT' });
+                              }
                             }}
-                            className={clsx(
-                              'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
-                              eff === 'GRANT' && 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/40',
-                              eff === 'DENY'  && 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/40',
-                              eff === 'INHERIT' && active && 'bg-ink-700/60 text-ink-100 ring-1 ring-ink-500/60',
-                              eff === 'INHERIT' && !active && 'bg-transparent text-ink-200 ring-1 ring-ink-500/40',
-                            )}
-                            title={`${code} — currently ${active ? 'allowed' : 'blocked'} (${eff.toLowerCase()})`}
                           >
-                            {eff === 'GRANT' && <Check size={11}/>}
-                            {eff === 'DENY'  && <X size={11}/>}
-                            {eff === 'INHERIT' && <Minus size={11}/>}
-                            {code}
+                            All
                           </button>
-                        );
-                      })}
+                          <span className="text-ink-500">·</span>
+                          <button
+                            type="button"
+                            className="text-[10px] text-ink-300 hover:underline"
+                            onClick={() => {
+                              for (const p of g.perms) {
+                                if (isEffective(p.code)) setOverride.mutate({ permissionCode: p.code, effect: 'DENY' });
+                              }
+                            }}
+                          >
+                            None
+                          </button>
+                          {anyOverride && (
+                            <>
+                              <span className="text-ink-500">·</span>
+                              <button
+                                type="button"
+                                className="flex items-center gap-0.5 text-[10px] text-amber-300 hover:underline"
+                                title="Clear per-user overrides on this module and inherit from role"
+                                onClick={() => {
+                                  for (const p of g.perms) {
+                                    if (effectOf(p.code) !== 'INHERIT') setOverride.mutate({ permissionCode: p.code, effect: 'INHERIT' });
+                                  }
+                                }}
+                              >
+                                <RotateCcw size={9}/>Reset
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <ul className="space-y-1.5">
+                        {g.perms.map((p) => {
+                          const eff = effectOf(p.code);
+                          const active = isEffective(p.code);
+                          const roleHas = view?.rolePerms.has(p.code) ?? false;
+                          const differsFromRole = active !== roleHas;
+                          return (
+                            <li key={p.code}>
+                              <label className="group flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 hover:bg-ink-700/40">
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-brand-500"
+                                  checked={active}
+                                  onChange={(e) => {
+                                    const want = e.target.checked;
+                                    const next: 'INHERIT' | 'GRANT' | 'DENY' =
+                                      // If the role default already matches what we want, clear the override
+                                      want === roleHas ? 'INHERIT' : (want ? 'GRANT' : 'DENY');
+                                    setOverride.mutate({ permissionCode: p.code, effect: next });
+                                  }}
+                                />
+                                <span className="flex-1">
+                                  <span className={clsx(
+                                    'text-xs',
+                                    active ? 'text-ink-50' : 'text-ink-300 line-through',
+                                    differsFromRole && 'text-amber-200',
+                                  )}>
+                                    {p.label}
+                                  </span>
+                                  {differsFromRole && (
+                                    <span className="ml-1.5 text-[9px] text-amber-400">
+                                      (overridden)
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <p className="mt-4 text-[11px] text-ink-200">
