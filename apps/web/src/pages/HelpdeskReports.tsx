@@ -211,6 +211,126 @@ export function HelpdeskReports() {
               </table>
             </section>
           </div>
+
+          {/* Technician scorecard */}
+          {r.technicians && r.technicians.length > 0 && (
+            <section className="card mb-4 p-4">
+              <h3 className="mb-3 text-sm font-semibold text-slate-700">Technician scorecard</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="th text-left">Technician</th>
+                      <th className="th text-right">Total</th>
+                      <th className="th text-right">Open now</th>
+                      <th className="th text-right">Resolved</th>
+                      <th className="th text-right">MTTR (min)</th>
+                      <th className="th text-right">SLA %</th>
+                      <th className="th text-right">★ avg</th>
+                      <th className="th text-right">Ratings</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.technicians.map((t: any) => (
+                      <tr key={t.userId} className="border-b border-ink-500/10">
+                        <td className="py-2">{t.name}</td>
+                        <td className="py-2 text-right">{t.total}</td>
+                        <td className="py-2 text-right">{t.openNow}</td>
+                        <td className="py-2 text-right">{t.resolved}</td>
+                        <td className="py-2 text-right">{t.mttrMinutes}</td>
+                        <td className="py-2 text-right">
+                          <span className={t.slaPercent >= 90 ? 'text-emerald-600' : t.slaPercent >= 75 ? 'text-amber-600' : 'text-rose-600'}>
+                            {t.slaPercent}%
+                          </span>
+                        </td>
+                        <td className="py-2 text-right">{t.avgSatisfaction ? t.avgSatisfaction.toFixed(1) : '—'}</td>
+                        <td className="py-2 text-right text-ink-300">{t.ratedCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* Common issues + satisfaction + reopens */}
+          <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+            {r.commonIssues && r.commonIssues.length > 0 && (
+              <section className="card p-4 md:col-span-2">
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">Most common issue terms</h3>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={r.commonIssues.slice(0, 15)} layout="vertical" margin={{ left: 80 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" />
+                    <YAxis type="category" dataKey="term" width={120} tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#7c3aed" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <p className="mt-2 text-[11px] text-ink-300">Terms extracted from ticket subjects after removing stopwords.</p>
+              </section>
+            )}
+
+            {r.satisfaction && (
+              <section className="card p-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">Satisfaction</h3>
+                <div className="mb-2 flex items-baseline gap-2">
+                  <div className="text-3xl font-bold text-ink-50">
+                    {r.satisfaction.average ? r.satisfaction.average.toFixed(1) : '—'}
+                  </div>
+                  <div className="text-xs text-ink-300">
+                    / 5 · {r.satisfaction.totalRatings} rating{r.satisfaction.totalRatings === 1 ? '' : 's'}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  {[5,4,3,2,1].map((n) => {
+                    const count = r.satisfaction.buckets?.[n] ?? 0;
+                    const total = r.satisfaction.totalRatings || 1;
+                    const pct = Math.round((count / total) * 100);
+                    return (
+                      <div key={n} className="flex items-center gap-2 text-xs">
+                        <span className="w-6 text-amber-500">{'★'.repeat(n)}</span>
+                        <div className="flex-1 h-2 rounded bg-slate-100 overflow-hidden">
+                          <div className="h-full bg-amber-400" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="w-10 text-right text-ink-300">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+          </div>
+
+          {r.topReopens && r.topReopens.length > 0 && (
+            <section className="card mb-4 p-4">
+              <h3 className="mb-3 text-sm font-semibold text-slate-700">Most reopened tickets</h3>
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="th text-left">Ticket</th>
+                    <th className="th text-left">Subject</th>
+                    <th className="th text-left">Store</th>
+                    <th className="th text-right">Reopens</th>
+                    <th className="th text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.topReopens.map((t: any) => (
+                    <tr key={t.id} className="border-b border-ink-500/10">
+                      <td className="py-2 font-mono text-xs">{t.code}</td>
+                      <td className="py-2 text-xs">{t.subject}</td>
+                      <td className="py-2 text-xs text-ink-300">{t.storeName ?? '—'}</td>
+                      <td className="py-2 text-right">
+                        <span className={t.reopenCount >= 3 ? 'font-bold text-rose-600' : ''}>{t.reopenCount}</span>
+                      </td>
+                      <td className="py-2 text-xs">{t.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
         </>
       )}
     </>

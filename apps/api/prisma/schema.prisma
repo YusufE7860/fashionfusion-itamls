@@ -82,6 +82,12 @@ model User {
   permissionOverrides UserPermissionOverride[]
   storeAccess         UserStoreAccess[]
 
+  // Routing hierarchy: AREA_MANAGER points at the Technician who handles
+  // their stores' tickets. Null on everyone else. See HelpdeskRoutingService.
+  managedByTechId   String?
+  managedByTech     User?    @relation("TechToAreaManagers", fields: [managedByTechId], references: [id])
+  areaManagersUnder User[]   @relation("TechToAreaManagers")
+
   // Helpdesk relations
   ticketsReported       Ticket[]           @relation("TicketReporter")
   ticketsAssigned       Ticket[]           @relation("TicketAssignedTo")
@@ -777,6 +783,19 @@ model Ticket {
   slaBreachedResponse Boolean @default(false)
   slaBreachedResolve  Boolean @default(false)
 
+  // SLA pause while WAITING_ON_USER — accumulated paused time is excluded
+  // from SLA deadline calc so techs aren't penalised for user delays.
+  waitingOnUserSinceAt DateTime?
+  totalWaitingMs       Int      @default(0)
+
+  // Reopen tracking — escalation after N reopens
+  reopenCount          Int      @default(0)
+
+  // Satisfaction (reporter rates 1-5 when ticket is RESOLVED)
+  satisfactionRating   Int?                        // 1-5
+  satisfactionComment  String?
+  satisfactionAt       DateTime?
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -806,9 +825,10 @@ model TicketCategory {
   id                 String   @id @default(cuid())
   code               String   @unique              // POS, NET, PERIPH, SW, ACCT, MISC
   name               String
-  description        String?
+  description        String?                        // short help text shown under the picker
+  issueTemplate      String?                        // starter description, inserted into the Describe box
   defaultPriority    String   @default("P3")
-  defaultAssigneeId  String?                        // auto-assign new tickets here
+  defaultAssigneeId  String?                        // auto-assign new tickets here (fallback when no AM chain)
   slaPolicyId        String?                        // default SLA for this category
   sortOrder          Int      @default(100)
   isActive           Boolean  @default(true)
@@ -873,6 +893,38 @@ model TicketEvent {
   actor  User?  @relation("TicketEventActor", fields: [actorId], references: [id])
 
   @@index([ticketId, occurredAt])
+}
+
+// Outbound webhooks — ops app subscribes to ticket events here. Each event
+// POSTs a JSON payload with an HMAC-SHA256 signature in X-ITAMLS-Signature.
+model Webhook {
+  id         String   @id @default(cuid())
+  name       String                                    // "Ops app production", "Ops app staging"
+  url        String                                    // https://ops.ffgsa.co.za/webhooks/itamls
+  secret     String                                    // used for HMAC sig (shared with Ops app)
+  events     String   @default("ticket.*")             // CSV of event patterns, e.g. "ticket.created,ticket.status_changed"
+  isActive   Boolean  @default(true)
+  lastSentAt DateTime?
+  lastStatus Int?                                      // HTTP status of last attempt
+  lastError  String?
+  totalSent  Int      @default(0)
+  totalFail  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  webhookId  String
+  event      String                                    // ticket.created etc
+  payload    String                                    // the JSON body
+  status     Int?                                      // response status (null if network error)
+  response   String?                                   // first 2 KB of response
+  attempts   Int      @default(1)
+  succeeded  Boolean  @default(false)
+  deliveredAt DateTime @default(now())
+
+  @@index([webhookId, deliveredAt])
 }
 
 model TicketAttachment {

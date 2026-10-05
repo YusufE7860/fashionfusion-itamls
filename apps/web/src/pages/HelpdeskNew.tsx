@@ -24,6 +24,11 @@ export function HelpdeskNew() {
     assetId: '',
   });
 
+  // Category MUST be chosen first — only then do subject/description show.
+  // Keeps data clean and nudges the reporter towards the right template.
+  const pickedCategory = categories.data?.find((c: any) => c.id === form.categoryId);
+  const showDescription = !!pickedCategory;
+
   // Load assets available for the selected store (if any)
   const assets = useQuery({
     queryKey: ['assets-for-store', form.storeId],
@@ -62,20 +67,43 @@ export function HelpdeskNew() {
       />
 
       <section className="card p-4">
+        {/* Step 1: Category picker as big tiles */}
+        <div className="mb-4">
+          <label className="label">1. Pick a category</label>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            {categories.data?.filter?.((c: any) => c.isActive !== false)?.map((c: any) => (
+              <button key={c.id} type="button"
+                className={`rounded-lg border p-3 text-left transition-colors ${
+                  form.categoryId === c.id
+                    ? 'border-brand-500 bg-brand-50 text-brand-800 ring-2 ring-brand-400'
+                    : 'border-ink-500 bg-white text-ink-100 hover:border-brand-400 hover:bg-brand-50/40'
+                }`}
+                onClick={() => setForm({
+                  ...form,
+                  categoryId: c.id,
+                  priority: (c.defaultPriority ?? form.priority),
+                  description: form.description || c.issueTemplate || '',
+                })}>
+                <div className="text-xs font-semibold uppercase tracking-wider">{c.code}</div>
+                <div className="text-sm font-medium">{c.name}</div>
+                {c.description && <div className="mt-1 text-[11px] text-ink-300">{c.description}</div>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+      {!showDescription && (
+        <div className="rounded-lg border border-dashed border-ink-500 bg-slate-50 p-6 text-center text-sm text-ink-300">
+          Pick a category above to continue.
+        </div>
+      )}
+
+      {showDescription && (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="md:col-span-3">
-            <label className="label">What's the problem? *</label>
+            <label className="label">2. What's the problem? *</label>
             <input className="field" placeholder="e.g. POS3 won't print receipts" maxLength={200}
               value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-          </div>
-
-          <div>
-            <label className="label">Category *</label>
-            <select className="field" value={form.categoryId}
-              onChange={(e) => { const cid = e.target.value; setForm({ ...form, categoryId: cid, priority: (categories.data?.find((x: any) => x.id === cid)?.defaultPriority ?? form.priority) }); }}>
-              <option value="">Pick a category…</option>
-              {categories.data?.map((c: any) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
-            </select>
           </div>
           <div>
             <label className="label">Priority *</label>
@@ -131,15 +159,21 @@ export function HelpdeskNew() {
           )}
 
           <div className="md:col-span-3">
-            <label className="label">Describe what's happening *</label>
-            <textarea className="field font-mono text-sm" rows={8}
+            <label className="label">3. Describe what's happening *</label>
+            {pickedCategory?.issueTemplate && !form.description && (
+              <p className="mb-1 text-[11px] text-amber-600">
+                A template was loaded for this category — fill in the blanks.
+              </p>
+            )}
+            <textarea className="field font-mono text-sm" rows={10}
               placeholder="What did you try? When did it start? Any error messages? Steps to reproduce?"
               value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             <p className="mt-1 text-[11px] text-ink-300">
-              The more detail here, the faster IT resolves. Screenshots — paste them into a comment once the ticket exists.
+              The more detail here, the faster IT resolves. Screenshots: attach them on the ticket page right after you log it.
             </p>
           </div>
         </div>
+      )}
 
         <div className="mt-4 flex items-center gap-2">
           <button className="btn-primary" disabled={!canSubmit || create.isPending} onClick={() => create.mutate()}>

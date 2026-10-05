@@ -9,6 +9,7 @@ export const Roles = {
   Administrator: 'ADMINISTRATOR',
   ITManager: 'IT_MANAGER',
   Technician: 'TECHNICIAN',
+  AreaManager: 'AREA_MANAGER',
   StoreManager: 'STORE_MANAGER',
   Finance: 'FINANCE',
   Auditor: 'AUDITOR',
@@ -80,6 +81,7 @@ export const Permissions = {
   TicketsAssign: 'tickets:assign',            // assign / reassign / close
   TicketsManageCategories: 'tickets:manage:categories',
   TicketsReports: 'tickets:reports',
+  TicketsManageWebhooks: 'tickets:manage:webhooks',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

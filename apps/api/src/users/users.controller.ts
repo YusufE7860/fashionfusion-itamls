@@ -37,6 +37,12 @@ export class UsersController {
     return this.users.updateRole(id, body.roleId);
   }
 
+  @Patch('users/:id')
+  @RequirePermissions(Permissions.UsersManage)
+  update(@Param('id') id: string, @Body() body: { managedByTechId?: string | null; fullName?: string }) {
+    return this.users.updateProfile(id, body);
+  }
+
   @Post('users/:id/permissions')
   @RequirePermissions(Permissions.UsersManage)
   setOverride(@Param('id') id: string, @Body() body: { permissionCode: string; effect: 'GRANT' | 'DENY' | 'INHERIT' }) {

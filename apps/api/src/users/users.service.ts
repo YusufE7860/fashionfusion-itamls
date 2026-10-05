@@ -104,6 +104,13 @@ export class UsersService {
     return this.prisma.user.update({ where: { id }, data: { roleId } });
   }
 
+  async updateProfile(id: string, body: { managedByTechId?: string | null; fullName?: string }) {
+    const data: any = {};
+    if (body.managedByTechId !== undefined) data.managedByTechId = body.managedByTechId;
+    if (body.fullName !== undefined) data.fullName = body.fullName;
+    return this.prisma.user.update({ where: { id }, data });
+  }
+
   async setOverride(userId: string, permissionCode: string, effect: 'GRANT' | 'DENY' | 'INHERIT') {
     const perm = await this.prisma.permission.findUnique({ where: { code: permissionCode } });
     if (!perm) throw new NotFoundException('Permission not found');

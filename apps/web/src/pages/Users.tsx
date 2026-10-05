@@ -205,6 +205,9 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
                     {roles.map((r: any) => <option key={r.id} value={r.id}>{r.code.replaceAll('_',' ')}</option>)}
                   </select>
                 </div>
+                {detail.data.role.code === 'AREA_MANAGER' && (
+                  <AreaManagerTechPicker user={detail.data} allUsers={roles /* unused — see component */} />
+                )}
                 <button className="btn-ghost"
                         onClick={() => {
                           const pw = prompt('New password (≥ 8 characters):');
@@ -295,6 +298,41 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
           onClose={() => setShowStoreAccess(false)}
         />
       )}
+    </div>
+  );
+}
+
+// ---------- Area Manager → Technician assignment ----------
+function AreaManagerTechPicker({ user }: { user: any; allUsers: any }) {
+  const qc = useQueryClient();
+  // Fetch all users and keep only Technicians / Administrators (anyone who can own tickets)
+  const all = useQuery({ queryKey: ['users'], queryFn: () => api.get('/users').then((r) => r.data) });
+  const techs = useMemo(() => (all.data ?? []).filter((u: any) =>
+    u.isActive && ['ADMINISTRATOR', 'IT_MANAGER', 'TECHNICIAN'].includes(u.role?.code)
+  ), [all.data]);
+
+  const update = useMutation({
+    mutationFn: (techId: string | null) =>
+      api.patch(`/users/${user.id}`, { managedByTechId: techId }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['user', user.id, 'detail'] });
+    },
+  });
+
+  return (
+    <div className="min-w-[260px]">
+      <label className="label">Reports to (technician)</label>
+      <select className="field max-w-xs" value={user.managedByTechId ?? ''}
+        onChange={(e) => update.mutate(e.target.value || null)}>
+        <option value="">— unassigned —</option>
+        {techs.map((t: any) => (
+          <option key={t.id} value={t.id}>{t.fullName} ({t.role?.code})</option>
+        ))}
+      </select>
+      <p className="mt-1 text-[11px] text-ink-300">
+        Tickets logged for this AM's stores auto-route to this tech. Use <b>Store access</b> to pick which stores the AM covers.
+      </p>
     </div>
   );
 }

@@ -3,6 +3,11 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
 import { StorageService } from '../storage/storage.service';
+import { HelpdeskRoutingService } from './routing.service';
+import { HelpdeskWebhooksService } from './webhooks.service';
+
+const REOPEN_ESCALATION_THRESHOLD = 3;  // bump priority after this many reopens
+const PRIORITY_BUMP: Record<string, string> = { P4: 'P3', P3: 'P2', P2: 'P1', P1: 'P1' };
 
 const STATUSES = ['NEW','ASSIGNED','IN_PROGRESS','WAITING_ON_USER','RESOLVED','CLOSED','REOPENED'] as const;
 type Status = typeof STATUSES[number];
@@ -65,7 +70,22 @@ export class TicketsService {
     private prisma: PrismaService,
     private mailer: MailerService,
     private storage: StorageService,
+    private routing: HelpdeskRoutingService,
+    private webhooks: HelpdeskWebhooksService,
   ) {}
+
+  /** Snapshot a ticket for webhook payloads (lean shape — no comments/events). */
+  private async publicShape(id: string) {
+    return this.prisma.ticket.findUnique({
+      where: { id },
+      include: {
+        reporter:   { select: { id: true, fullName: true, email: true } },
+        assignedTo: { select: { id: true, fullName: true, email: true } },
+        store:      { select: { id: true, code: true, name: true } },
+        category:   { select: { id: true, code: true, name: true } },
+      },
+    });
+  }
 
   // ============================================================
   //  Attachments
@@ -195,7 +215,9 @@ export class TicketsService {
     const slaTargets = sla ? this.calcSlaTargets(sla, priority, now) : null;
 
     const code = await this.nextCode();
-    const assigneeId = category.defaultAssigneeId ?? null;
+    // Smart auto-assignment via Area Manager → Technician chain (falls back
+    // to category.defaultAssigneeId if no AM chain exists for this store).
+    const assigneeId = await this.routing.pickAutoAssignee({ storeId: dto.storeId, categoryId: category.id });
     const initialStatus: Status = assigneeId ? 'ASSIGNED' : 'NEW';
 
     const ticket = await this.prisma.$transaction(async (tx) => {
@@ -228,6 +250,10 @@ export class TicketsService {
 
     // Fire-and-forget email to assignee (if any)
     if (assigneeId) this.notifyAssignment(ticket.id, assigneeId).catch(() => {});
+
+    // Webhook: ticket.created
+    const snapshot = await this.publicShape(ticket.id);
+    this.webhooks.emit('ticket.created', { ticket: snapshot, actor: { id: ctx.userId, name: '' } }).catch(() => {});
     return this.get(ticket.id, ctx);
   }
 
@@ -357,9 +383,33 @@ export class TicketsService {
       data.reopenedAt = now;
       data.resolvedAt = null;
       data.closedAt   = null;
+      // Reopen counter + escalation: after N reopens, bump priority one step
+      const nextCount = before.reopenCount + 1;
+      data.reopenCount = nextCount;
+      if (nextCount >= REOPEN_ESCALATION_THRESHOLD && PRIORITY_BUMP[before.priority] !== before.priority) {
+        data.priority = PRIORITY_BUMP[before.priority];
+      }
     }
     if (dto.status === 'RESOLVED') data.resolvedAt = now;
     if (dto.status === 'CLOSED')   data.closedAt   = now;
+
+    // SLA pause: WAITING_ON_USER starts the pause clock; moving out of it
+    // accumulates the paused time into totalWaitingMs so SLA math stays fair.
+    if (before.status !== 'WAITING_ON_USER' && dto.status === 'WAITING_ON_USER') {
+      data.waitingOnUserSinceAt = now;
+    }
+    if (before.status === 'WAITING_ON_USER' && dto.status && dto.status !== 'WAITING_ON_USER' && before.waitingOnUserSinceAt) {
+      const elapsed = now.getTime() - new Date(before.waitingOnUserSinceAt).getTime();
+      data.waitingOnUserSinceAt = null;
+      data.totalWaitingMs = (before.totalWaitingMs ?? 0) + elapsed;
+      // Push the SLA deadlines forward by the paused interval
+      if (before.slaFirstResponseBy && !before.firstResponseAt) {
+        data.slaFirstResponseBy = new Date(new Date(before.slaFirstResponseBy).getTime() + elapsed);
+      }
+      if (before.slaResolveBy) {
+        data.slaResolveBy = new Date(new Date(before.slaResolveBy).getTime() + elapsed);
+      }
+    }
 
     // If assigning for the first time and it's still NEW, move to ASSIGNED implicitly
     if (dto.assignedToId && !before.assignedToId && before.status === 'NEW' && !dto.status) {
@@ -400,7 +450,44 @@ export class TicketsService {
     if (dto.assignedToId && dto.assignedToId !== before.assignedToId) {
       this.notifyAssignment(id, dto.assignedToId).catch(() => {});
     }
+
+    // Fire webhooks for every meaningful change
+    const snapshot = await this.publicShape(id);
+    const changed: Record<string, any> = {};
+    if (dto.status && dto.status !== before.status) {
+      changed.status = { from: before.status, to: dto.status };
+      this.webhooks.emit('ticket.status_changed', { ticket: snapshot, changedFields: changed, actor: { id: ctx.userId, name: '' } }).catch(() => {});
+      if (dto.status === 'RESOLVED') this.webhooks.emit('ticket.resolved', { ticket: snapshot }).catch(() => {});
+      if (dto.status === 'CLOSED')   this.webhooks.emit('ticket.closed',   { ticket: snapshot }).catch(() => {});
+      if (dto.status === 'REOPENED') this.webhooks.emit('ticket.reopened', { ticket: snapshot }).catch(() => {});
+    }
+    if (dto.priority && dto.priority !== before.priority) {
+      changed.priority = { from: before.priority, to: dto.priority };
+      this.webhooks.emit('ticket.priority_changed', { ticket: snapshot, changedFields: changed }).catch(() => {});
+    }
+    if (dto.assignedToId !== undefined && dto.assignedToId !== before.assignedToId) {
+      changed.assignedToId = { from: before.assignedToId, to: dto.assignedToId };
+      this.webhooks.emit('ticket.assigned', { ticket: snapshot, changedFields: changed }).catch(() => {});
+    }
     return this.get(updated.id, ctx);
+  }
+
+  /** Reporter rates their resolved ticket. */
+  async rateSatisfaction(id: string, rating: number, commentBody: string | undefined, ctx: UserCtx) {
+    if (rating < 1 || rating > 5) throw new BadRequestException('rating must be 1-5');
+    const t = await this.get(id, ctx);
+    if (t.reporterId !== ctx.userId) throw new ForbiddenException('Only the reporter can rate');
+    if (t.status !== 'RESOLVED' && t.status !== 'CLOSED') {
+      throw new BadRequestException('Can only rate once a ticket is resolved');
+    }
+    return this.prisma.ticket.update({
+      where: { id },
+      data: {
+        satisfactionRating: rating,
+        satisfactionComment: commentBody?.trim() || null,
+        satisfactionAt: new Date(),
+      },
+    });
   }
 
   // ============================================================
@@ -431,6 +518,15 @@ export class TicketsService {
     // Notify the "other side" of the conversation
     const notifyId = isTech ? ticket.reporterId : ticket.assignedToId;
     if (notifyId && !isInternal) this.notifyComment(id, notifyId).catch(() => {});
+
+    // Webhook (public comments only — internal notes stay private)
+    if (!isInternal) {
+      const snapshot = await this.publicShape(id);
+      this.webhooks.emit('ticket.comment_added', {
+        ticket: snapshot,
+        comment: { id: '', body: body.trim(), author: ctx.userId, isInternal: false },
+      }).catch(() => {});
+    }
     return this.get(id, ctx);
   }
 
@@ -543,6 +639,12 @@ Open: ${web}/helpdesk/tickets/${ticket.id}
         }),
       ]);
     }
+    // Webhooks on breach
+    for (const r of [...responseBreaches, ...resolveBreaches]) {
+      const snap = await this.publicShape(r.id);
+      this.webhooks.emit('ticket.sla_breached', { ticket: snap }).catch(() => {});
+    }
+
     return {
       responseBreaches: responseBreaches.length,
       resolveBreaches: resolveBreaches.length,
@@ -619,6 +721,72 @@ Open: ${web}/helpdesk/tickets/${ticket.id}
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([date, v]) => ({ date, ...v }));
 
+    // ---- Technician scorecard: for each tech, open/closed/avg-MTTR/sla% ----
+    const techIds = byAssignee.map((r) => r.assignedToId).filter((v): v is string => !!v);
+    const technicians = await Promise.all(
+      techIds.map(async (id) => {
+        const [rows, openNow] = await Promise.all([
+          this.prisma.ticket.findMany({
+            where: { assignedToId: id, createdAt: range },
+            select: { createdAt: true, resolvedAt: true, firstResponseAt: true, slaBreachedResponse: true, slaBreachedResolve: true, status: true, satisfactionRating: true },
+          }),
+          this.prisma.ticket.count({ where: { assignedToId: id, status: { notIn: ['RESOLVED','CLOSED'] } } }),
+        ]);
+        const resolved = rows.filter((r) => r.resolvedAt);
+        const mttr = resolved.length
+          ? Math.round(resolved.reduce((s, r) => s + ((r.resolvedAt!.getTime() - r.createdAt.getTime()) / 60_000), 0) / resolved.length)
+          : 0;
+        const breached = rows.filter((r) => r.slaBreachedResolve || r.slaBreachedResponse).length;
+        const slaPct = rows.length ? Math.round(((rows.length - breached) / rows.length) * 100) : 100;
+        const rated = rows.filter((r) => r.satisfactionRating !== null);
+        const avgRating = rated.length
+          ? +(rated.reduce((s, r) => s + (r.satisfactionRating ?? 0), 0) / rated.length).toFixed(2)
+          : null;
+        return {
+          userId: id, name: userName.get(id) ?? '—',
+          total: rows.length, openNow, resolved: resolved.length,
+          mttrMinutes: mttr, slaPercent: slaPct,
+          avgSatisfaction: avgRating, ratedCount: rated.length,
+        };
+      }),
+    );
+
+    // ---- Common issues: tokenize subjects, strip stopwords, top-N ----
+    const subjects = await this.prisma.ticket.findMany({
+      where: { createdAt: range }, select: { subject: true, categoryId: true },
+    });
+    const stop = new Set(['the','and','for','not','with','our','your','this','that','there','they','them','are','was','has','have','will','can','cant','will','when','what','why','how','who','which','just','only','from','into','out','off','very','been','also','its','it','on','at','in','of','to','a','is','or','as','if','by','be','an','my','me']);
+    const tokens: Record<string, number> = {};
+    for (const s of subjects) {
+      for (const raw of (s.subject ?? '').toLowerCase().split(/[^a-z0-9]+/)) {
+        const w = raw.trim();
+        if (w.length < 3 || stop.has(w)) continue;
+        tokens[w] = (tokens[w] ?? 0) + 1;
+      }
+    }
+    const commonTerms = Object.entries(tokens)
+      .map(([term, count]) => ({ term, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 30);
+
+    // ---- Satisfaction summary ----
+    const satRows = await this.prisma.ticket.findMany({
+      where: { createdAt: range, satisfactionRating: { not: null } },
+      select: { satisfactionRating: true },
+    });
+    const satBuckets = [1,2,3,4,5].map((n) => ({ rating: n, count: satRows.filter((r) => r.satisfactionRating === n).length }));
+    const satAvg = satRows.length
+      ? +(satRows.reduce((s, r) => s + (r.satisfactionRating ?? 0), 0) / satRows.length).toFixed(2)
+      : null;
+
+    // ---- Reopen stats ----
+    const reopens = await this.prisma.ticket.findMany({
+      where: { createdAt: range, reopenCount: { gt: 0 } },
+      select: { code: true, subject: true, reopenCount: true, priority: true, assignedToId: true },
+      orderBy: { reopenCount: 'desc' },
+      take: 20,
+    });
+
     return {
       period: { from: from.toISOString(), to: to.toISOString() },
       totals: { inRange: totalCount, openNow: openCount },
@@ -633,6 +801,12 @@ Open: ${web}/helpdesk/tickets/${ticket.id}
       mttrByPriority, mttfrByPriority,
       sla: { responsePercent: responseSla, resolvePercent: resolveSla },
       trend,
+
+      // v2 additions
+      technicians: technicians.sort((a, b) => b.total - a.total),
+      commonIssues: commonTerms,
+      satisfaction: { average: satAvg, buckets: satBuckets, totalRatings: satRows.length },
+      topReopens: reopens.map((r) => ({ ...r, assignee: r.assignedToId ? userName.get(r.assignedToId) : null })),
     };
   }
 }

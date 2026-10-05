@@ -76,6 +76,14 @@ export function HelpdeskDetail() {
     onSuccess: () => { setReply(''); qc.invalidateQueries({ queryKey: ['ticket', id] }); },
   });
 
+  // Satisfaction rating (only reporter, only RESOLVED/CLOSED, only once)
+  const [ratingDraft, setRatingDraft] = useState<number>(0);
+  const [ratingComment, setRatingComment] = useState('');
+  const rate = useMutation({
+    mutationFn: () => api.post(`/helpdesk/tickets/${id}/rate`, { rating: ratingDraft, comment: ratingComment || undefined }).then((r) => r.data),
+    onSuccess: () => { setRatingDraft(0); setRatingComment(''); qc.invalidateQueries({ queryKey: ['ticket', id] }); },
+  });
+
   // --- Attachments ---
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -144,6 +152,60 @@ export function HelpdeskDetail() {
             <h2 className="text-lg font-semibold text-ink-50">{t.subject}</h2>
             <div className="prose prose-sm mt-3 max-w-none whitespace-pre-wrap text-ink-100">{t.description}</div>
           </section>
+
+          {/* Satisfaction rating — only for the reporter, when ticket is RESOLVED or CLOSED */}
+          {(t.status === 'RESOLVED' || t.status === 'CLOSED') && t.reporterId === currentUser?.id && (
+            <section className="card p-4">
+              {t.satisfactionRating ? (
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-slate-700">Your rating</h3>
+                  <div className="flex items-center gap-2">
+                    <div className="text-2xl text-amber-500">
+                      {'★'.repeat(t.satisfactionRating)}<span className="text-slate-200">{'★'.repeat(5 - t.satisfactionRating)}</span>
+                    </div>
+                    <div className="text-xs text-ink-300">
+                      Rated {new Date(t.satisfactionAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  {t.satisfactionComment && (
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-ink-100">{t.satisfactionComment}</p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <h3 className="mb-1 text-sm font-semibold text-slate-700">How did we do?</h3>
+                  <p className="mb-3 text-xs text-ink-300">Rate this resolution — it helps IT improve.</p>
+                  <div className="mb-3 flex items-center gap-1">
+                    {[1,2,3,4,5].map((n) => (
+                      <button key={n} type="button"
+                        className={`text-3xl transition-colors ${
+                          n <= ratingDraft ? 'text-amber-500' : 'text-slate-300 hover:text-amber-300'
+                        }`}
+                        onClick={() => setRatingDraft(n)}>
+                        ★
+                      </button>
+                    ))}
+                    {ratingDraft > 0 && (
+                      <span className="ml-2 text-xs text-ink-300">
+                        {['', 'Not great', 'Could be better', 'OK', 'Good', 'Excellent'][ratingDraft]}
+                      </span>
+                    )}
+                  </div>
+                  <textarea className="field text-sm" rows={2}
+                    placeholder="Optional comment — anything to add?"
+                    value={ratingComment} onChange={(e) => setRatingComment(e.target.value)} />
+                  <div className="mt-2 flex items-center gap-2">
+                    <button className="btn-primary" disabled={!ratingDraft || rate.isPending} onClick={() => rate.mutate()}>
+                      {rate.isPending ? 'Submitting…' : 'Submit rating'}
+                    </button>
+                    {rate.isError && (
+                      <span className="text-xs text-rose-600">{(rate.error as any)?.response?.data?.message ?? 'Failed'}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
 
           {/* Comments */}
           <section className="card p-4">

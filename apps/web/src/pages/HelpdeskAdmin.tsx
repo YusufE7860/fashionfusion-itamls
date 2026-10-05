@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
-import { CheckCircle2, Mail, Plus, Save, Trash2, X, XCircle } from 'lucide-react';
+import { CheckCircle2, Mail, Plus, Save, Trash2, X, XCircle, Webhook, Zap, FileText } from 'lucide-react';
 
 export function HelpdeskAdmin() {
   const qc = useQueryClient();
@@ -19,7 +19,7 @@ export function HelpdeskAdmin() {
 
   const [editing, setEditing] = useState<any | null>(null);
   const [creating, setCreating] = useState(false);
-  const emptyCat = { code: '', name: '', defaultPriority: 'P3', defaultAssigneeId: '', slaPolicyId: '', sortOrder: 100, isActive: true };
+  const emptyCat = { code: '', name: '', defaultPriority: 'P3', defaultAssigneeId: '', slaPolicyId: '', sortOrder: 100, isActive: true, issueTemplate: '', description: '' };
   const [cat, setCat] = useState<any>(emptyCat);
 
   const save = useMutation({
@@ -99,6 +99,22 @@ export function HelpdeskAdmin() {
                 Active
               </label>
             </div>
+            <div className="md:col-span-3">
+              <label className="label">Short description (shown on the picker tile)</label>
+              <input className="field" value={cat.description || ''}
+                onChange={(e) => setCat({ ...cat, description: e.target.value })}
+                placeholder="e.g. POS, printer, cash drawer problems" />
+            </div>
+            <div className="md:col-span-3">
+              <label className="label flex items-center gap-1"><FileText size={12}/>Issue template (auto-filled into the description field)</label>
+              <textarea className="field font-mono text-xs" rows={5}
+                placeholder={`What's happening:\nWhen did it start:\nWhat have you tried:\nError messages:`}
+                value={cat.issueTemplate || ''}
+                onChange={(e) => setCat({ ...cat, issueTemplate: e.target.value })} />
+              <p className="mt-1 text-[11px] text-ink-300">
+                When a reporter picks this category, this text is pre-filled so they know what info to supply.
+              </p>
+            </div>
           </div>
           <div className="mt-3">
             <button className="btn-primary" disabled={!cat.name.trim() || save.isPending} onClick={() => save.mutate()}>
@@ -153,6 +169,8 @@ export function HelpdeskAdmin() {
       </section>
 
       <EmailIngestPanel canManage={canManage} />
+      <WebhooksPanel />
+      <OpsApiPanel />
 
       <section className="card p-4">
         <h3 className="mb-3 text-sm font-semibold text-slate-700">SLA policies</h3>
@@ -263,6 +281,228 @@ HELPDESK_POP3_MAX_PER_RUN=25`}</pre>
         <b>creates a new ticket</b> (subject → title, body → description, sender email → reporter if it matches an ITAMLS user, category defaults to "Other / MISC" or "IT Request"),{' '}
         <b>appends as a comment</b> to an existing ticket if the subject contains the ticket code like <code>[FF-2610-0042]</code>.
         Email attachments are pulled through and stored just like an in-app upload. Successfully processed messages are DELETEd from the server (or left if you set <code>HELPDESK_POP3_DELETE_AFTER=false</code>).
+      </p>
+    </section>
+  );
+}
+
+// ---------------- Webhooks panel ----------------
+function WebhooksPanel() {
+  const qc = useQueryClient();
+  const hasPerm = useAuth((s) => s.hasPermission);
+  const canManage = hasPerm('tickets:manage:webhooks');
+  const hooks = useQuery({
+    queryKey: ['hd-webhooks'],
+    queryFn: () => api.get('/helpdesk/webhooks').then((r) => r.data).catch(() => []),
+    enabled: canManage,
+  });
+  const [creating, setCreating] = useState(false);
+  const emptyHook = { name: '', url: '', events: 'ticket.*', secret: '' };
+  const [draft, setDraft] = useState<any>(emptyHook);
+
+  const save = useMutation({
+    mutationFn: () => api.post('/helpdesk/webhooks', draft).then((r) => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hd-webhooks'] }); setCreating(false); setDraft(emptyHook); },
+  });
+  const toggle = useMutation({
+    mutationFn: ({ id, isActive }: any) => api.patch(`/helpdesk/webhooks/${id}`, { isActive }).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hd-webhooks'] }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete(`/helpdesk/webhooks/${id}`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hd-webhooks'] }),
+  });
+  const test = useMutation({
+    mutationFn: (id: string) => api.post(`/helpdesk/webhooks/${id}/test`).then((r) => r.data),
+  });
+  const [recentId, setRecentId] = useState<string | null>(null);
+  const recent = useQuery({
+    queryKey: ['hd-webhook-recent', recentId],
+    queryFn: () => api.get(`/helpdesk/webhooks/${recentId}/deliveries`).then((r) => r.data),
+    enabled: !!recentId,
+    refetchInterval: 5_000,
+  });
+
+  if (!canManage) return null;
+
+  return (
+    <section className="card mb-4 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <Webhook size={14}/>Outbound webhooks
+        </h3>
+        <button className="btn-primary" onClick={() => setCreating((v) => !v)}>
+          <Plus size={13}/>{creating ? 'Cancel' : 'Add webhook'}
+        </button>
+      </div>
+
+      {creating && (
+        <div className="mb-3 grid grid-cols-1 gap-2 rounded border border-ink-500/20 bg-slate-50 p-3 md:grid-cols-4">
+          <div className="md:col-span-1">
+            <label className="label">Name</label>
+            <input className="field" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="label">URL</label>
+            <input className="field font-mono text-xs" placeholder="https://ops.example.com/webhooks/itamls"
+              value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">Events</label>
+            <input className="field font-mono text-xs"
+              placeholder="ticket.* or ticket.created,ticket.resolved"
+              value={draft.events} onChange={(e) => setDraft({ ...draft, events: e.target.value })} />
+          </div>
+          <div className="md:col-span-3">
+            <label className="label">Signing secret (optional — sent as HMAC-SHA256 in X-ITAMLS-Signature)</label>
+            <input className="field font-mono text-xs" value={draft.secret}
+              onChange={(e) => setDraft({ ...draft, secret: e.target.value })} />
+          </div>
+          <div className="flex items-end">
+            <button className="btn-primary" disabled={!draft.name || !draft.url || save.isPending} onClick={() => save.mutate()}>
+              <Save size={12}/>{save.isPending ? 'Saving…' : 'Create'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="th text-left">Name</th>
+              <th className="th text-left">URL</th>
+              <th className="th text-left">Events</th>
+              <th className="th text-right">Fired</th>
+              <th className="th text-right">Failures</th>
+              <th className="th text-left">Active</th>
+              <th className="th text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {hooks.data?.length === 0 && (
+              <tr><td colSpan={7} className="py-4 text-center text-xs text-ink-300">No webhooks configured yet.</td></tr>
+            )}
+            {hooks.data?.map((h: any) => (
+              <tr key={h.id} className="border-b border-ink-500/10">
+                <td className="py-2 font-medium">{h.name}</td>
+                <td className="py-2 font-mono text-[11px] break-all">{h.url}</td>
+                <td className="py-2 font-mono text-[11px]">{h.events}</td>
+                <td className="py-2 text-right text-xs">{h.totalFired ?? 0}</td>
+                <td className="py-2 text-right text-xs">
+                  <span className={h.totalFailed > 0 ? 'text-rose-600' : ''}>{h.totalFailed ?? 0}</span>
+                </td>
+                <td className="py-2 text-xs">
+                  <input type="checkbox" checked={h.isActive}
+                    onChange={() => toggle.mutate({ id: h.id, isActive: !h.isActive })} />
+                </td>
+                <td className="py-2 text-right">
+                  <div className="flex justify-end gap-1">
+                    <button className="btn-ghost" title="Send test ping" onClick={() => test.mutate(h.id)}>
+                      <Zap size={12}/>
+                    </button>
+                    <button className="btn-ghost" onClick={() => setRecentId(recentId === h.id ? null : h.id)}>
+                      {recentId === h.id ? 'Hide log' : 'Log'}
+                    </button>
+                    <button className="btn-ghost text-rose-500"
+                      onClick={() => { if (confirm(`Delete webhook ${h.name}?`)) remove.mutate(h.id); }}>
+                      <Trash2 size={12}/>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {recentId && (
+        <div className="mt-3 rounded border border-ink-500/20 bg-slate-50 p-3">
+          <h4 className="mb-2 text-xs font-semibold text-slate-700">Recent deliveries</h4>
+          <div className="max-h-60 overflow-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr>
+                  <th className="th text-left">Event</th>
+                  <th className="th text-left">When</th>
+                  <th className="th text-right">Status</th>
+                  <th className="th text-right">ms</th>
+                  <th className="th text-left">Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.data?.length === 0 && (
+                  <tr><td colSpan={5} className="py-2 text-center text-ink-300">No deliveries yet.</td></tr>
+                )}
+                {recent.data?.map((d: any) => (
+                  <tr key={d.id} className="border-b border-ink-500/10">
+                    <td className="py-1 font-mono">{d.event}</td>
+                    <td className="py-1">{new Date(d.createdAt).toLocaleString()}</td>
+                    <td className="py-1 text-right">
+                      <span className={d.success ? 'text-emerald-600' : 'text-rose-600'}>
+                        {d.responseStatus ?? '—'}
+                      </span>
+                    </td>
+                    <td className="py-1 text-right">{d.durationMs ?? '—'}</td>
+                    <td className="py-1 text-rose-600">{d.error ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-3 text-[11px] text-ink-300">
+        Events are fired as POSTs to the URL. Headers: <code>X-ITAMLS-Event</code>, <code>X-ITAMLS-Delivery</code>, and
+        {' '}<code>X-ITAMLS-Signature: sha256=&lt;hmac&gt;</code> when a secret is set. Payload is JSON with
+        {' '}<code>{'{event, deliveryId, timestamp, data}'}</code>. Supported events: <code>ticket.created</code>,
+        {' '}<code>ticket.status_changed</code>, <code>ticket.priority_changed</code>, <code>ticket.assigned</code>,
+        {' '}<code>ticket.comment_added</code>, <code>ticket.resolved</code>, <code>ticket.closed</code>,
+        {' '}<code>ticket.reopened</code>, <code>ticket.sla_breached</code>.
+      </p>
+    </section>
+  );
+}
+
+// ---------------- Ops App API docs panel ----------------
+function OpsApiPanel() {
+  const hasPerm = useAuth((s) => s.hasPermission);
+  const canManage = hasPerm('tickets:manage:webhooks') || hasPerm('tickets:manage:categories');
+  if (!canManage) return null;
+
+  const base = (api.defaults.baseURL ?? '').replace(/\/$/, '');
+  const snippet =
+`POST ${base}/public/helpdesk/tickets
+X-Api-Key: <generate one from Settings → API Keys with scope OPS or FULL>
+X-ITAMLS-Reporter-Email: cashier@store012.ffgsa.co.za
+X-ITAMLS-Store-Code: 012
+Content-Type: application/json
+
+{
+  "subject": "POS3 won't print",
+  "description": "Receipt printer offline since 09:15",
+  "categoryCode": "POS",
+  "priority": "P2"
+}`;
+
+  return (
+    <section className="card mb-4 p-4">
+      <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+        <FileText size={14}/>Ops-app integration (public API)
+      </h3>
+      <p className="mb-3 text-[11px] text-ink-300">
+        Lets your Ops app log tickets without stores having to open ITAMLS. Create an API key under
+        Settings → API Keys with scope OPS or FULL and share it with the Ops app team. Tickets are tagged
+        <code> source=OPS_APP</code>.
+      </p>
+      <pre className="whitespace-pre-wrap rounded bg-slate-900 p-3 font-mono text-[11px] text-slate-100">
+{snippet}
+      </pre>
+      <p className="mt-2 text-[11px] text-ink-300">
+        Also available: <code>GET /public/helpdesk/categories</code>,{' '}
+        <code>GET /public/helpdesk/tickets/:code</code>,{' '}
+        <code>POST /public/helpdesk/tickets/:code/comments</code>.
       </p>
     </section>
   );

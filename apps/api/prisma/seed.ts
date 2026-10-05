@@ -31,6 +31,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.StoreAccessManage,
     Permissions.TicketsRead, Permissions.TicketsReadAll, Permissions.TicketsWrite,
     Permissions.TicketsAssign, Permissions.TicketsManageCategories, Permissions.TicketsReports,
+    Permissions.TicketsManageWebhooks,
   ],
   [Roles.Technician]: [
     Permissions.CatalogRead,
@@ -58,6 +59,12 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.TonerOrderReceive,
     Permissions.DvrsRead,   // sees only their store(s) via UserStoreAccess
     Permissions.TicketsRead, Permissions.TicketsWrite,  // log calls + see own store's queue
+  ],
+  [Roles.AreaManager]: [
+    Permissions.AssetsRead, Permissions.StoresRead, Permissions.ReportsRead,
+    Permissions.DvrsRead,
+    // AM sees every ticket for their stores via UserStoreAccess, plus can log on behalf
+    Permissions.TicketsRead, Permissions.TicketsWrite, Permissions.TicketsReports,
   ],
   [Roles.Finance]: [
     Permissions.CatalogRead, Permissions.AssetsRead, Permissions.StockRead,

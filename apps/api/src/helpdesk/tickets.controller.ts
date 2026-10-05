@@ -61,6 +61,12 @@ export class TicketsController {
     return this.svc.addComment(id, body.body, !!body.isInternal, ctxFor(req));
   }
 
+  @Post('tickets/:id/rate')
+  @RequirePermissions(Permissions.TicketsWrite)
+  rate(@Param('id') id: string, @Body() dto: { rating: number; comment?: string }, @Req() req: any) {
+    return this.svc.rateSatisfaction(id, dto.rating, dto.comment, ctxFor(req));
+  }
+
   @Post('tickets/bulk-assign')
   @RequirePermissions(Permissions.TicketsAssign)
   bulkAssign(@Body() dto: { ticketIds: string[]; assignedToId: string | null }, @Req() req: any) {

@@ -545,7 +545,11 @@ remove [find where address=${f.lanNetwork}/${f.cidr}]
 add address=${f.lanNetwork}/${f.cidr} dns-server=1.1.1.1,8.8.8.8 gateway=${f.lanGateway}
 
 /ip dns
-set allow-remote-requests=yes servers=9.9.9.9,1.1.1.1
+# cache-size=2048KiB avoids the default-too-small cache filling up under
+# sustained POS lookups + agent check-ins and refusing new entries,
+# which then intermittently breaks connect-to=hostname (e.g. SSTP clients
+# can't resolve the DC endpoint).
+set allow-remote-requests=yes cache-size=2048KiB servers=9.9.9.9,1.1.1.1
 
 /ip firewall address-list
 add address=${f.lanNetwork}/${f.cidr} comment=";/ cfg-2506a0 /;" list=store-lan-subnets
@@ -614,10 +618,14 @@ add comment=";/ cfg-2506a0 /;" distance=2 dst-address=10.64.9.0/24  gateway=${wg
 add comment=";/ cfg-2506a0 /;" distance=2 dst-address=66.8.25.75/32 gateway=${wgTunnelName} pref-src=${f.lanGateway}
 add comment=";/ cfg-2506a0 /;" distance=2 dst-address=66.8.25.87/32 gateway=${wgTunnelName} pref-src=${f.lanGateway}
 add comment=";/ cfg-2506a0 /;" distance=2 dst-address=66.8.58.195/32 gateway=${wgTunnelName} pref-src=${f.lanGateway}
-add blackhole comment=";/ cfg-2506a0 /;" distance=2 dst-address=10.64.9.0/24
-add blackhole comment=";/ cfg-2506a0 /;" distance=2 dst-address=66.8.58.195
-add blackhole comment=";/ cfg-2506a0 /;" distance=2 dst-address=66.8.25.87
-add blackhole comment=";/ cfg-2506a0 /;" distance=2 dst-address=66.8.25.75
+# Blackhole fallbacks MUST be strictly higher-distance than every real
+# backup route above (distance=2). Equal distance makes RouterOS ECMP
+# across them, which silently drops ~50% of new connections when the
+# primary SSTP path is down. distance=3 keeps them as pure last-resort.
+add blackhole comment=";/ cfg-2506a0 /;" distance=3 dst-address=10.64.9.0/24
+add blackhole comment=";/ cfg-2506a0 /;" distance=3 dst-address=66.8.58.195
+add blackhole comment=";/ cfg-2506a0 /;" distance=3 dst-address=66.8.25.87
+add blackhole comment=";/ cfg-2506a0 /;" distance=3 dst-address=66.8.25.75
 ${wanRoutesBlock}
 
 /ip service
