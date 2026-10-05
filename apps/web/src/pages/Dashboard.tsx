@@ -272,9 +272,11 @@ function CatalogDrawer({ onClose, onAdded }: { onClose: () => void; onAdded: () 
     queryKey: ['dashboard-catalog'],
     queryFn: () => api.get('/dashboard/catalog').then((r) => r.data as Array<{ category: string; items: any[] }>),
   });
+  const [justAdded, setJustAdded] = useState<string | null>(null);
   const add = useMutation({
     mutationFn: (item: any) => api.post('/dashboard/widgets', { type: item.type, width: item.defaultWidth }).then((r) => r.data),
-    onSuccess: () => { onAdded(); },
+    onSuccess: (_, item: any) => { setJustAdded(item.type); onAdded(); },
+    onError: (e: any) => { alert(`Could not add widget: ${e?.response?.data?.message ?? e.message}`); },
   });
 
   return (
@@ -290,19 +292,30 @@ function CatalogDrawer({ onClose, onAdded }: { onClose: () => void; onAdded: () 
           <div key={group.category} className="mb-5">
             <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-brand-600">{group.category}</h3>
             <div className="space-y-2">
-              {group.items.map((item: any) => (
-                <button key={item.type}
-                  className="w-full rounded-lg border border-ink-500/20 bg-white p-3 text-left transition-colors hover:border-brand-400 hover:bg-brand-50/40"
-                  onClick={() => add.mutate(item)}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold text-ink-100">{item.title}</div>
-                      <div className="text-xs text-ink-300">{item.description}</div>
+              {group.items.map((item: any) => {
+                const added = justAdded === item.type;
+                return (
+                  <button key={item.type}
+                    disabled={add.isPending}
+                    className={clsx(
+                      'w-full rounded-lg border p-3 text-left transition-colors',
+                      added
+                        ? 'border-emerald-400 bg-emerald-50'
+                        : 'border-ink-500/20 bg-white hover:border-brand-400 hover:bg-brand-50/40',
+                    )}
+                    onClick={() => add.mutate(item)}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1">
+                        <div className="text-sm font-semibold text-ink-100">{item.title}</div>
+                        <div className="text-xs text-ink-300">{item.description}</div>
+                      </div>
+                      {added
+                        ? <CheckCircle2 size={14} className="shrink-0 text-emerald-600"/>
+                        : <Plus size={14} className="shrink-0 text-brand-600"/>}
                     </div>
-                    <Plus size={14} className="shrink-0 text-brand-600"/>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           </div>
         ))}

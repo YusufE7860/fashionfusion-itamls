@@ -57,7 +57,6 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     description: 'Count of tickets assigned to you that are not resolved',
     category: 'Personal',
     kind: 'stat',
-    requires: ['tickets:read'],
     defaultWidth: 'S',
     fetch: async ({ prisma, userId }) => {
       const total = await prisma.ticket.count({ where: { assignedToId: userId, status: { in: openStatuses } } });
@@ -80,7 +79,6 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     description: 'Your open tickets, newest first',
     category: 'Personal',
     kind: 'list',
-    requires: ['tickets:read'],
     defaultWidth: 'M',
     configSchema: [{ key: 'limit', label: 'Rows', type: 'number', default: 10 }],
     fetch: async ({ prisma, userId, config }) => {
@@ -101,7 +99,6 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     description: 'Your tickets stuck waiting on the user',
     category: 'Personal',
     kind: 'list',
-    requires: ['tickets:read'],
     defaultWidth: 'M',
     fetch: async ({ prisma, userId }) => {
       const items = await prisma.ticket.findMany({
@@ -344,19 +341,212 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
       } catch { return { value: 0 }; }
     },
   },
+
+  // ---------- Stock movements ----------
   {
-    type: 'infra.pinpadInTransit',
-    title: 'PIN pads in transit',
-    description: 'PIN pads currently moving between locations',
-    category: 'Infrastructure',
-    kind: 'stat',
-    requires: ['pinpads:read'],
-    defaultWidth: 'S',
-    fetch: async ({ prisma }) => {
+    type: 'stock.inTransit',
+    title: 'Stock in transit',
+    description: 'IBTs dispatched but not yet received',
+    category: 'Stock',
+    kind: 'list',
+    requires: ['stock:read'],
+    defaultWidth: 'L',
+    configSchema: [{ key: 'limit', label: 'Rows', type: 'number', default: 15 }],
+    fetch: async ({ prisma, config }) => {
+      const p = prisma as any;
+      const model = p.ibt ?? p.internalBranchTransfer ?? p.transfer;
+      if (!model) return { items: [] };
       try {
-        const value = await (prisma as any).pinPad.count({ where: { status: 'IN_TRANSIT' } });
-        return { value, sub: 'awaiting confirmation' };
-      } catch { return { value: 0 }; }
+        const items = await model.findMany({
+          where: { status: { in: ['DISPATCHED', 'IN_TRANSIT'] } },
+          orderBy: { dispatchedAt: 'desc' },
+          take: Math.min(Number(config?.limit ?? 15), 50),
+          include: {
+            fromStore: { select: { code: true, name: true } },
+            toStore:   { select: { code: true, name: true } },
+            lines:     { include: { sku: { select: { code: true, name: true } } } },
+          },
+        });
+        return {
+          items: items.map((t: any) => ({
+            id: t.id,
+            name: `${t.fromStore?.code ?? 'HQ'} → ${t.toStore?.code ?? '—'}`,
+            sub: (t.lines ?? []).map((l: any) => `${l.quantity}× ${l.sku?.name ?? l.sku?.code ?? 'item'}`).slice(0, 3).join(', '),
+            qty: (t.lines ?? []).reduce((s: number, l: any) => s + (l.quantity ?? 0), 0),
+          })),
+        };
+      } catch { return { items: [] }; }
+    },
+  },
+
+  // ---------- Helpdesk expanded ----------
+  {
+    type: 'tickets.openByCategory',
+    title: 'Open calls by category',
+    description: 'Where today\'s workload is concentrated',
+    category: 'Helpdesk',
+    kind: 'barChart',
+    requires: ['tickets:read:all'],
+    defaultWidth: 'M',
+    fetch: async ({ prisma }) => {
+      const rows = await prisma.ticket.groupBy({
+        by: ['categoryId'],
+        where: { status: { in: openStatuses } },
+        _count: true,
+      });
+      const cats = await prisma.ticketCategory.findMany({
+        where: { id: { in: rows.map((r) => r.categoryId!) } },
+        select: { id: true, code: true, name: true },
+      });
+      const byId = new Map(cats.map((c) => [c.id, c]));
+      return {
+        data: rows.map((r) => ({
+          label: byId.get(r.categoryId!)?.code ?? '—',
+          sublabel: byId.get(r.categoryId!)?.name ?? '',
+          value: r._count,
+        })).sort((a, b) => b.value - a.value),
+      };
+    },
+  },
+
+  // ---------- Toner stock by model ----------
+  {
+    type: 'stock.tonerByModel',
+    title: 'Toner stock by model',
+    description: 'How much of each toner type you have on hand',
+    category: 'Stock',
+    kind: 'barChart',
+    requires: ['stock:read'],
+    defaultWidth: 'L',
+    fetch: async ({ prisma }) => {
+      const p = prisma as any;
+      try {
+        const skus = await p.sku.findMany({
+          where: {
+            OR: [
+              { category: { contains: 'toner', mode: 'insensitive' } },
+              { subcategory: { contains: 'toner', mode: 'insensitive' } },
+              { name: { contains: 'toner', mode: 'insensitive' } },
+            ],
+          },
+          select: { id: true, code: true, name: true },
+          take: 30,
+        }).catch(() => []);
+        const levels = p.stockLevel?.groupBy
+          ? await p.stockLevel.groupBy({
+              by: ['skuId'],
+              _sum: { quantity: true },
+              where: { skuId: { in: skus.map((s: any) => s.id) } },
+            }).catch(() => [])
+          : [];
+        const bySku = new Map(levels.map((l: any) => [l.skuId, l._sum.quantity ?? 0]));
+        return {
+          data: skus.map((s: any) => ({
+            label: s.code, sublabel: s.name, value: bySku.get(s.id) ?? 0,
+          })).sort((a: any, b: any) => b.value - a.value),
+        };
+      } catch { return { data: [] }; }
+    },
+  },
+
+  // ---------- Reminders / tasks ----------
+  {
+    type: 'reminders.mine',
+    title: 'My reminders & tasks',
+    description: 'Tasks assigned to you + broadcast reminders',
+    category: 'Personal',
+    kind: 'list',
+    defaultWidth: 'M',
+    fetch: async ({ prisma, userId }) => {
+      const items = await prisma.reminder.findMany({
+        where: {
+          completedAt: null,
+          OR: [{ assignedToId: userId }, { assignedToId: null }],
+        },
+        orderBy: [{ dueAt: 'asc' }, { priority: 'desc' }],
+        take: 15,
+        include: { assignedTo: { select: { fullName: true } } },
+      });
+      return {
+        items: items.map((r: any) => ({
+          id: r.id,
+          name: r.title,
+          sub: r.dueAt ? `Due ${new Date(r.dueAt).toLocaleDateString()}` : (r.assignedTo ? `For ${r.assignedTo.fullName}` : 'Everyone'),
+          priority: r.priority,
+        })),
+      };
+    },
+  },
+
+  // ---------- Store opening dates ----------
+  {
+    type: 'stores.openingSoon',
+    title: 'Upcoming store openings',
+    description: 'New stores opening in the next N days',
+    category: 'Stores',
+    kind: 'list',
+    requires: ['stores:read'],
+    defaultWidth: 'M',
+    configSchema: [{ key: 'days', label: 'Within days', type: 'number', default: 60 }],
+    fetch: async ({ prisma, config }) => {
+      const p = prisma as any;
+      const days = Math.min(Math.max(Number(config?.days ?? 60), 1), 365);
+      const until = new Date(Date.now() + days * 86_400_000);
+      try {
+        // Try the field most schemas use (openingDate / openDate / openedAt)
+        const items = await p.store.findMany({
+          where: {
+            OR: [
+              { openingDate: { gte: new Date(), lte: until } },
+              { openDate:    { gte: new Date(), lte: until } },
+            ],
+          },
+          select: { id: true, code: true, name: true, openingDate: true, openDate: true, region: true },
+          orderBy: [{ openingDate: 'asc' }],
+          take: 20,
+        }).catch(() => []);
+        return {
+          items: items.map((s: any) => ({
+            id: s.id, name: `${s.code} — ${s.name}`,
+            sub: `${s.region ?? ''} · opens ${new Date(s.openingDate ?? s.openDate).toLocaleDateString()}`,
+          })),
+        };
+      } catch { return { items: [] }; }
+    },
+  },
+
+  // ---------- Recently opened stores ----------
+  {
+    type: 'stores.recentlyOpened',
+    title: 'Recently opened stores',
+    description: 'Stores opened in the last 90 days',
+    category: 'Stores',
+    kind: 'list',
+    requires: ['stores:read'],
+    defaultWidth: 'M',
+    fetch: async ({ prisma }) => {
+      const p = prisma as any;
+      try {
+        const since = new Date(Date.now() - 90 * 86_400_000);
+        const items = await p.store.findMany({
+          where: {
+            OR: [
+              { openingDate: { gte: since, lte: new Date() } },
+              { openDate:    { gte: since, lte: new Date() } },
+              { createdAt:   { gte: since } },
+            ],
+          },
+          select: { id: true, code: true, name: true, openingDate: true, openDate: true, createdAt: true },
+          orderBy: [{ createdAt: 'desc' }],
+          take: 15,
+        }).catch(() => []);
+        return {
+          items: items.map((s: any) => ({
+            id: s.id, name: `${s.code} — ${s.name}`,
+            sub: `Added ${new Date(s.openingDate ?? s.openDate ?? s.createdAt).toLocaleDateString()}`,
+          })),
+        };
+      } catch { return { items: [] }; }
     },
   },
 ];

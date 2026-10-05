@@ -97,6 +97,9 @@ model User {
   categoriesDefaultFor  TicketCategory[]   @relation("CategoryDefaultAssignee")
   cannedResponsesCreated CannedResponse[]  @relation("CannedResponseCreator")
   dashboardWidgets    DashboardWidget[]
+  remindersAssigned   Reminder[]        @relation("ReminderAssignee")
+  remindersCreated    Reminder[]        @relation("ReminderCreator")
+  remindersCompleted  Reminder[]        @relation("ReminderCompleter")
 }
 
 // ---------- Catalog / Master Data ----------
@@ -841,6 +844,29 @@ model TicketCategory {
   slaPolicy        SlaPolicy?       @relation(fields: [slaPolicyId], references: [id])
   tickets          Ticket[]
   cannedResponses  CannedResponse[]
+}
+
+// Reminders / tasks that an admin or user sets. Can be assigned to a specific
+// user, or left broadcast (visible to everyone). Users can tick them off.
+model Reminder {
+  id           String    @id @default(cuid())
+  title        String
+  notes        String?
+  dueAt        DateTime?
+  priority     String    @default("NORMAL")  // LOW / NORMAL / HIGH / URGENT
+  assignedToId String?                        // null = everyone sees it
+  createdById  String
+  completedAt  DateTime?
+  completedById String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  assignedTo  User? @relation("ReminderAssignee",  fields: [assignedToId],  references: [id])
+  createdBy   User  @relation("ReminderCreator",   fields: [createdById],   references: [id])
+  completedBy User? @relation("ReminderCompleter", fields: [completedById], references: [id])
+
+  @@index([assignedToId, completedAt])
+  @@index([dueAt])
 }
 
 // Per-user dashboard widgets. Each user picks what shows on their home
