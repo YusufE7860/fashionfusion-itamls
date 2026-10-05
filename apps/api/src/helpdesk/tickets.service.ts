@@ -6,6 +6,10 @@ import { StorageService } from '../storage/storage.service';
 import { HelpdeskRoutingService } from './routing.service';
 import { HelpdeskWebhooksService } from './webhooks.service';
 
+function escapeHtml(s: string) {
+  return (s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]!));
+}
+
 const REOPEN_ESCALATION_THRESHOLD = 3;  // bump priority after this many reopens
 const PRIORITY_BUMP: Record<string, string> = { P4: 'P3', P3: 'P2', P2: 'P1', P1: 'P1' };
 
@@ -515,9 +519,12 @@ export class TicketsService {
       }
     });
 
-    // Notify the "other side" of the conversation
+    // Notify the "other side" of the conversation. If this is a public reply
+    // from a tech, also email the full reply body to the reporter so the user
+    // can simply reply by email — POP3 ingest will match the [FF-YYMM-NNNN]
+    // tag in the subject and append their reply as a new comment.
     const notifyId = isTech ? ticket.reporterId : ticket.assignedToId;
-    if (notifyId && !isInternal) this.notifyComment(id, notifyId).catch(() => {});
+    if (notifyId && !isInternal) this.notifyComment(id, notifyId, body.trim(), isTech).catch(() => {});
 
     // Webhook (public comments only — internal notes stay private)
     if (!isInternal) {
@@ -574,16 +581,32 @@ Open: ${web}/helpdesk/tickets/${ticket.id}
     await this.mailer.send(user.email, subject, body.replace(/\n/g, '<br>'), body);
   }
 
-  private async notifyComment(ticketId: string, userId: string) {
-    const [ticket, user] = await Promise.all([
+  private async notifyComment(ticketId: string, userId: string, replyBody?: string, fromTech?: boolean) {
+    const [ticket, user, author] = await Promise.all([
       this.prisma.ticket.findUnique({ where: { id: ticketId } }),
       this.prisma.user.findUnique({ where: { id: userId } }),
+      fromTech ? this.prisma.user.findFirst({ where: { role: { code: { in: ['ADMINISTRATOR','IT_MANAGER','TECHNICIAN'] } } }, select: { fullName: true } }) : Promise.resolve(null as any),
     ]);
     if (!ticket || !user?.email) return;
     const web = process.env.WEB_BASE_URL ?? '';
-    const subject = `[${ticket.code}] New reply on your ticket`;
-    const body = `There's a new reply on ticket ${ticket.code}.\n\nOpen: ${web}/helpdesk/tickets/${ticket.id}`;
-    await this.mailer.send(user.email, subject, body.replace(/\n/g, '<br>'), body);
+    // Keep the ticket code in the subject so email replies thread back via POP3 ingest
+    const subject = `[${ticket.code}] ${ticket.subject}`;
+
+    const greet = user.fullName ? `Hi ${user.fullName.split(' ')[0]},` : 'Hi,';
+    const whoLabel = fromTech ? (author?.fullName ? `IT (${author.fullName})` : 'IT') : 'the reporter';
+    const bodyText = replyBody
+      ? `${greet}\n\n${whoLabel} replied to ticket ${ticket.code}:\n\n---\n${replyBody}\n---\n\nReply to this email to add a comment, or open the ticket:\n${web}/helpdesk/tickets/${ticket.id}\n\n— ITAMLS Helpdesk`
+      : `There's a new reply on ticket ${ticket.code}.\n\nOpen: ${web}/helpdesk/tickets/${ticket.id}`;
+
+    const html = this.mailer.wrap(
+      `Reply on ${ticket.code}`,
+      `<p>${escapeHtml(greet)}</p>
+       <p>${escapeHtml(whoLabel)} replied to <strong>${escapeHtml(ticket.subject)}</strong>:</p>
+       <blockquote style="margin:12px 0;padding:12px 16px;border-left:3px solid #fe6620;background:#0f1626;color:#e8eef9;white-space:pre-wrap;">${escapeHtml(replyBody ?? '')}</blockquote>
+       <p style="font-size:12px;color:#7a8aa8;">Reply to this email to add a comment to the ticket.</p>
+       <p><a href="${web}/helpdesk/tickets/${ticket.id}" style="color:#fe6620;">Open ticket ${ticket.code}</a></p>`,
+    );
+    await this.mailer.send(user.email, subject, html, bodyText);
   }
 
   // ============================================================

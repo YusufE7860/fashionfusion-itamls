@@ -6,7 +6,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
 import {
   AlertTriangle, ArrowLeft, Clock, Download, File as FileIcon, Image as ImageIcon,
-  Paperclip, Send, Timer, Trash2, Upload, User as UserIcon,
+  Paperclip, Send, Timer, Trash2, Upload, User as UserIcon, Zap, Lock, Mail,
 } from 'lucide-react';
 
 const PRIORITY_STYLES: Record<string, string> = {
@@ -225,23 +225,17 @@ export function HelpdeskDetail() {
             </div>
 
             {/* Compose */}
-            <div className="mt-4 border-t border-ink-500/30 pt-3">
-              <textarea className="field text-sm" rows={3}
-                placeholder="Type a reply… Markdown works." value={reply}
-                onChange={(e) => setReply(e.target.value)} />
-              <div className="mt-2 flex items-center justify-between">
-                {canAssign ? (
-                  <label className="flex items-center gap-1 text-xs text-ink-200">
-                    <input type="checkbox" checked={isInternal} onChange={(e) => setIsInternal(e.target.checked)} />
-                    Internal note (hidden from reporter)
-                  </label>
-                ) : <div />}
-                <button className="btn-primary" disabled={!reply.trim() || comment.isPending}
-                  onClick={() => comment.mutate()}>
-                  <Send size={13}/>{comment.isPending ? 'Posting…' : 'Post reply'}
-                </button>
-              </div>
-            </div>
+            <ComposeBox
+              ticketId={id!}
+              categoryId={t.categoryId}
+              canAssign={canAssign}
+              reply={reply}
+              setReply={setReply}
+              isInternal={isInternal}
+              setIsInternal={setIsInternal}
+              onSubmit={() => comment.mutate()}
+              pending={comment.isPending}
+            />
           </section>
 
           {/* Attachments */}
@@ -436,5 +430,98 @@ export function HelpdeskDetail() {
         </div>
       </div>
     </>
+  );
+}
+
+// ---------- ComposeBox: tabbed compose with canned-response picker ----------
+function ComposeBox({
+  ticketId, categoryId, canAssign, reply, setReply, isInternal, setIsInternal, onSubmit, pending,
+}: {
+  ticketId: string;
+  categoryId: string;
+  canAssign: boolean;
+  reply: string;
+  setReply: (s: string) => void;
+  isInternal: boolean;
+  setIsInternal: (b: boolean) => void;
+  onSubmit: () => void;
+  pending: boolean;
+}) {
+  const [showCanned, setShowCanned] = useState(false);
+  const canned = useQuery({
+    queryKey: ['canned', categoryId],
+    queryFn: () => api.get('/helpdesk/canned', { params: { categoryId } }).then((r) => r.data),
+    enabled: canAssign,
+  });
+
+  async function applyCanned(c: any) {
+    try {
+      const { data } = await api.get(`/helpdesk/canned/${c.id}/apply`, { params: { ticketId } });
+      setReply(reply ? `${reply}\n\n${data.body}` : data.body);
+    } catch { /* ignore */ }
+    setShowCanned(false);
+  }
+
+  return (
+    <div className="mt-4 border-t border-ink-500/30 pt-3">
+      {canAssign && (
+        <div className="mb-2 flex items-center gap-1 border-b border-ink-500/20">
+          <button type="button"
+            className={`flex items-center gap-1 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors ${
+              !isInternal ? 'border-brand-500 text-brand-700' : 'border-transparent text-ink-300 hover:text-ink-100'
+            }`}
+            onClick={() => setIsInternal(false)}>
+            <Mail size={12}/>Public reply <span className="text-[10px] text-ink-300">(emails reporter)</span>
+          </button>
+          <button type="button"
+            className={`flex items-center gap-1 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors ${
+              isInternal ? 'border-amber-500 text-amber-700' : 'border-transparent text-ink-300 hover:text-ink-100'
+            }`}
+            onClick={() => setIsInternal(true)}>
+            <Lock size={12}/>Internal note <span className="text-[10px] text-ink-300">(IT only)</span>
+          </button>
+          <div className="ml-auto">
+            <button type="button" className="btn-ghost text-xs"
+              onClick={() => setShowCanned((v) => !v)}>
+              <Zap size={12}/>Canned ({canned.data?.length ?? 0})
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showCanned && (canned.data?.length ?? 0) > 0 && (
+        <div className="mb-2 rounded border border-ink-500/20 bg-slate-50 p-2">
+          <div className="mb-1 text-[11px] font-semibold text-ink-300">Pick a response</div>
+          <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
+            {canned.data!.map((c: any) => (
+              <button key={c.id} type="button"
+                className="rounded border border-ink-500/20 bg-white p-2 text-left text-xs hover:border-brand-400 hover:bg-brand-50/40"
+                onClick={() => applyCanned(c)}>
+                <div className="font-semibold text-ink-100">{c.name}</div>
+                <div className="line-clamp-2 text-[11px] text-ink-300">{c.body}</div>
+                {c.category && <div className="mt-1 text-[10px] text-ink-300">{c.category.code}</div>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <textarea
+        className={`field text-sm ${isInternal ? 'bg-amber-50/50 border-amber-300' : ''}`}
+        rows={3}
+        placeholder={isInternal ? 'Write a private note for IT only…' : 'Type a reply… The reporter will receive this by email.'}
+        value={reply}
+        onChange={(e) => setReply(e.target.value)} />
+      <div className="mt-2 flex items-center justify-between">
+        <div className="text-[11px] text-ink-300">
+          {isInternal
+            ? 'This note stays inside IT. The reporter will not see it.'
+            : 'Supports {{reporter.firstName}}, {{ticket.code}}, {{store.name}} via canned responses.'}
+        </div>
+        <button className="btn-primary" disabled={!reply.trim() || pending} onClick={onSubmit}>
+          <Send size={13}/>{pending ? 'Posting…' : isInternal ? 'Post internal note' : 'Send reply'}
+        </button>
+      </div>
+    </div>
   );
 }

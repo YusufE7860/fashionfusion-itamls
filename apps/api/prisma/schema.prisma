@@ -95,6 +95,7 @@ model User {
   ticketEvents          TicketEvent[]      @relation("TicketEventActor")
   ticketAttachments     TicketAttachment[] @relation("TicketAttachmentUploader")
   categoriesDefaultFor  TicketCategory[]   @relation("CategoryDefaultAssignee")
+  cannedResponsesCreated CannedResponse[]  @relation("CannedResponseCreator")
 }
 
 // ---------- Catalog / Master Data ----------
@@ -835,9 +836,30 @@ model TicketCategory {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  defaultAssignee User?      @relation("CategoryDefaultAssignee", fields: [defaultAssigneeId], references: [id])
-  slaPolicy       SlaPolicy? @relation(fields: [slaPolicyId], references: [id])
-  tickets         Ticket[]
+  defaultAssignee  User?            @relation("CategoryDefaultAssignee", fields: [defaultAssigneeId], references: [id])
+  slaPolicy        SlaPolicy?       @relation(fields: [slaPolicyId], references: [id])
+  tickets          Ticket[]
+  cannedResponses  CannedResponse[]
+}
+
+// Reusable snippets technicians can paste into a comment with placeholders
+// like {{reporter.firstName}}, {{ticket.code}}, {{store.name}}. Server resolves
+// placeholders when the tech applies the response.
+model CannedResponse {
+  id          String   @id @default(cuid())
+  name        String                                   // "Reboot and retry"
+  body        String                                   // the template text (may contain placeholders)
+  categoryId  String?                                  // scope to a category (null = any)
+  isActive    Boolean  @default(true)
+  usageCount  Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category  TicketCategory? @relation(fields: [categoryId], references: [id])
+  createdBy User?           @relation("CannedResponseCreator", fields: [createdById], references: [id])
+
+  @@index([categoryId, isActive])
 }
 
 model SlaPolicy {

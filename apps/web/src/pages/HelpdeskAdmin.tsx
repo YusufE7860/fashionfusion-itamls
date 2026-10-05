@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
-import { CheckCircle2, Mail, Plus, Save, Trash2, X, XCircle, Webhook, Zap, FileText } from 'lucide-react';
+import { CheckCircle2, Mail, Plus, Save, Trash2, X, XCircle, Webhook, Zap, FileText, MessageSquare } from 'lucide-react';
 
 export function HelpdeskAdmin() {
   const qc = useQueryClient();
@@ -169,6 +169,7 @@ export function HelpdeskAdmin() {
       </section>
 
       <EmailIngestPanel canManage={canManage} />
+      <CannedResponsesPanel canManage={canManage} categories={cats.data ?? []} />
       <WebhooksPanel />
       <OpsApiPanel />
 
@@ -282,6 +283,139 @@ HELPDESK_POP3_MAX_PER_RUN=25`}</pre>
         <b>appends as a comment</b> to an existing ticket if the subject contains the ticket code like <code>[FF-2610-0042]</code>.
         Email attachments are pulled through and stored just like an in-app upload. Successfully processed messages are DELETEd from the server (or left if you set <code>HELPDESK_POP3_DELETE_AFTER=false</code>).
       </p>
+    </section>
+  );
+}
+
+// ---------------- Canned responses panel ----------------
+function CannedResponsesPanel({ canManage, categories }: { canManage: boolean; categories: any[] }) {
+  const qc = useQueryClient();
+  const items = useQuery({
+    queryKey: ['hd-canned-all'],
+    queryFn: () => api.get('/helpdesk/canned/all').then((r) => r.data),
+  });
+
+  const empty = { name: '', body: '', categoryId: '', isActive: true };
+  const [draft, setDraft] = useState<any>(empty);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const save = useMutation({
+    mutationFn: () => {
+      const body = { ...draft, categoryId: draft.categoryId || null };
+      return editing
+        ? api.patch(`/helpdesk/canned/${editing.id}`, body).then((r) => r.data)
+        : api.post('/helpdesk/canned', body).then((r) => r.data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hd-canned-all'] });
+      qc.invalidateQueries({ queryKey: ['canned'] });
+      setCreating(false); setEditing(null); setDraft(empty);
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete(`/helpdesk/canned/${id}`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hd-canned-all'] }),
+  });
+
+  return (
+    <section className="card mb-4 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <MessageSquare size={14}/>Canned responses
+        </h3>
+        {canManage && (
+          <button className="btn-primary" onClick={() => { setCreating((v) => !v); setEditing(null); setDraft(empty); }}>
+            <Plus size={13}/>{creating ? 'Cancel' : 'Add response'}
+          </button>
+        )}
+      </div>
+
+      {(creating || editing) && canManage && (
+        <div className="mb-3 grid grid-cols-1 gap-2 rounded border border-ink-500/20 bg-slate-50 p-3 md:grid-cols-3">
+          <div>
+            <label className="label">Name</label>
+            <input className="field" placeholder="e.g. Ask for screenshot"
+              value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">Scope to category (optional)</label>
+            <select className="field" value={draft.categoryId}
+              onChange={(e) => setDraft({ ...draft, categoryId: e.target.value })}>
+              <option value="">Any category</option>
+              {categories.map((c: any) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+            </select>
+          </div>
+          <div className="flex items-end">
+            <label className="flex items-center gap-1 text-sm">
+              <input type="checkbox" checked={draft.isActive}
+                onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })} />
+              Active
+            </label>
+          </div>
+          <div className="md:col-span-3">
+            <label className="label">Body</label>
+            <textarea className="field font-mono text-sm" rows={5}
+              placeholder={`Hi {{reporter.firstName}},\n\nCould you send a screenshot of {{ticket.subject}}?\n\n— IT`}
+              value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
+            <p className="mt-1 text-[11px] text-ink-300">
+              Placeholders: <code>{'{{reporter.firstName}}'}</code>, <code>{'{{reporter.fullName}}'}</code>,
+              <code> {'{{ticket.code}}'}</code>, <code>{'{{ticket.subject}}'}</code>,
+              <code> {'{{store.code}}'}</code>, <code>{'{{store.name}}'}</code>,
+              <code> {'{{tech.firstName}}'}</code>, <code>{'{{asset.tag}}'}</code>.
+            </p>
+          </div>
+          <div className="md:col-span-3">
+            <button className="btn-primary" disabled={!draft.name || !draft.body || save.isPending} onClick={() => save.mutate()}>
+              <Save size={12}/>{save.isPending ? 'Saving…' : editing ? 'Save' : 'Create'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="th text-left">Name</th>
+              <th className="th text-left">Preview</th>
+              <th className="th text-left">Scope</th>
+              <th className="th text-right">Used</th>
+              <th className="th text-left">Active</th>
+              <th className="th text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.data?.length === 0 && (
+              <tr><td colSpan={6} className="py-4 text-center text-xs text-ink-300">
+                No canned responses yet. Click "Add response" to create one — e.g. "Reboot and try again" or "Request screenshot".
+              </td></tr>
+            )}
+            {items.data?.map((c: any) => (
+              <tr key={c.id} className="border-b border-ink-500/10">
+                <td className="py-2 font-medium">{c.name}</td>
+                <td className="py-2 text-xs text-ink-300 max-w-md line-clamp-2 whitespace-pre-wrap">{c.body}</td>
+                <td className="py-2 text-xs">{c.category ? `${c.category.code}` : 'Any'}</td>
+                <td className="py-2 text-right text-xs">{c.usageCount}</td>
+                <td className="py-2 text-xs">{c.isActive ? '✓' : '—'}</td>
+                <td className="py-2 text-right">
+                  {canManage && (
+                    <div className="flex justify-end gap-1">
+                      <button className="btn-ghost" onClick={() => { setEditing(c); setCreating(false); setDraft({ name: c.name, body: c.body, categoryId: c.categoryId ?? '', isActive: c.isActive }); }}>
+                        Edit
+                      </button>
+                      <button className="btn-ghost text-rose-500"
+                        onClick={() => { if (confirm(`Delete "${c.name}"?`)) remove.mutate(c.id); }}>
+                        <Trash2 size={12}/>
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

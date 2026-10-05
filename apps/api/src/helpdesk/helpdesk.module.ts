@@ -3,6 +3,8 @@ import { TicketsController } from './tickets.controller';
 import { HelpdeskExternalController } from './helpdesk.controller';
 import { PublicHelpdeskController } from './public-api.controller';
 import { HelpdeskWebhooksController } from './webhooks.controller';
+import { CannedResponsesController } from './canned.controller';
+import { CannedResponsesService } from './canned.service';
 import { HelpdeskService } from './helpdesk.service';
 import { TicketsService } from './tickets.service';
 import { HelpdeskAdminService } from './categories.service';
@@ -19,10 +21,11 @@ import { DiscoveryModule } from '../discovery/discovery.module';
  */
 @Module({
   imports: [DiscoveryModule], // for ApiKeysService (shared across store PCs + Ops app)
-  controllers: [TicketsController, HelpdeskExternalController, PublicHelpdeskController, HelpdeskWebhooksController],
+  controllers: [TicketsController, HelpdeskExternalController, PublicHelpdeskController, HelpdeskWebhooksController, CannedResponsesController],
   providers: [
     TicketsService, HelpdeskAdminService, TicketsCron, HelpdeskService,
     EmailIngestService, HelpdeskRoutingService, HelpdeskWebhooksService,
+    CannedResponsesService,
   ],
   exports: [TicketsService],
 })
