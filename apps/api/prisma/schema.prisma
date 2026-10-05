@@ -100,6 +100,7 @@ model User {
   remindersAssigned   Reminder[]        @relation("ReminderAssignee")
   remindersCreated    Reminder[]        @relation("ReminderCreator")
   remindersCompleted  Reminder[]        @relation("ReminderCompleter")
+  areaManagersAssigned AreaManager[]    @relation("AreaManagerAssignedTech")
 }
 
 // ---------- Catalog / Master Data ----------
@@ -201,15 +202,20 @@ model Store {
   id         String   @id @default(cuid())
   code       String   @unique
   name       String
-  region     String
+  region     String                        // legacy free-text region label (kept for back-compat)
+  regionId      String?                    // link to Region entity
+  areaManagerId String?                    // link to AreaManager entity (not an ITAMLS user)
   entity     String   @default("FASHION_FUSION") // FASHION_FUSION | EVLV
   locationId String   @unique
   templateId String?
   openedAt   DateTime?
+  openingDate DateTime?                    // planned opening date for upcoming openings
   status     String   @default("PLANNED")
 
   location   Location       @relation(fields: [locationId], references: [id])
   template   StoreTemplate? @relation(fields: [templateId], references: [id])
+  regionRef    Region?      @relation(fields: [regionId],      references: [id])
+  areaManager  AreaManager? @relation(fields: [areaManagerId], references: [id])
 
   assignedAssets Asset[]      @relation("AssignedStore")
   users          User[]
@@ -222,6 +228,45 @@ model Store {
   userAccess     UserStoreAccess[]
   dvrs           Dvr[]
   tickets        Ticket[]
+}
+
+// Geographic region grouping stores (Gauteng, KZN, Western Cape, …).
+// Decoupled from users — AMs attach to a region, stores attach to a region.
+model Region {
+  id        String   @id @default(cuid())
+  code      String   @unique                     // GP, KZN, WC
+  name      String                               // "Gauteng"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stores       Store[]
+  areaManagers AreaManager[]
+}
+
+// Area Manager — a person who oversees a set of stores but does NOT log into
+// ITAMLS. Their stores log tickets via the Ops app; routing uses the AM's
+// `assignedTechId` to pick the ITAMLS technician who owns their patch.
+model AreaManager {
+  id              String   @id @default(cuid())
+  fullName        String
+  email           String   @unique
+  phone           String?
+  regionId        String?
+  assignedTechId  String?                    // ITAMLS User (role TECHNICIAN / IT_MANAGER / ADMINISTRATOR)
+  isActive        Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  region         Region? @relation(fields: [regionId],       references: [id])
+  assignedTech   User?   @relation("AreaManagerAssignedTech", fields: [assignedTechId], references: [id])
+
+  stores         Store[]
+  tickets        Ticket[]
+
+  @@index([regionId])
+  @@index([assignedTechId])
 }
 
 // ---------- Inventory ----------
@@ -770,12 +815,18 @@ model Ticket {
   source        String   @default("APP")           // APP | EMAIL | PHONE | AGENT
 
   // Who / where
-  reporterId    String                              // the user who logged it
+  reporterId    String?                             // the user who logged it (null for external Ops-app reporters)
   storeId       String?                             // where it happened (nullable for HQ tickets)
   departmentId  String?                             // HQ tickets
   assetId       String?                             // affected asset (optional)
   assignedToId  String?                             // IT user working on it
   categoryId    String
+  areaManagerId String?                             // AM for this store (snapshot at creation; follows store route)
+
+  // External reporter — used when the ticket comes from the Ops app on behalf
+  // of someone who does NOT have an ITAMLS login (store staff, AMs).
+  externalReporterEmail String?
+  externalReporterName  String?
 
   // SLA tracking
   slaPolicyId       String?
@@ -804,13 +855,14 @@ model Ticket {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  reporter    User    @relation("TicketReporter",   fields: [reporterId],   references: [id])
+  reporter    User?   @relation("TicketReporter",   fields: [reporterId],   references: [id])
   assignedTo  User?   @relation("TicketAssignedTo", fields: [assignedToId], references: [id])
   store       Store?  @relation(fields: [storeId], references: [id])
   department  Department? @relation(fields: [departmentId], references: [id])
   asset       Asset?  @relation(fields: [assetId], references: [id])
   category    TicketCategory @relation(fields: [categoryId], references: [id])
   slaPolicy   SlaPolicy?     @relation(fields: [slaPolicyId], references: [id])
+  areaManager AreaManager?   @relation(fields: [areaManagerId], references: [id])
 
   comments    TicketComment[]
   events      TicketEvent[]

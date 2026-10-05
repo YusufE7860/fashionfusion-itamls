@@ -29,29 +29,40 @@ export class PublicHelpdeskController {
     private tickets: TicketsService,
   ) {}
 
-  private async authAndResolveReporter(apiKey: string, reporterEmail?: string, storeCode?: string) {
+  private async authAndResolveReporter(
+    apiKey: string, reporterEmail?: string, reporterName?: string, storeCode?: string,
+  ) {
     const k = await this.apiKeys.validate(apiKey);
     if (!k || k.revokedAt) throw new UnauthorizedException('Invalid API key');
     if (!['OPS', 'FULL'].includes(k.scope)) throw new UnauthorizedException('Key not authorized for the helpdesk API');
 
-    // Reporter: match by email, fall back to the key creator
-    let reporter = reporterEmail
-      ? await this.prisma.user.findFirst({ where: { email: { equals: reporterEmail, mode: 'insensitive' } } })
-      : null;
-    if (!reporter && k.createdById) reporter = await this.prisma.user.findUnique({ where: { id: k.createdById } });
-    if (!reporter) throw new UnauthorizedException('Cannot resolve reporter; pass X-ITAMLS-Reporter-Email that matches an ITAMLS user, or set a createdBy on the API key');
-
-    // Store: look up by code if provided (store codes are what the Ops app likely has)
+    // Store (needed up-front for routing). Looks up by code.
     let storeId: string | undefined;
     if (storeCode) {
       const s = await this.prisma.store.findUnique({ where: { code: storeCode.toUpperCase() } });
       if (!s) throw new BadRequestException(`Unknown store code ${storeCode}`);
       storeId = s.id;
-    } else if (reporter.storeId) {
-      storeId = reporter.storeId;
     }
 
-    return { reporter, storeId };
+    // Reporter: EXTERNAL by default (Ops-app users aren't ITAMLS users).
+    // If the email happens to match an ITAMLS user, we still prefer the external
+    // identity for the ticket shape; the audit log remains honest.
+    const externalEmail = reporterEmail?.trim() || null;
+    const externalName  = reporterName?.trim()  || null;
+
+    // The "actor" for the audit log — we need SOMEONE to attribute the event
+    // to. Prefer the API key's createdBy; otherwise fall back to the first
+    // Administrator. (Ticket.reporterId can still be null; this is for events.)
+    let actorId: string | null = null;
+    if (k.createdById) actorId = k.createdById;
+    if (!actorId) {
+      const admin = await this.prisma.user.findFirst({
+        where: { isActive: true, role: { code: 'ADMINISTRATOR' } }, select: { id: true },
+      });
+      actorId = admin?.id ?? null;
+    }
+
+    return { externalEmail, externalName, storeId, actorId };
   }
 
   // ---------- Metadata ----------
@@ -73,7 +84,8 @@ export class PublicHelpdeskController {
   @Public() @Post('tickets')
   async create(
     @Headers('x-api-key') apiKey: string,
-    @Headers('x-itamls-reporter-email') reporterEmail: string | undefined,
+    @Headers('x-itamls-reporter-email') reporterEmailHdr: string | undefined,
+    @Headers('x-itamls-reporter-name')  reporterNameHdr:  string | undefined,
     @Headers('x-itamls-store-code')     storeCode: string | undefined,
     @Body() body: {
       subject: string;
@@ -82,10 +94,16 @@ export class PublicHelpdeskController {
       priority?: 'P1'|'P2'|'P3'|'P4';
       storeCode?: string;                // overrides header if present
       assetTag?: string;                 // optional asset link by tag
+      reporterEmail?: string;            // body overrides header
+      reporterName?: string;
     },
   ) {
-    const effectiveStoreCode = body.storeCode ?? storeCode;
-    const { reporter, storeId } = await this.authAndResolveReporter(apiKey, reporterEmail, effectiveStoreCode);
+    const { externalEmail, externalName, storeId, actorId } = await this.authAndResolveReporter(
+      apiKey,
+      body.reporterEmail ?? reporterEmailHdr,
+      body.reporterName  ?? reporterNameHdr,
+      body.storeCode ?? storeCode,
+    );
     if (!body.categoryCode) throw new BadRequestException('categoryCode required');
     const cat = await this.prisma.ticketCategory.findUnique({ where: { code: body.categoryCode.toUpperCase() } });
     if (!cat || !cat.isActive) throw new BadRequestException(`Unknown or inactive category ${body.categoryCode}`);
@@ -103,9 +121,11 @@ export class PublicHelpdeskController {
       priority: body.priority,
       storeId,
       assetId,
-      source: 'OPS_APP' as any,
+      source: 'OPS_APP',
+      externalReporterEmail: externalEmail,
+      externalReporterName:  externalName,
     }, {
-      userId: reporter.id,
+      userId: actorId!,
       permissions: ['tickets:read', 'tickets:read:all', 'tickets:write'],
     });
 

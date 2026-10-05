@@ -37,7 +37,10 @@ export interface CreateTicketDto {
   storeId?: string;
   departmentId?: string;
   assetId?: string;
-  source?: 'APP' | 'EMAIL' | 'PHONE' | 'AGENT';
+  source?: 'APP' | 'EMAIL' | 'PHONE' | 'AGENT' | 'OPS_APP';
+  /** When logged by Ops app on behalf of a store user who is not an ITAMLS user */
+  externalReporterEmail?: string | null;
+  externalReporterName?: string | null;
 }
 
 export interface UpdateTicketDto {
@@ -219,9 +222,10 @@ export class TicketsService {
     const slaTargets = sla ? this.calcSlaTargets(sla, priority, now) : null;
 
     const code = await this.nextCode();
-    // Smart auto-assignment via Area Manager → Technician chain (falls back
-    // to category.defaultAssigneeId if no AM chain exists for this store).
-    const assigneeId = await this.routing.pickAutoAssignee({ storeId: dto.storeId, categoryId: category.id });
+    // Smart auto-assignment via Store → Area Manager → Technician.
+    // Also snapshots the AM onto the ticket for reporting + CC on emails.
+    const route = await this.routing.pickRoute({ storeId: dto.storeId, categoryId: category.id });
+    const assigneeId = route.assigneeId;
     const initialStatus: Status = assigneeId ? 'ASSIGNED' : 'NEW';
 
     const ticket = await this.prisma.$transaction(async (tx) => {
@@ -229,9 +233,12 @@ export class TicketsService {
         data: {
           code, subject: dto.subject.trim(), description: dto.description.trim(),
           status: initialStatus, priority,
-          reporterId: ctx.userId,
+          reporterId: ctx.userId ?? null,
+          externalReporterEmail: (dto as any).externalReporterEmail ?? null,
+          externalReporterName:  (dto as any).externalReporterName ?? null,
           storeId: dto.storeId, departmentId: dto.departmentId, assetId: dto.assetId,
           assignedToId: assigneeId,
+          areaManagerId: route.areaManagerId,
           categoryId: category.id,
           source: dto.source ?? 'APP',
           slaPolicyId: sla?.id,
@@ -523,8 +530,10 @@ export class TicketsService {
     // from a tech, also email the full reply body to the reporter so the user
     // can simply reply by email — POP3 ingest will match the [FF-YYMM-NNNN]
     // tag in the subject and append their reply as a new comment.
+    // The "other side" may be an ITAMLS user (notifyId) OR the external reporter
+    // (identified on the ticket itself) — notifyComment handles both.
     const notifyId = isTech ? ticket.reporterId : ticket.assignedToId;
-    if (notifyId && !isInternal) this.notifyComment(id, notifyId, body.trim(), isTech).catch(() => {});
+    if (!isInternal) this.notifyComment(id, notifyId, body.trim(), isTech).catch(() => {});
 
     // Webhook (public comments only — internal notes stay private)
     if (!isInternal) {
@@ -581,18 +590,30 @@ Open: ${web}/helpdesk/tickets/${ticket.id}
     await this.mailer.send(user.email, subject, body.replace(/\n/g, '<br>'), body);
   }
 
-  private async notifyComment(ticketId: string, userId: string, replyBody?: string, fromTech?: boolean) {
+  private async notifyComment(ticketId: string, userId: string | null, replyBody?: string, fromTech?: boolean) {
     const [ticket, user, author] = await Promise.all([
-      this.prisma.ticket.findUnique({ where: { id: ticketId } }),
-      this.prisma.user.findUnique({ where: { id: userId } }),
+      this.prisma.ticket.findUnique({
+        where: { id: ticketId },
+        include: { areaManager: { select: { email: true, fullName: true } } },
+      }),
+      userId ? this.prisma.user.findUnique({ where: { id: userId } }) : Promise.resolve(null as any),
       fromTech ? this.prisma.user.findFirst({ where: { role: { code: { in: ['ADMINISTRATOR','IT_MANAGER','TECHNICIAN'] } } }, select: { fullName: true } }) : Promise.resolve(null as any),
     ]);
-    if (!ticket || !user?.email) return;
+    if (!ticket) return;
+
+    // Resolve the "to" email:
+    //  - If userId resolves to an ITAMLS user with an email, use that.
+    //  - Otherwise fall back to the ticket's external reporter email.
+    //  - CC the Area Manager (entity) if we're emailing the reporter.
+    const recipient = user?.email ?? ticket.externalReporterEmail;
+    if (!recipient) return;
+
+    const greetingName = user?.fullName ?? ticket.externalReporterName ?? '';
     const web = process.env.WEB_BASE_URL ?? '';
     // Keep the ticket code in the subject so email replies thread back via POP3 ingest
     const subject = `[${ticket.code}] ${ticket.subject}`;
 
-    const greet = user.fullName ? `Hi ${user.fullName.split(' ')[0]},` : 'Hi,';
+    const greet = greetingName ? `Hi ${greetingName.split(' ')[0]},` : 'Hi,';
     const whoLabel = fromTech ? (author?.fullName ? `IT (${author.fullName})` : 'IT') : 'the reporter';
     const bodyText = replyBody
       ? `${greet}\n\n${whoLabel} replied to ticket ${ticket.code}:\n\n---\n${replyBody}\n---\n\nReply to this email to add a comment, or open the ticket:\n${web}/helpdesk/tickets/${ticket.id}\n\n— ITAMLS Helpdesk`
@@ -606,7 +627,12 @@ Open: ${web}/helpdesk/tickets/${ticket.id}
        <p style="font-size:12px;color:#7a8aa8;">Reply to this email to add a comment to the ticket.</p>
        <p><a href="${web}/helpdesk/tickets/${ticket.id}" style="color:#fe6620;">Open ticket ${ticket.code}</a></p>`,
     );
-    await this.mailer.send(user.email, subject, html, bodyText);
+    // Primary recipient + optional AM CC
+    const toList: string[] = [recipient];
+    if (fromTech && ticket.areaManager?.email && ticket.areaManager.email !== recipient) {
+      toList.push(ticket.areaManager.email);
+    }
+    await this.mailer.send(toList, subject, html, bodyText);
   }
 
   // ============================================================
