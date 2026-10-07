@@ -26,6 +26,8 @@ export const Permissions = {
   // Inventory / assets
   AssetsRead: 'assets:read',
   AssetsWrite: 'assets:write',
+  AgentsRead: 'agents:read',
+  AgentsWrite: 'agents:write',
   AssetsMove: 'assets:move',
   AssetsDispose: 'assets:dispose',
   // Stock

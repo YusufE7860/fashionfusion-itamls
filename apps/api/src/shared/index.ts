@@ -24,6 +24,8 @@ export const Permissions = {
   CatalogWrite: 'catalog:write',
   AssetsRead: 'assets:read',
   AssetsWrite: 'assets:write',
+  AgentsRead: 'agents:read',
+  AgentsWrite: 'agents:write',
   AssetsMove: 'assets:move',
   AssetsDispose: 'assets:dispose',
   StockRead: 'stock:read',
