@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard, Boxes, Store, Truck, ShieldCheck, LogOut, Wrench,
   FileBarChart, Bell, Printer, ChevronDown, Package, MonitorSmartphone, Building2, LifeBuoy,
-  ClipboardList, Monitor, Film, Terminal,
+  ClipboardList, Monitor, Film, Terminal, ArrowDown, ArrowUp, Eye, EyeOff, Pencil, RotateCcw,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/store/auth';
@@ -107,12 +107,67 @@ function useUpdateBadge() {
   return !!q.data?.available;
 }
 
+type Pref = { itemId: string; position: number; isHidden: boolean };
+
 export function Layout() {
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
   const location = useLocation();
+  const qc = useQueryClient();
   const updateAvailable = useUpdateBadge();
   const [open, setOpen] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+
+  // Load per-user sidebar preferences (order + hide/show).
+  const prefs = useQuery({
+    queryKey: ['nav-prefs'],
+    queryFn: () => api.get('/me/nav-preferences').then((r) => r.data as Pref[]).catch(() => [] as Pref[]),
+    staleTime: 60_000,
+  });
+
+  // Compute the ordered + filtered NAV. Items without a preference row keep
+  // their default order at the end.
+  const orderedNav = useMemo(() => {
+    const byId = new Map<string, Pref>((prefs.data ?? []).map((p) => [p.itemId, p]));
+    const positioned = NAV.map((n, defaultIdx) => {
+      const p = byId.get(n.id);
+      return {
+        entry: n,
+        position: p ? p.position : NAV.length + defaultIdx,
+        isHidden: p?.isHidden ?? false,
+      };
+    });
+    positioned.sort((a, b) => a.position - b.position);
+    return positioned;
+  }, [prefs.data]);
+
+  const savePrefs = useMutation({
+    mutationFn: (items: Pref[]) => api.post('/me/nav-preferences', { items }).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['nav-prefs'] }),
+  });
+  const resetPrefs = useMutation({
+    mutationFn: () => api.post('/me/nav-preferences/reset').then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['nav-prefs'] }),
+  });
+
+  function updatePref(itemId: string, patch: Partial<Pref>) {
+    const current = orderedNav.map((o, i) => ({
+      itemId: o.entry.id, position: i, isHidden: o.isHidden,
+    }));
+    const idx = current.findIndex((c) => c.itemId === itemId);
+    if (idx >= 0) current[idx] = { ...current[idx], ...patch };
+    savePrefs.mutate(current);
+  }
+  function moveItem(itemId: string, dir: -1 | 1) {
+    const current = orderedNav.map((o, i) => ({
+      itemId: o.entry.id, position: i, isHidden: o.isHidden,
+    }));
+    const idx = current.findIndex((c) => c.itemId === itemId);
+    const target = idx + dir;
+    if (idx < 0 || target < 0 || target >= current.length) return;
+    [current[idx], current[target]] = [current[target], current[idx]];
+    savePrefs.mutate(current.map((c, i) => ({ ...c, position: i })));
+  }
 
   useEffect(() => {
     const match = NAV.find((n) => n.kind === 'group' && n.items.some((i) =>
@@ -138,18 +193,74 @@ export function Layout() {
 
         <div className="mx-3 h-px bg-ink-500" />
 
-        {/* Nav */}
+        {/* Nav — ordered by user preference, filtered by hide/show (unless editing) */}
         <nav className="flex-1 overflow-y-auto p-3">
-          {NAV.map((entry) =>
-            entry.kind === 'single'
-              ? <SingleNav key={entry.id} entry={entry}
-                           updateBadge={entry.id === 'admin' && updateAvailable} />
-              : <GroupNav  key={entry.id} entry={entry}
-                           isOpen={open === entry.id}
-                           onToggle={() => setOpen(open === entry.id ? null : entry.id)}
-                           updateBadge={entry.id === 'admin' && updateAvailable} />,
-          )}
+          {orderedNav
+            .filter((o) => editMode || !o.isHidden)
+            .map((o, i, arr) => {
+              const entry = o.entry;
+              const inner = entry.kind === 'single'
+                ? <SingleNav entry={entry} updateBadge={entry.id === 'admin' && updateAvailable} />
+                : <GroupNav  entry={entry}
+                             isOpen={open === entry.id}
+                             onToggle={() => setOpen(open === entry.id ? null : entry.id)}
+                             updateBadge={entry.id === 'admin' && updateAvailable} />;
+
+              if (!editMode) return <div key={entry.id}>{inner}</div>;
+
+              return (
+                <div key={entry.id}
+                  className={clsx(
+                    'group relative mb-1 rounded-lg border transition-colors',
+                    o.isHidden ? 'border-dashed border-ink-500/40 opacity-60' : 'border-transparent',
+                  )}>
+                  {/* Reorder & hide controls (visible only in edit mode) */}
+                  <div className="pointer-events-none absolute -right-1 top-1 flex flex-col gap-0.5 opacity-80 group-hover:opacity-100">
+                    <button type="button"
+                      className="pointer-events-auto rounded bg-white/90 p-0.5 ring-1 ring-ink-500/30 hover:bg-brand-50"
+                      disabled={i === 0}
+                      title="Move up"
+                      onClick={() => moveItem(entry.id, -1)}>
+                      <ArrowUp size={10}/>
+                    </button>
+                    <button type="button"
+                      className="pointer-events-auto rounded bg-white/90 p-0.5 ring-1 ring-ink-500/30 hover:bg-brand-50"
+                      disabled={i === arr.length - 1}
+                      title="Move down"
+                      onClick={() => moveItem(entry.id, 1)}>
+                      <ArrowDown size={10}/>
+                    </button>
+                    <button type="button"
+                      className="pointer-events-auto rounded bg-white/90 p-0.5 ring-1 ring-ink-500/30 hover:bg-brand-50"
+                      title={o.isHidden ? 'Show' : 'Hide'}
+                      onClick={() => updatePref(entry.id, { isHidden: !o.isHidden })}>
+                      {o.isHidden ? <EyeOff size={10}/> : <Eye size={10}/>}
+                    </button>
+                  </div>
+                  {inner}
+                </div>
+              );
+            })}
         </nav>
+
+        {/* Sidebar editor controls */}
+        <div className="mx-3 mb-2 flex items-center justify-between gap-1 text-[10px] text-ink-300">
+          <button
+            type="button"
+            className={clsx(
+              'flex items-center gap-1 rounded px-2 py-1 transition-colors',
+              editMode ? 'bg-brand-500/10 text-brand-700 ring-1 ring-brand-400' : 'hover:bg-ink-500/5',
+            )}
+            onClick={() => setEditMode((v) => !v)}>
+            <Pencil size={10}/>{editMode ? 'Done' : 'Customise'}
+          </button>
+          {editMode && (
+            <button type="button" className="flex items-center gap-1 rounded px-2 py-1 hover:bg-ink-500/5"
+              onClick={() => { if (confirm('Reset sidebar to default?')) resetPrefs.mutate(); }}>
+              <RotateCcw size={10}/>Reset
+            </button>
+          )}
+        </div>
 
         {/* User card */}
         <div className="m-3 mt-0 rounded-xl border border-ink-500 bg-white p-3">

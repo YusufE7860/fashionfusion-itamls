@@ -102,6 +102,7 @@ model User {
   remindersCompleted  Reminder[]        @relation("ReminderCompleter")
   areaManagersAssigned AreaManager[]    @relation("AreaManagerAssignedTech")
   signageVideosUploaded SignageVideo[] @relation("SignageVideoUploader")
+  navPreferences        UserNavPreference[] @relation("UserNavPref")
   rmmSessionsInitiated RmmSession[]     @relation("RmmSessionInitiator")
   rmmCommandsIssued    RmmCommand[]     @relation("RmmCommandIssuer")
   rmmScriptsCreated    RmmScript[]      @relation("RmmScriptCreator")
@@ -1139,6 +1140,22 @@ model RmmScriptRun {
 
   script     RmmScript     @relation(fields: [scriptId], references: [id])
   @@index([scriptId, startedAt])
+}
+
+// Per-user sidebar ordering + hide/show. Keyed by the client-side nav item id
+// (dashboard, alerts, helpdesk, stores, etc). Missing rows = use default.
+model UserNavPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  itemId    String                              // matches NAV[].id on the frontend
+  position  Int
+  isHidden  Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  user User @relation("UserNavPref", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemId])
+  @@index([userId, position])
 }
 
 // Reminders / tasks that an admin or user sets. Can be assigned to a specific
