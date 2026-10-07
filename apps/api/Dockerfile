@@ -8,6 +8,7 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
 # Source
 COPY packages/shared ./packages/shared
 COPY apps/api ./apps/api
+COPY apps/signage-agent ./apps/signage-agent
 COPY tools ./tools
 
 # Install all workspace deps
@@ -17,6 +18,14 @@ RUN pnpm install --filter @itamls/api... --frozen-lockfile=false
 WORKDIR /app/apps/api
 RUN pnpm exec prisma generate
 RUN pnpm build
+
+# Package the signage device-agent source as a tarball served by the API
+# at /api/v1/signage/agent.tar.gz. The installer wizard downloads this.
+RUN mkdir -p /app/apps/api/public/signage \
+ && tar czf /app/apps/api/public/signage/agent.tar.gz \
+      --exclude __pycache__ --exclude .venv --exclude node_modules \
+      -C /app/apps/signage-agent . \
+ && ls -la /app/apps/api/public/signage/
 
 # ---------- runtime ----------
 FROM node:20-alpine

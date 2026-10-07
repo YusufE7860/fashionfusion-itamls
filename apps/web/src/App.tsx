@@ -30,6 +30,7 @@ import { Rmm } from './pages/Rmm';
 import { SignageDevices } from './pages/SignageDevices';
 import { SignageVideos } from './pages/SignageVideos';
 import { SignagePlaylists } from './pages/SignagePlaylists';
+import { SignageInstall } from './pages/SignageInstall';
 import { TonerTypes } from './pages/TonerTypes';
 import { TonerPlan } from './pages/TonerPlan';
 import { TonerOrders } from './pages/TonerOrders';
@@ -101,6 +102,7 @@ export function App() {
         <Route path="signage/devices" element={<SignageDevices />} />
         <Route path="signage/videos" element={<SignageVideos />} />
         <Route path="signage/playlists" element={<SignagePlaylists />} />
+        <Route path="signage/install" element={<SignageInstall />} />
         <Route path="toner/types" element={<TonerTypes />} />
         <Route path="toner/plan" element={<TonerPlan />} />
         <Route path="toner/orders" element={<TonerOrders />} />

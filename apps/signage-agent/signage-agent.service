@@ -1,0 +1,32 @@
+# systemd unit for the signage player agent.
+# install.sh fills in __PLAYER_USER__ and __BIN__ and copies this to
+# /etc/systemd/system/signage-agent.service.
+#
+# This template assumes a graphical session is running on the device and mpv
+# should draw into it (the common Raspberry Pi OS / Ubuntu desktop kiosk case),
+# so it runs as the desktop user with DISPLAY set.
+#
+# For a console-only device with no X (mpv drawing straight to the screen via
+# KMS/DRM), instead: set `mpv_extra_args` to ["--vo=gpu","--gpu-context=drm"]
+# in /etc/signage-agent/config.json, change User below to a user in the "video"
+# and "render" groups (or root), and remove the DISPLAY/XAUTHORITY lines.
+
+[Unit]
+Description=Digital Signage Player Agent
+After=network-online.target graphical.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__PLAYER_USER__
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+ExecStart=__BIN__ run
+Restart=always
+RestartSec=5
+# mpv's IPC socket + playlist live here; systemd creates and cleans it up.
+RuntimeDirectory=signage-agent
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=graphical.target

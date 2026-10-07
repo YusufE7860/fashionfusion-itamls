@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "signage-agent"
+version = "0.2.0"
+description = "In-store digital signage player agent (Raspberry Pi OS / Ubuntu)"
+requires-python = ">=3.9"
+dependencies = ["requests>=2.28,<3"]
+
+[project.scripts]
+signage-agent = "signage_agent.cli:main"
+
+[tool.setuptools]
+packages = ["signage_agent"]

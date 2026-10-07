@@ -80,6 +80,7 @@ const NAV: NavEntry[] = [
     { to: '/signage/devices',   label: 'Media Players' },
     { to: '/signage/videos',    label: 'Videos' },
     { to: '/signage/playlists', label: 'Playlists' },
+    { to: '/signage/install',   label: 'Install New Device' },
   ] },
 
   { kind: 'single', id: 'reports', label: 'Reports', icon: FileBarChart, to: '/reports' },
