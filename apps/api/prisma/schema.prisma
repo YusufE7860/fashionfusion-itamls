@@ -1027,7 +1027,7 @@ model SignageSettings {
 // and the agent streams back metrics, output, and events.
 // =========================================================================
 
-/** Latest connection state per enrolled PC agent (one row per PC). */
+// Latest connection state per enrolled PC agent (one row per PC). 
 model RmmConnection {
   id            String    @id @default(cuid())
   agentPcId     String    @unique                 // link to the enrolled PC row (polymorphic reference, string key)
@@ -1048,7 +1048,7 @@ model RmmConnection {
   @@index([isOnline, lastSeenAt])
 }
 
-/** Time-series system metrics reported by the agent (every ~10s). */
+// Time-series system metrics reported by the agent (every ~10s). 
 model RmmMetric {
   id              String   @id @default(cuid())
   connectionId    String
@@ -1066,7 +1066,7 @@ model RmmMetric {
   @@index([connectionId, recordedAt])
 }
 
-/** An interactive remote session (shell, remote desktop) between a user and a PC. */
+// An interactive remote session (shell, remote desktop) between a user and a PC. 
 model RmmSession {
   id            String   @id @default(cuid())
   connectionId  String
@@ -1084,7 +1084,7 @@ model RmmSession {
   @@index([connectionId, startedAt])
 }
 
-/** A single command dispatched to an agent (shell line, deploy script, etc). */
+// A single command dispatched to an agent (shell line, deploy script, etc). 
 model RmmCommand {
   id            String   @id @default(cuid())
   connectionId  String
@@ -1107,7 +1107,7 @@ model RmmCommand {
   @@index([status, queuedAt])
 }
 
-/** Named, reusable scripts that admins can run against one or many PCs. */
+// Named, reusable scripts that admins can run against one or many PCs. 
 model RmmScript {
   id          String   @id @default(cuid())
   name        String
@@ -1124,7 +1124,7 @@ model RmmScript {
   runs      RmmScriptRun[]
 }
 
-/** A single execution of a script against a connection. */
+// A single execution of a script against a connection. 
 model RmmScriptRun {
   id            String   @id @default(cuid())
   scriptId      String
