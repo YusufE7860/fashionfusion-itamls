@@ -30,6 +30,39 @@ export class SignageAdminController {
   @RequirePermissions(Permissions.StoresWrite ?? 'stores:write')
   resync(@Param('id') id: string) { return this.svc.forceResync(id); }
 
+  @Post('devices/:id/snapshot')
+  @RequirePermissions(Permissions.StoresRead ?? 'stores:read')
+  requestSnapshot(@Param('id') id: string) { return this.svc.requestSnapshot(id); }
+
+  @Get('devices/:id/snapshot')
+  @RequirePermissions(Permissions.StoresRead ?? 'stores:read')
+  getSnapshot(@Param('id') id: string) { return this.svc.getSnapshotUrl(id); }
+
+  // ---------- Troubleshooting ----------
+  @Get('devices/:id/trace')
+  @RequirePermissions(Permissions.StoresRead ?? 'stores:read')
+  trace(@Param('id') id: string) { return this.svc.resolutionTrace(id); }
+
+  @Get('devices/:id/events')
+  @RequirePermissions(Permissions.StoresRead ?? 'stores:read')
+  events(@Param('id') id: string) { return this.svc.listEvents(id); }
+
+  @Get('devices/:id/commands')
+  @RequirePermissions(Permissions.StoresRead ?? 'stores:read')
+  listCommands(@Param('id') id: string) { return this.svc.listCommands(id); }
+
+  @Post('devices/:id/commands')
+  @RequirePermissions(Permissions.StoresWrite ?? 'stores:write')
+  queueCommand(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.svc.queueCommand(id, dto, ctxFor(req));
+  }
+
+  @Get('devices/:id/commands/:cmdId/result')
+  @RequirePermissions(Permissions.StoresRead ?? 'stores:read')
+  getCommandResult(@Param('id') id: string, @Param('cmdId') cmdId: string) {
+    return this.svc.getCommandResultUrl(id, cmdId);
+  }
+
   // Videos
   @Get('videos')
   @RequirePermissions(Permissions.StoresRead ?? 'stores:read')

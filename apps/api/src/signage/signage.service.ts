@@ -81,15 +81,77 @@ export class SignageService {
     // (ugly but better than sideways text).
     const mpvExtraArgs = device.forceRotate90 ? ['--video-rotate=90'] : [];
 
+    // Pending agent action — right now only SNAPSHOT. Agent screenshots mpv,
+    // uploads via snapshot-upload-url + snapshot-complete endpoints.
+    const pendingAction = device.pendingSnapshotAt ? 'SNAPSHOT' : null;
+
+    // Pending higher-level commands (RESTART_MPV, UPLOAD_LOGS, etc.) — agent
+    // acts on each and POSTs to /commands/:id/complete when done.
+    const pendingCommands = await this.prisma.signagePlayerCommand.findMany({
+      where: { deviceId: device.id, status: 'QUEUED' },
+      orderBy: { queuedAt: 'asc' },
+    });
+
     return {
       deviceStatus: device.status,
       deviceOrientation: device.orientation,
       playlist: assignment ? { id: assignment.playlistId, name: assignment.name } : null,
       items: resolvedItems,
       mpvExtraArgs,
+      pendingAction,
+      pendingCommands: pendingCommands.map((c) => ({ id: c.id, kind: c.kind, payload: c.payload })),
       // Agent compares this; when it changes, it purges cache and re-downloads.
       resyncToken: device.forceResyncAt ? device.forceResyncAt.toISOString() : null,
     };
+  }
+
+  // ---------- Snapshot flow ----------
+
+  /** Admin triggers a snapshot. Agent sees pendingAction=SNAPSHOT on next poll. */
+  async requestSnapshot(deviceId: string) {
+    const d = await this.prisma.signageDevice.findUnique({ where: { id: deviceId } });
+    if (!d) throw new NotFoundException();
+    await this.prisma.signageDevice.update({
+      where: { id: deviceId }, data: { pendingSnapshotAt: new Date() },
+    });
+    return { ok: true, requestedAt: new Date().toISOString() };
+  }
+
+  /** Agent asks where to upload the screenshot to. */
+  async snapshotUploadUrl(deviceId: string, token: string) {
+    const device = await this.authDevice(deviceId, token);
+    const storageKey = `${KEY_PREFIX}snapshots/${device.id}/${Date.now()}.jpg`;
+    const uploadUrl = await this.storage.presignedPut(storageKey, 600);
+    return { uploadUrl, storageKey };
+  }
+
+  /** Agent reports completion: records storage key, clears pending flag. */
+  async snapshotComplete(deviceId: string, token: string, body: { storageKey: string }) {
+    const device = await this.authDevice(deviceId, token);
+    if (!body.storageKey) throw new BadRequestException('storageKey required');
+    await this.prisma.signageDevice.update({
+      where: { id: device.id },
+      data: {
+        latestSnapshotKey: body.storageKey,
+        latestSnapshotAt: new Date(),
+        pendingSnapshotAt: null,
+      },
+    });
+    return { ok: true };
+  }
+
+  /** Admin fetches a short-lived URL to view the latest snapshot. */
+  async getSnapshotUrl(deviceId: string) {
+    const d = await this.prisma.signageDevice.findUnique({
+      where: { id: deviceId },
+      select: { latestSnapshotKey: true, latestSnapshotAt: true, pendingSnapshotAt: true },
+    });
+    if (!d) throw new NotFoundException();
+    if (!d.latestSnapshotKey) {
+      return { url: null, snapshotAt: null, pending: !!d.pendingSnapshotAt };
+    }
+    const url = await this.storage.presignedGet(d.latestSnapshotKey, 300);
+    return { url, snapshotAt: d.latestSnapshotAt, pending: !!d.pendingSnapshotAt };
   }
 
   async heartbeat(deviceId: string, token: string, dto: {
@@ -97,6 +159,16 @@ export class SignageService {
     agentVersion?: string;
     diskFreePct?: number;
     uptimeSeconds?: number;
+    // Extended diagnostics (optional)
+    cpuPct?: number;
+    memUsedPct?: number;
+    screenWidth?: number;
+    screenHeight?: number;
+    mpvVersion?: string;
+    decoder?: string;
+    audioSink?: string;
+    droppedFrames?: number;
+    playerAlive?: boolean;
   }) {
     const device = await this.authDevice(deviceId, token);
     const now = new Date();
@@ -120,10 +192,214 @@ export class SignageService {
           agentVersion: dto.agentVersion,
           diskFreePct: dto.diskFreePct,
           uptimeSeconds: dto.uptimeSeconds,
+          cpuPct: dto.cpuPct ?? null,
+          memUsedPct: dto.memUsedPct ?? null,
+          screenWidth: dto.screenWidth ?? null,
+          screenHeight: dto.screenHeight ?? null,
+          mpvVersion: dto.mpvVersion ?? null,
+          decoder: dto.decoder ?? null,
+          audioSink: dto.audioSink ?? null,
+          droppedFrames: dto.droppedFrames ?? null,
+          playerAlive: dto.playerAlive ?? null,
         },
       }),
     ]);
     return { ok: true };
+  }
+
+  // ---------- Events ----------
+
+  // Agent-side: logs a playback / error / system event
+  async logEvent(deviceId: string, token: string, dto: {
+    kind: string; severity?: string; message?: string; videoId?: string; metadata?: any;
+  }) {
+    const device = await this.authDevice(deviceId, token);
+    return this.prisma.signageEvent.create({
+      data: {
+        deviceId: device.id,
+        kind: dto.kind,
+        severity: dto.severity ?? 'INFO',
+        message: dto.message ?? null,
+        videoId: dto.videoId ?? null,
+        metadata: dto.metadata ?? null,
+      },
+    });
+  }
+
+  async listEvents(deviceId: string, limit = 100) {
+    return this.prisma.signageEvent.findMany({
+      where: { deviceId },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(Math.max(limit, 1), 500),
+    });
+  }
+
+  // ---------- Commands ----------
+
+  async queueCommand(deviceId: string, dto: {
+    kind: string; payload?: any;
+  }, ctx: UserCtx) {
+    const d = await this.prisma.signageDevice.findUnique({ where: { id: deviceId } });
+    if (!d) throw new NotFoundException();
+    return this.prisma.signagePlayerCommand.create({
+      data: {
+        deviceId, kind: dto.kind, payload: dto.payload ?? null,
+        issuedById: ctx.userId, status: 'QUEUED',
+      },
+    });
+  }
+
+  async listCommands(deviceId: string, limit = 50) {
+    return this.prisma.signagePlayerCommand.findMany({
+      where: { deviceId },
+      orderBy: { queuedAt: 'desc' },
+      take: Math.min(Math.max(limit, 1), 200),
+      include: { issuedBy: { select: { fullName: true, email: true } } },
+    });
+  }
+
+  async pendingCommandsForAgent(deviceId: string, token: string) {
+    const device = await this.authDevice(deviceId, token);
+    const pending = await this.prisma.signagePlayerCommand.findMany({
+      where: { deviceId: device.id, status: { in: ['QUEUED', 'SENT'] } },
+      orderBy: { queuedAt: 'asc' },
+    });
+    // Mark as SENT so agent doesn't execute them twice if it polls while
+    // still processing a previous one.
+    if (pending.length) {
+      await this.prisma.signagePlayerCommand.updateMany({
+        where: { id: { in: pending.map((p) => p.id) }, status: 'QUEUED' },
+        data: { status: 'SENT', sentAt: new Date() },
+      });
+    }
+    return pending.map((p) => ({ id: p.id, kind: p.kind, payload: p.payload }));
+  }
+
+  async completeCommand(deviceId: string, token: string, commandId: string, body: {
+    status?: 'DONE' | 'FAILED'; resultText?: string; resultKey?: string;
+  }) {
+    await this.authDevice(deviceId, token);
+    return this.prisma.signagePlayerCommand.update({
+      where: { id: commandId },
+      data: {
+        status: body.status ?? 'DONE',
+        resultText: body.resultText ?? null,
+        resultKey: body.resultKey ?? null,
+        completedAt: new Date(),
+      },
+    });
+  }
+
+  // Agent asks for a presigned PUT URL to upload a log bundle (journalctl, etc.)
+  async logUploadUrl(deviceId: string, token: string) {
+    const device = await this.authDevice(deviceId, token);
+    const storageKey = `${KEY_PREFIX}logs/${device.id}/${Date.now()}.txt`;
+    const uploadUrl = await this.storage.presignedPut(storageKey, 600);
+    return { uploadUrl, storageKey };
+  }
+
+  // Admin fetches a presigned GET URL for a result file (log bundle)
+  async getCommandResultUrl(deviceId: string, commandId: string) {
+    const cmd = await this.prisma.signagePlayerCommand.findUnique({ where: { id: commandId } });
+    if (!cmd || cmd.deviceId !== deviceId || !cmd.resultKey) {
+      return { url: null };
+    }
+    const url = await this.storage.presignedGet(cmd.resultKey, 600);
+    return { url };
+  }
+
+  // ---------- Resolution trace ----------
+  // Explain in human-readable form what SHOULD play on this device + why.
+  async resolutionTrace(deviceId: string) {
+    const device = await this.prisma.signageDevice.findUnique({
+      where: { id: deviceId }, include: { store: true },
+    });
+    if (!device) throw new NotFoundException();
+
+    const steps: Array<{ step: string; result: string; detail?: string }> = [];
+
+    // 1. Device-level assignment
+    const direct = await this.prisma.signageAssignment.findFirst({
+      where: { deviceId }, include: { playlist: true },
+    });
+    if (direct) {
+      steps.push({
+        step: '1. Device assignment',
+        result: `Playlist "${direct.playlist.name}"`,
+        detail: 'Direct device assignment wins — this takes precedence over store or region.',
+      });
+    } else {
+      steps.push({ step: '1. Device assignment', result: 'None — fall through to store' });
+    }
+
+    // 2. Store-level
+    let storeAssign: any = null;
+    if (!direct && device.storeId) {
+      storeAssign = await this.prisma.signageAssignment.findFirst({
+        where: { storeId: device.storeId }, include: { playlist: true },
+      });
+      steps.push({
+        step: '2. Store assignment',
+        result: storeAssign ? `Playlist "${storeAssign.playlist.name}"` : 'None — fall through to region',
+        detail: device.store ? `For store ${device.store.code} — ${device.store.name}` : 'Device has no store attached',
+      });
+    } else if (!direct) {
+      steps.push({ step: '2. Store assignment', result: 'Skipped — device has no store set' });
+    }
+
+    // 3. Region-level
+    let regionAssign: any = null;
+    if (!direct && !storeAssign && device.storeId) {
+      const store = await this.prisma.store.findUnique({ where: { id: device.storeId }, select: { regionId: true, region: true } });
+      if (store?.regionId) {
+        regionAssign = await this.prisma.signageAssignment.findFirst({
+          where: { regionId: store.regionId }, include: { playlist: true },
+        });
+        steps.push({
+          step: '3. Region assignment',
+          result: regionAssign ? `Playlist "${regionAssign.playlist.name}"` : 'None',
+        });
+      } else {
+        steps.push({ step: '3. Region assignment', result: 'Skipped — store has no region entity attached' });
+      }
+    }
+
+    const effective = direct ?? storeAssign ?? regionAssign;
+    if (!effective) {
+      return {
+        device: { id: device.id, name: device.name, orientation: device.orientation, store: device.store },
+        steps,
+        resolved: null,
+        items: [],
+      };
+    }
+
+    // 4. Orientation filtering
+    const items = await this.prisma.signagePlaylistItem.findMany({
+      where: { playlistId: effective.playlistId },
+      orderBy: { order: 'asc' },
+      include: { video: true },
+    });
+    const played = items.filter((it) => !it.video.orientation || it.video.orientation === 'ANY' || it.video.orientation === device.orientation);
+    steps.push({
+      step: '4. Orientation filter',
+      result: `${played.length} of ${items.length} items match ${device.orientation}`,
+      detail: `Device orientation is ${device.orientation}; items tagged ${device.orientation} or ANY will play.`,
+    });
+
+    return {
+      device: { id: device.id, name: device.name, orientation: device.orientation, store: device.store },
+      steps,
+      resolved: { playlistId: effective.playlistId, name: effective.playlist.name },
+      items: played.map((it, i) => ({
+        order: i + 1, videoId: it.videoId, filename: it.video.filename,
+        orientation: it.video.orientation, durationSeconds: it.durationOverrideSeconds ?? it.video.durationSeconds,
+      })),
+      skipped: items.filter((it) => !played.includes(it)).map((it) => ({
+        videoId: it.videoId, filename: it.video.filename,
+        reason: `Orientation ${it.video.orientation} doesn't match device ${device.orientation}`,
+      })),
+    };
   }
 
   // ---------- Admin: devices ----------

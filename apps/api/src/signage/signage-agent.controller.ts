@@ -32,4 +32,47 @@ export class SignageAgentController {
   ) {
     return this.svc.heartbeat(id, token, body);
   }
+
+  // Agent requests a presigned PUT URL for the snapshot it just captured.
+  @Public() @Post(':id/snapshot-upload-url')
+  snapshotUploadUrl(@Param('id') id: string, @Headers('x-device-token') token: string) {
+    return this.svc.snapshotUploadUrl(id, token);
+  }
+
+  // Agent reports the snapshot has been uploaded (storageKey from above).
+  @Public() @Post(':id/snapshot-complete')
+  snapshotComplete(
+    @Param('id') id: string,
+    @Headers('x-device-token') token: string,
+    @Body() body: { storageKey: string },
+  ) {
+    return this.svc.snapshotComplete(id, token, body);
+  }
+
+  // Agent logs a playback / error / system event
+  @Public() @Post(':id/events')
+  logEvent(
+    @Param('id') id: string,
+    @Headers('x-device-token') token: string,
+    @Body() body: { kind: string; severity?: string; message?: string; videoId?: string; metadata?: any },
+  ) {
+    return this.svc.logEvent(id, token, body);
+  }
+
+  // Agent reports completion of a queued command
+  @Public() @Post(':id/commands/:cmdId/complete')
+  completeCommand(
+    @Param('id') id: string,
+    @Param('cmdId') cmdId: string,
+    @Headers('x-device-token') token: string,
+    @Body() body: { status?: 'DONE' | 'FAILED'; resultText?: string; resultKey?: string },
+  ) {
+    return this.svc.completeCommand(id, token, cmdId, body);
+  }
+
+  // Presigned PUT URL for log upload (used by UPLOAD_LOGS command result)
+  @Public() @Post(':id/log-upload-url')
+  logUploadUrl(@Param('id') id: string, @Headers('x-device-token') token: string) {
+    return this.svc.logUploadUrl(id, token);
+  }
 }

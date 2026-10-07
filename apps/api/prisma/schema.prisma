@@ -102,6 +102,7 @@ model User {
   remindersCompleted  Reminder[]        @relation("ReminderCompleter")
   areaManagersAssigned AreaManager[]    @relation("AreaManagerAssignedTech")
   signageVideosUploaded SignageVideo[] @relation("SignageVideoUploader")
+  signageCommandsIssued SignagePlayerCommand[] @relation("SignageCommandIssuer")
   navPreferences        UserNavPreference[] @relation("UserNavPref")
   rmmSessionsInitiated RmmSession[]     @relation("RmmSessionInitiator")
   rmmCommandsIssued    RmmCommand[]     @relation("RmmCommandIssuer")
@@ -929,6 +930,9 @@ model SignageDevice {
   uptimeSeconds      Int?
   forceResyncAt      DateTime?                      // bumped to trigger agent cache purge
   offlineAlertedAt   DateTime?                      // dedupe alerts per outage
+  pendingSnapshotAt  DateTime?                      // when set, agent takes a screenshot on next poll
+  latestSnapshotKey  String?                        // MinIO key of most recent snapshot
+  latestSnapshotAt   DateTime?
   notes              String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
@@ -936,6 +940,8 @@ model SignageDevice {
   store       Store?               @relation(fields: [storeId], references: [id])
   heartbeats  SignageHeartbeat[]
   assignments SignageAssignment[]
+  events      SignageEvent[]         @relation("SignageEventDevice")
+  commands    SignagePlayerCommand[] @relation("SignageCommandDevice")
 
   @@index([storeId])
 }
@@ -1008,10 +1014,62 @@ model SignageHeartbeat {
   agentVersion       String?
   diskFreePct        Int?
   uptimeSeconds      Int?
+  // Extended diagnostics (optional, reported on heartbeat when available)
+  cpuPct             Float?
+  memUsedPct         Float?
+  screenWidth        Int?
+  screenHeight       Int?
+  mpvVersion         String?
+  decoder            String?           // e.g. "h264_v4l2m2m" / "software"
+  audioSink          String?           // e.g. "alsa/default" / "none"
+  droppedFrames      Int?
+  playerAlive        Boolean?
 
   device SignageDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([deviceId, createdAt])
+}
+
+// Durable event log for playback + errors + system events on a device.
+// Lets admins see "video A started at 09:12, finished 09:12:30, next item,
+// error at 09:14, mpv restarted at 09:14:05". Independent from heartbeats.
+model SignageEvent {
+  id         String   @id @default(cuid())
+  deviceId   String
+  kind       String                                  // PLAYBACK_START | PLAYBACK_END | PLAYBACK_ERROR | AGENT_START | MPV_RESTART | NETWORK_ERROR | DOWNLOAD_FAIL | CONFIG_FETCH | OTHER
+  severity   String   @default("INFO")               // INFO | WARN | ERROR
+  message    String?
+  videoId    String?                                 // optional link to a video
+  metadata   Json?                                   // kind-specific extras
+  createdAt  DateTime @default(now())
+
+  device SignageDevice @relation("SignageEventDevice", fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@index([kind, createdAt])
+}
+
+// Admin-initiated commands dispatched to a signage agent. The agent sees them
+// in the config poll response (as pendingCommands) and clears them by POSTing
+// to /commands/:cmdId/complete.
+model SignagePlayerCommand {
+  id            String   @id @default(cuid())
+  deviceId      String
+  kind          String                              // RESTART_AGENT | RESTART_MPV | REBOOT | UPLOAD_LOGS | TEST_PATTERN | TEST_AUDIO | PLAY_NOW
+  payload       Json?
+  issuedById    String
+  status        String   @default("QUEUED")         // QUEUED | SENT | DONE | FAILED
+  resultText    String?                             // log tail / message from agent
+  resultKey     String?                             // MinIO key when the result is a file (log upload)
+  queuedAt      DateTime @default(now())
+  sentAt        DateTime?
+  completedAt   DateTime?
+
+  device    SignageDevice @relation("SignageCommandDevice", fields: [deviceId], references: [id], onDelete: Cascade)
+  issuedBy  User          @relation("SignageCommandIssuer", fields: [issuedById], references: [id])
+
+  @@index([deviceId, queuedAt])
+  @@index([status, queuedAt])
 }
 
 model SignageSettings {
