@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Boxes, Store, Truck, ShieldCheck, LogOut, Wrench,
   FileBarChart, Bell, Printer, ChevronDown, Package, MonitorSmartphone, Building2, LifeBuoy,
+  ClipboardList, Monitor, Film, Terminal,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/store/auth';
@@ -18,6 +19,7 @@ type NavEntry    = SingleItem | GroupItem;
 const NAV: NavEntry[] = [
   { kind: 'single', id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, to: '/', end: true },
   { kind: 'single', id: 'alerts',    label: 'Alerts',    icon: Bell,            to: '/alerts' },
+  { kind: 'single', id: 'reminders', label: 'Reminders & Tasks', icon: ClipboardList, to: '/reminders' },
   { kind: 'group', id: 'hq', label: 'Head Office', icon: Building2, items: [
     { to: '/hq',             label: 'HQ Assets' },
     { to: '/hq/departments', label: 'HQ Departments' },
@@ -60,12 +62,24 @@ const NAV: NavEntry[] = [
 
   { kind: 'group', id: 'stores', label: 'Stores', icon: Store, items: [
     { to: '/stores',         label: 'Stores' },
+    { to: '/regions',        label: 'Regions' },
+    { to: '/area-managers',  label: 'Area Managers' },
     { to: '/audits',         label: 'Audits' },
     { to: '/stores/wizard',  label: 'New Store Wizard' },
     { to: '/mikrotik',       label: 'MikroTik Configs' },
     { to: '/stores/agents',  label: 'PC Agent Enrollment' },
     { to: '/stores/pinpads', label: 'PIN Pads (Nedbank)' },
     { to: '/stores/dvrs',    label: 'CCTV / DVRs' },
+  ] },
+
+  { kind: 'group', id: 'rmm', label: 'RMM', icon: Terminal, items: [
+    { to: '/rmm',            label: 'Remote PCs' },
+  ] },
+
+  { kind: 'group', id: 'signage', label: 'Signage', icon: Film, items: [
+    { to: '/signage/devices',   label: 'Media Players' },
+    { to: '/signage/videos',    label: 'Videos' },
+    { to: '/signage/playlists', label: 'Playlists' },
   ] },
 
   { kind: 'single', id: 'reports', label: 'Reports', icon: FileBarChart, to: '/reports' },
