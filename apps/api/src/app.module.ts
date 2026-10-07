@@ -23,6 +23,8 @@ import { HelpdeskModule } from './helpdesk/helpdesk.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { OrgModule } from './org/org.module';
+import { RmmModule } from './rmm/rmm.module';
+import { SignageModule } from './signage/signage.module';
 import { TonerModule } from './toner/toner.module';
 import { PriceLookupModule } from './price-lookup/price-lookup.module';
 import { ToolsModule } from './tools/tools.module';
@@ -67,6 +69,8 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     DashboardModule,
     RemindersModule,
     OrgModule,
+    RmmModule,
+    SignageModule,
     TonerModule,
     PriceLookupModule,
     ToolsModule,

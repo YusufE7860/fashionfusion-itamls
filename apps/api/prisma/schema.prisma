@@ -101,6 +101,10 @@ model User {
   remindersCreated    Reminder[]        @relation("ReminderCreator")
   remindersCompleted  Reminder[]        @relation("ReminderCompleter")
   areaManagersAssigned AreaManager[]    @relation("AreaManagerAssignedTech")
+  signageVideosUploaded SignageVideo[] @relation("SignageVideoUploader")
+  rmmSessionsInitiated RmmSession[]     @relation("RmmSessionInitiator")
+  rmmCommandsIssued    RmmCommand[]     @relation("RmmCommandIssuer")
+  rmmScriptsCreated    RmmScript[]      @relation("RmmScriptCreator")
 }
 
 // ---------- Catalog / Master Data ----------
@@ -228,6 +232,8 @@ model Store {
   userAccess     UserStoreAccess[]
   dvrs           Dvr[]
   tickets        Ticket[]
+  signageDevices SignageDevice[]
+  signageAssignments SignageAssignment[]
 }
 
 // Geographic region grouping stores (Gauteng, KZN, Western Cape, …).
@@ -242,6 +248,7 @@ model Region {
 
   stores       Store[]
   areaManagers AreaManager[]
+  signageAssignments SignageAssignment[]
 }
 
 // Area Manager — a person who oversees a set of stores but does NOT log into
@@ -896,6 +903,242 @@ model TicketCategory {
   slaPolicy        SlaPolicy?       @relation(fields: [slaPolicyId], references: [id])
   tickets          Ticket[]
   cannedResponses  CannedResponse[]
+}
+
+// =========================================================================
+// Signage — digital signage for in-store media players.
+// Ported from the standalone signage-platform repo; keeps the SAME wire
+// protocol so existing Python agents repoint by changing their server URL.
+// =========================================================================
+
+model SignageDevice {
+  id                 String   @id @default(cuid())
+  name               String
+  hardwareId         String   @unique
+  provisioningCode   String?  @unique
+  token              String?                   // per-device secret
+  status             String   @default("PENDING")   // PENDING | ACTIVE | DISABLED
+  storeId            String?                        // link to ITAMLS Store
+  agentVersion       String?
+  lastSeenAt         DateTime?
+  lastPlayingVideoId String?
+  diskFreePct        Int?
+  uptimeSeconds      Int?
+  forceResyncAt      DateTime?                      // bumped to trigger agent cache purge
+  offlineAlertedAt   DateTime?                      // dedupe alerts per outage
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  store       Store?               @relation(fields: [storeId], references: [id])
+  heartbeats  SignageHeartbeat[]
+  assignments SignageAssignment[]
+
+  @@index([storeId])
+}
+
+model SignageVideo {
+  id              String   @id @default(cuid())
+  filename        String
+  storageKey      String   @unique                // key inside the MinIO bucket
+  sizeBytes       BigInt?
+  durationSeconds Int?
+  checksum        String?
+  tags            String?                          // comma-separated
+  uploadedById    String?
+  createdAt       DateTime @default(now())
+
+  uploadedBy     User?                 @relation("SignageVideoUploader", fields: [uploadedById], references: [id])
+  playlistItems  SignagePlaylistItem[]
+}
+
+model SignagePlaylist {
+  id        String   @id @default(cuid())
+  name      String
+  startsAt  DateTime?                              // optional campaign window
+  endsAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items       SignagePlaylistItem[]
+  assignments SignageAssignment[]
+}
+
+model SignagePlaylistItem {
+  id                       String   @id @default(cuid())
+  playlistId               String
+  videoId                  String
+  order                    Int
+  durationOverrideSeconds  Int?
+
+  playlist SignagePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  video    SignageVideo    @relation(fields: [videoId],    references: [id])
+
+  @@index([playlistId, order])
+  @@unique([playlistId, order])
+}
+
+model SignageAssignment {
+  id         String   @id @default(cuid())
+  playlistId String
+  deviceId   String?                       // most specific
+  storeId    String?                       // mid specificity
+  regionId   String?                       // least specific (uses ITAMLS Region)
+  createdAt  DateTime @default(now())
+
+  playlist SignagePlaylist @relation(fields: [playlistId], references: [id])
+  device   SignageDevice?  @relation(fields: [deviceId],   references: [id])
+  store    Store?          @relation(fields: [storeId],    references: [id])
+  region   Region?         @relation(fields: [regionId],   references: [id])
+
+  @@index([deviceId])
+  @@index([storeId])
+  @@index([regionId])
+}
+
+model SignageHeartbeat {
+  id                 String   @id @default(cuid())
+  deviceId           String
+  createdAt          DateTime @default(now())
+  currentlyPlayingId String?
+  agentVersion       String?
+  diskFreePct        Int?
+  uptimeSeconds      Int?
+
+  device SignageDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+}
+
+model SignageSettings {
+  id                      Int      @id @default(1)
+  alertsEnabled           Boolean  @default(false)
+  offlineThresholdMinutes Int      @default(10)
+  alertEmails             String?                 // comma-separated
+  updatedAt               DateTime @updatedAt
+}
+
+// =========================================================================
+// RMM (Remote Monitoring & Management)
+//
+// Every enrolled PC agent keeps a persistent WebSocket connection to the API
+// (RmmConnection tracks the live session). The API dispatches commands to
+// the agent over that socket (shell, file transfer, screen session request)
+// and the agent streams back metrics, output, and events.
+// =========================================================================
+
+/** Latest connection state per enrolled PC agent (one row per PC). */
+model RmmConnection {
+  id            String    @id @default(cuid())
+  agentPcId     String    @unique                 // link to the enrolled PC row (polymorphic reference, string key)
+  isOnline      Boolean   @default(false)
+  connectedAt   DateTime?
+  lastSeenAt    DateTime?
+  agentVersion  String?
+  osName        String?
+  osVersion     String?
+  publicIp      String?
+  localIp       String?
+  updatedAt     DateTime  @updatedAt
+
+  metrics       RmmMetric[]
+  sessions      RmmSession[]
+  commands      RmmCommand[]
+
+  @@index([isOnline, lastSeenAt])
+}
+
+/** Time-series system metrics reported by the agent (every ~10s). */
+model RmmMetric {
+  id              String   @id @default(cuid())
+  connectionId    String
+  recordedAt      DateTime @default(now())
+  cpuPct          Float?
+  memUsedBytes    BigInt?
+  memTotalBytes   BigInt?
+  diskUsedBytes   BigInt?
+  diskTotalBytes  BigInt?
+  netRxBytesPerS  BigInt?
+  netTxBytesPerS  BigInt?
+  loggedInUser    String?
+
+  connection RmmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  @@index([connectionId, recordedAt])
+}
+
+/** An interactive remote session (shell, remote desktop) between a user and a PC. */
+model RmmSession {
+  id            String   @id @default(cuid())
+  connectionId  String
+  kind          String                           // SHELL | DESKTOP | FILES
+  initiatedById String                           // ITAMLS user who opened it
+  startedAt     DateTime @default(now())
+  endedAt       DateTime?
+  reason        String?                          // reason entered by tech (for audit)
+  consentState  String   @default("PENDING")     // PENDING | GRANTED | DENIED | AUTO
+  recordedPath  String?                          // MinIO path for a recording blob (desktop/shell)
+
+  connection   RmmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  initiatedBy  User          @relation("RmmSessionInitiator", fields: [initiatedById], references: [id])
+
+  @@index([connectionId, startedAt])
+}
+
+/** A single command dispatched to an agent (shell line, deploy script, etc). */
+model RmmCommand {
+  id            String   @id @default(cuid())
+  connectionId  String
+  sessionId     String?                          // optional link to a session
+  issuedById    String
+  kind          String                           // SHELL | SCRIPT | FILE_PUSH | FILE_PULL | WAKE | RESTART | CUSTOM
+  payload       Json                             // kind-specific args
+  status        String   @default("QUEUED")      // QUEUED | SENT | RUNNING | DONE | FAILED | TIMEOUT
+  stdout        String?
+  stderr        String?
+  exitCode      Int?
+  queuedAt      DateTime @default(now())
+  sentAt        DateTime?
+  completedAt   DateTime?
+
+  connection RmmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  issuedBy   User          @relation("RmmCommandIssuer", fields: [issuedById], references: [id])
+
+  @@index([connectionId, queuedAt])
+  @@index([status, queuedAt])
+}
+
+/** Named, reusable scripts that admins can run against one or many PCs. */
+model RmmScript {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  interpreter String   @default("POWERSHELL")    // POWERSHELL | CMD | BASH
+  body        String                             // the script source
+  tags        String?                            // comma-separated for targeting
+  createdById String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User       @relation("RmmScriptCreator", fields: [createdById], references: [id])
+  runs      RmmScriptRun[]
+}
+
+/** A single execution of a script against a connection. */
+model RmmScriptRun {
+  id            String   @id @default(cuid())
+  scriptId      String
+  connectionId  String
+  commandId     String?                          // the RmmCommand that carried it
+  status        String   @default("QUEUED")
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+  exitCode      Int?
+  stdout        String?
+  stderr        String?
+
+  script     RmmScript     @relation(fields: [scriptId], references: [id])
+  @@index([scriptId, startedAt])
 }
 
 // Reminders / tasks that an admin or user sets. Can be assigned to a specific
