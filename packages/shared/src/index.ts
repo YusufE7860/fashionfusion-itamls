@@ -26,8 +26,6 @@ export const Permissions = {
   // Inventory / assets
   AssetsRead: 'assets:read',
   AssetsWrite: 'assets:write',
-  AgentsRead: 'agents:read',
-  AgentsWrite: 'agents:write',
   AssetsMove: 'assets:move',
   AssetsDispose: 'assets:dispose',
   // Stock
@@ -63,10 +61,11 @@ export const Permissions = {
   MikrotikRead: 'mikrotik:read',
   MikrotikGenerate: 'mikrotik:generate',
   MikrotikManage: 'mikrotik:manage',
-  // PC agents
+  // PC agents (enrolment + RMM)
   AgentsRead: 'agents:read',
   AgentsEnroll: 'agents:enroll',
   AgentsManage: 'agents:manage',
+  AgentsWrite: 'agents:write',
   // Verifone PIN pads
   PinPadsRead: 'pinpads:read',
   PinPadsWrite: 'pinpads:write',
