@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
-import { Monitor, RefreshCw } from 'lucide-react';
+import { Monitor, RefreshCw, RotateCw } from 'lucide-react';
 import clsx from 'clsx';
 
 export function SignageDevices() {
@@ -42,6 +42,7 @@ export function SignageDevices() {
             <tr>
               <th className="th text-left">Name</th>
               <th className="th text-left">Store</th>
+              <th className="th text-left">Orientation</th>
               <th className="th text-left">Status</th>
               <th className="th text-left">Last seen</th>
               <th className="th text-left">Agent</th>
@@ -51,7 +52,7 @@ export function SignageDevices() {
           </thead>
           <tbody>
             {devices.data?.length === 0 && (
-              <tr><td colSpan={7} className="py-6 text-center text-xs text-ink-300">
+              <tr><td colSpan={8} className="py-6 text-center text-xs text-ink-300">
                 No signage devices yet. The agent on a media player enrols itself the first time it connects.
               </td></tr>
             )}
@@ -72,6 +73,30 @@ export function SignageDevices() {
                       {stores.data?.map((s: any) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
                     </select>
                   ) : (d.store ? `${d.store.code} — ${d.store.name}` : '—')}
+                </td>
+                <td className="py-2 text-xs">
+                  {canWrite ? (
+                    <div className="flex items-center gap-1">
+                      <select className="field !py-1 text-xs" value={d.orientation ?? 'LANDSCAPE'}
+                        onChange={(e) => update.mutate({ id: d.id, body: { orientation: e.target.value } })}>
+                        <option value="LANDSCAPE">Landscape</option>
+                        <option value="PORTRAIT">Portrait</option>
+                      </select>
+                      <button
+                        className={clsx(
+                          'rounded p-1 ring-1',
+                          d.forceRotate90
+                            ? 'bg-amber-100 text-amber-700 ring-amber-300'
+                            : 'bg-white text-ink-300 ring-ink-500/30 hover:text-amber-600',
+                        )}
+                        title={d.forceRotate90 ? 'Rotating 90° — click to disable' : 'Force rotate 90° (emergency fallback)'}
+                        onClick={() => update.mutate({ id: d.id, body: { forceRotate90: !d.forceRotate90 } })}>
+                        <RotateCw size={11}/>
+                      </button>
+                    </div>
+                  ) : (
+                    <span>{d.orientation}{d.forceRotate90 && ' (⟲90°)'}</span>
+                  )}
                 </td>
                 <td className="py-2 text-xs">
                   <span className={clsx(

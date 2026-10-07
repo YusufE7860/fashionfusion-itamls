@@ -920,6 +920,8 @@ model SignageDevice {
   token              String?                   // per-device secret
   status             String   @default("PENDING")   // PENDING | ACTIVE | DISABLED
   storeId            String?                        // link to ITAMLS Store
+  orientation        String   @default("LANDSCAPE") // LANDSCAPE | PORTRAIT
+  forceRotate90      Boolean  @default(false)       // emergency: mpv --video-rotate=90
   agentVersion       String?
   lastSeenAt         DateTime?
   lastPlayingVideoId String?
@@ -945,6 +947,7 @@ model SignageVideo {
   sizeBytes       BigInt?
   durationSeconds Int?
   checksum        String?
+  orientation     String   @default("ANY")        // LANDSCAPE | PORTRAIT | ANY
   tags            String?                          // comma-separated
   uploadedById    String?
   createdAt       DateTime @default(now())

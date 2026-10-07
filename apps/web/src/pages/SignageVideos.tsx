@@ -15,6 +15,8 @@ export function SignageVideos() {
   const [progress, setProgress] = useState<{ name: string; pct: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const [nextOrientation, setNextOrientation] = useState<'LANDSCAPE' | 'PORTRAIT' | 'ANY'>('LANDSCAPE');
+
   const upload = useMutation({
     mutationFn: async (file: File) => {
       setErr(null); setProgress({ name: file.name, pct: 0 });
@@ -33,12 +35,17 @@ export function SignageVideos() {
       await api.post('/signage/videos', {
         filename: file.name, storageKey: pre.storageKey,
         sizeBytes: file.size,
+        orientation: nextOrientation,
       });
     },
     onSuccess: () => { setProgress(null); qc.invalidateQueries({ queryKey: ['signage-videos'] }); },
     onError: (e: any) => { setProgress(null); setErr(e.message ?? 'Upload failed'); },
   });
 
+  const update = useMutation({
+    mutationFn: ({ id, body }: any) => api.patch(`/signage/videos/${id}`, body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['signage-videos'] }),
+  });
   const remove = useMutation({
     mutationFn: (id: string) => api.delete(`/signage/videos/${id}`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['signage-videos'] }),
@@ -51,6 +58,15 @@ export function SignageVideos() {
         subtitle="Upload once, assign to playlists"
         actions={canWrite && (
           <>
+            <label className="flex items-center gap-1 text-xs text-ink-200">
+              Next upload is:
+              <select className="field !py-1 text-xs" value={nextOrientation}
+                onChange={(e) => setNextOrientation(e.target.value as any)}>
+                <option value="LANDSCAPE">Landscape</option>
+                <option value="PORTRAIT">Portrait</option>
+                <option value="ANY">Any orientation</option>
+              </select>
+            </label>
             <input ref={fileInput} type="file" className="hidden" accept="video/*"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ''; }} />
             <button className="btn-primary" onClick={() => fileInput.current?.click()}>
@@ -75,6 +91,7 @@ export function SignageVideos() {
           <thead className="bg-slate-50">
             <tr>
               <th className="th text-left">File</th>
+              <th className="th text-left">Orientation</th>
               <th className="th text-right">Size</th>
               <th className="th text-left">Uploaded</th>
               <th className="th text-left">By</th>
@@ -83,11 +100,21 @@ export function SignageVideos() {
           </thead>
           <tbody>
             {items.data?.length === 0 && (
-              <tr><td colSpan={5} className="py-6 text-center text-xs text-ink-300">No videos yet.</td></tr>
+              <tr><td colSpan={6} className="py-6 text-center text-xs text-ink-300">No videos yet.</td></tr>
             )}
             {items.data?.map((v: any) => (
               <tr key={v.id} className="border-b border-ink-500/10">
                 <td className="py-2 font-mono text-xs">{v.filename}</td>
+                <td className="py-2 text-xs">
+                  {canWrite ? (
+                    <select className="field !py-0.5 text-xs" value={v.orientation ?? 'ANY'}
+                      onChange={(e) => update.mutate({ id: v.id, body: { orientation: e.target.value } })}>
+                      <option value="LANDSCAPE">Landscape</option>
+                      <option value="PORTRAIT">Portrait</option>
+                      <option value="ANY">Any</option>
+                    </select>
+                  ) : (v.orientation ?? 'ANY')}
+                </td>
                 <td className="py-2 text-right text-xs">
                   {v.sizeBytes ? `${(Number(v.sizeBytes) / (1024*1024)).toFixed(1)} MB` : '—'}
                 </td>

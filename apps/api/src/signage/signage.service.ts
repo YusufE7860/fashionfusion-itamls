@@ -47,7 +47,7 @@ export class SignageService {
   async getConfig(deviceId: string, token: string) {
     const device = await this.authDevice(deviceId, token);
     const assignment = await this.resolveAssignment(device);
-    const items = assignment
+    const allItems = assignment
       ? await this.prisma.signagePlaylistItem.findMany({
           where: { playlistId: assignment.playlistId },
           orderBy: { order: 'asc' },
@@ -55,20 +55,38 @@ export class SignageService {
         })
       : [];
 
+    // Orientation filter: a PORTRAIT device plays PORTRAIT + ANY items;
+    // a LANDSCAPE device plays LANDSCAPE + ANY items. The non-matching
+    // items in the shared playlist are silently skipped on this device.
+    const items = allItems.filter((it) =>
+      !it.video.orientation
+      || it.video.orientation === 'ANY'
+      || it.video.orientation === device.orientation,
+    );
+
     const resolvedItems = await Promise.all(items.map(async (it) => ({
       videoId: it.videoId,
       filename: it.video.filename,
       checksum: it.video.checksum,
       sizeBytes: it.video.sizeBytes ? Number(it.video.sizeBytes) : null,
       durationSeconds: it.durationOverrideSeconds ?? it.video.durationSeconds,
+      orientation: it.video.orientation ?? 'ANY',
       // Short-lived download URL — the agent uses this to pull the file
       downloadUrl: await this.storage.presignedGet(it.video.storageKey, 3600).catch(() => null),
     })));
 
+    // Emergency rotate: when the TV is physically mounted sideways and no
+    // orientation-matched content exists, the agent passes --video-rotate=90
+    // to mpv so landscape content renders readable on a portrait screen
+    // (ugly but better than sideways text).
+    const mpvExtraArgs = device.forceRotate90 ? ['--video-rotate=90'] : [];
+
     return {
       deviceStatus: device.status,
+      deviceOrientation: device.orientation,
       playlist: assignment ? { id: assignment.playlistId, name: assignment.name } : null,
       items: resolvedItems,
+      mpvExtraArgs,
       // Agent compares this; when it changes, it purges cache and re-downloads.
       resyncToken: device.forceResyncAt ? device.forceResyncAt.toISOString() : null,
     };
@@ -131,18 +149,29 @@ export class SignageService {
     return { ...this.withStatus(d), heartbeats: beats.reverse(), assignedPlaylist: assignment };
   }
 
-  async updateDevice(id: string, dto: { name?: string; storeId?: string | null; status?: string; notes?: string | null }) {
+  async updateDevice(id: string, dto: {
+    name?: string; storeId?: string | null; status?: string; notes?: string | null;
+    orientation?: 'LANDSCAPE' | 'PORTRAIT'; forceRotate90?: boolean;
+  }) {
     const d = await this.prisma.signageDevice.findUnique({ where: { id } });
     if (!d) throw new NotFoundException();
-    return this.prisma.signageDevice.update({
+    const next = await this.prisma.signageDevice.update({
       where: { id },
       data: {
         name: dto.name ?? d.name,
         storeId: dto.storeId === undefined ? d.storeId : (dto.storeId || null),
         status: dto.status ?? d.status,
         notes: dto.notes === undefined ? d.notes : (dto.notes || null),
+        orientation: dto.orientation ?? d.orientation,
+        forceRotate90: dto.forceRotate90 ?? d.forceRotate90,
       },
     });
+    // Orientation change usually means a different content set — bump
+    // forceResyncAt so the agent purges and re-downloads.
+    if (dto.orientation && dto.orientation !== d.orientation) {
+      await this.prisma.signageDevice.update({ where: { id }, data: { forceResyncAt: new Date() } });
+    }
+    return next;
   }
 
   async deleteDevice(id: string) {
@@ -175,6 +204,7 @@ export class SignageService {
   async createVideo(dto: {
     filename: string; storageKey: string; sizeBytes?: number; checksum?: string;
     durationSeconds?: number; tags?: string;
+    orientation?: 'LANDSCAPE' | 'PORTRAIT' | 'ANY';
   }, ctx: UserCtx) {
     return this.prisma.signageVideo.create({
       data: {
@@ -183,8 +213,21 @@ export class SignageService {
         sizeBytes: dto.sizeBytes ? BigInt(dto.sizeBytes) : null,
         durationSeconds: dto.durationSeconds ?? null,
         checksum: dto.checksum ?? null,
+        orientation: dto.orientation ?? 'ANY',
         tags: dto.tags ?? null,
         uploadedById: ctx.userId,
+      },
+    });
+  }
+
+  async updateVideo(id: string, dto: { orientation?: 'LANDSCAPE' | 'PORTRAIT' | 'ANY'; tags?: string | null }) {
+    const v = await this.prisma.signageVideo.findUnique({ where: { id } });
+    if (!v) throw new NotFoundException();
+    return this.prisma.signageVideo.update({
+      where: { id },
+      data: {
+        orientation: dto.orientation ?? v.orientation,
+        tags: dto.tags === undefined ? v.tags : dto.tags,
       },
     });
   }

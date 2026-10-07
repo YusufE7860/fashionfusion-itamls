@@ -45,6 +45,10 @@ export class SignageAdminController {
   @RequirePermissions(Permissions.StoresWrite ?? 'stores:write')
   createVideo(@Body() dto: any, @Req() req: any) { return this.svc.createVideo(dto, ctxFor(req)); }
 
+  @Patch('videos/:id')
+  @RequirePermissions(Permissions.StoresWrite ?? 'stores:write')
+  updateVideo(@Param('id') id: string, @Body() dto: any) { return this.svc.updateVideo(id, dto); }
+
   @Delete('videos/:id')
   @RequirePermissions(Permissions.StoresWrite ?? 'stores:write')
   deleteVideo(@Param('id') id: string) { return this.svc.deleteVideo(id); }
