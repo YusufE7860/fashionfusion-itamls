@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard, Boxes, Store, Truck, ShieldCheck, LogOut, Wrench,
   FileBarChart, Bell, Printer, ChevronDown, Package, MonitorSmartphone, Building2, LifeBuoy,
-  ClipboardList, Monitor, Film, Terminal, ArrowDown, ArrowUp, Eye, EyeOff, Pencil, RotateCcw,
+  ClipboardList, Monitor, Film, Terminal, Eye, EyeOff, Pencil, RotateCcw, GripVertical,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/store/auth';
@@ -151,23 +151,47 @@ export function Layout() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['nav-prefs'] }),
   });
 
+  // Local working copy during edit mode — committed on drop
+  const [workingOrder, setWorkingOrder] = useState<Pref[] | null>(null);
+  const effectiveOrder = useMemo(() => workingOrder ?? orderedNav.map((o, i) => ({
+    itemId: o.entry.id, position: i, isHidden: o.isHidden,
+  })), [workingOrder, orderedNav]);
+
   function updatePref(itemId: string, patch: Partial<Pref>) {
-    const current = orderedNav.map((o, i) => ({
-      itemId: o.entry.id, position: i, isHidden: o.isHidden,
-    }));
-    const idx = current.findIndex((c) => c.itemId === itemId);
-    if (idx >= 0) current[idx] = { ...current[idx], ...patch };
+    const current = effectiveOrder.map((c) => c.itemId === itemId ? { ...c, ...patch } : c);
+    setWorkingOrder(current);
     savePrefs.mutate(current);
   }
-  function moveItem(itemId: string, dir: -1 | 1) {
-    const current = orderedNav.map((o, i) => ({
-      itemId: o.entry.id, position: i, isHidden: o.isHidden,
-    }));
-    const idx = current.findIndex((c) => c.itemId === itemId);
-    const target = idx + dir;
-    if (idx < 0 || target < 0 || target >= current.length) return;
-    [current[idx], current[target]] = [current[target], current[idx]];
-    savePrefs.mutate(current.map((c, i) => ({ ...c, position: i })));
+
+  // Drag-and-drop reordering
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  function onDragStart(e: React.DragEvent, itemId: string) {
+    setDragId(itemId);
+    e.dataTransfer.effectAllowed = 'move';
+    // Needed for Firefox
+    e.dataTransfer.setData('text/plain', itemId);
+  }
+  function onDragOver(e: React.DragEvent, overId: string) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverId !== overId) setDragOverId(overId);
+  }
+  function onDragEnd() { setDragId(null); setDragOverId(null); }
+  function onDrop(e: React.DragEvent, targetId: string) {
+    e.preventDefault();
+    const srcId = dragId ?? e.dataTransfer.getData('text/plain');
+    if (!srcId || srcId === targetId) { onDragEnd(); return; }
+    const current = [...effectiveOrder];
+    const srcIdx = current.findIndex((c) => c.itemId === srcId);
+    const tgtIdx = current.findIndex((c) => c.itemId === targetId);
+    if (srcIdx < 0 || tgtIdx < 0) { onDragEnd(); return; }
+    const [moved] = current.splice(srcIdx, 1);
+    current.splice(tgtIdx, 0, moved);
+    const renumbered = current.map((c, i) => ({ ...c, position: i }));
+    setWorkingOrder(renumbered);
+    savePrefs.mutate(renumbered);
+    onDragEnd();
   }
 
   useEffect(() => {
@@ -198,7 +222,7 @@ export function Layout() {
         <nav className="flex-1 overflow-y-auto p-3">
           {orderedNav
             .filter((o) => editMode || !o.isHidden)
-            .map((o, i, arr) => {
+            .map((o) => {
               const entry = o.entry;
               const inner = entry.kind === 'single'
                 ? <SingleNav entry={entry} updateBadge={entry.id === 'admin' && updateAvailable} />
@@ -209,36 +233,36 @@ export function Layout() {
 
               if (!editMode) return <div key={entry.id}>{inner}</div>;
 
+              const isDragging = dragId === entry.id;
+              const isDropTarget = dragOverId === entry.id && dragId !== entry.id;
+
               return (
                 <div key={entry.id}
+                  draggable
+                  onDragStart={(e) => onDragStart(e, entry.id)}
+                  onDragOver={(e) => onDragOver(e, entry.id)}
+                  onDragEnd={onDragEnd}
+                  onDrop={(e) => onDrop(e, entry.id)}
                   className={clsx(
-                    'group relative mb-1 rounded-lg border transition-colors',
-                    o.isHidden ? 'border-dashed border-ink-500/40 opacity-60' : 'border-transparent',
+                    'group relative mb-1 rounded-lg transition-all',
+                    isDragging && 'opacity-40',
+                    isDropTarget && 'ring-2 ring-brand-500',
+                    o.isHidden && 'border border-dashed border-ink-500/40 opacity-60',
                   )}>
-                  {/* Reorder & hide controls (visible only in edit mode) */}
-                  <div className="pointer-events-none absolute -right-1 top-1 flex flex-col gap-0.5 opacity-80 group-hover:opacity-100">
-                    <button type="button"
-                      className="pointer-events-auto rounded bg-white/90 p-0.5 ring-1 ring-ink-500/30 hover:bg-brand-50"
-                      disabled={i === 0}
-                      title="Move up"
-                      onClick={() => moveItem(entry.id, -1)}>
-                      <ArrowUp size={10}/>
-                    </button>
-                    <button type="button"
-                      className="pointer-events-auto rounded bg-white/90 p-0.5 ring-1 ring-ink-500/30 hover:bg-brand-50"
-                      disabled={i === arr.length - 1}
-                      title="Move down"
-                      onClick={() => moveItem(entry.id, 1)}>
-                      <ArrowDown size={10}/>
-                    </button>
-                    <button type="button"
-                      className="pointer-events-auto rounded bg-white/90 p-0.5 ring-1 ring-ink-500/30 hover:bg-brand-50"
-                      title={o.isHidden ? 'Show' : 'Hide'}
-                      onClick={() => updatePref(entry.id, { isHidden: !o.isHidden })}>
-                      {o.isHidden ? <EyeOff size={10}/> : <Eye size={10}/>}
-                    </button>
+                  {/* Drag handle on the left */}
+                  <div className="pointer-events-none absolute -left-1 top-1/2 -translate-y-1/2 cursor-grab opacity-60 group-hover:opacity-100">
+                    <GripVertical size={14} className="text-ink-300" />
                   </div>
-                  {inner}
+                  {/* Hide/show toggle on the right */}
+                  <button type="button"
+                    className="pointer-events-auto absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded bg-white/90 p-1 opacity-70 ring-1 ring-ink-500/30 hover:bg-brand-50 group-hover:opacity-100"
+                    title={o.isHidden ? 'Show' : 'Hide'}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); updatePref(entry.id, { isHidden: !o.isHidden }); }}>
+                    {o.isHidden ? <EyeOff size={12}/> : <Eye size={12}/>}
+                  </button>
+                  <div className="pl-3 pr-7 pointer-events-none">
+                    <div className="pointer-events-auto">{inner}</div>
+                  </div>
                 </div>
               );
             })}
