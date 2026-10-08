@@ -73,15 +73,24 @@
 	}
 
 	handle {
-		header {
-			Access-Control-Allow-Origin  "https://{$APP_FQDN}:{$WEB_PORT}"
-			Access-Control-Expose-Headers "ETag"
-		}
+		# Strip the CORS headers MinIO adds itself — otherwise the browser sees
+		# two values for Access-Control-Allow-Origin and refuses the response.
 		reverse_proxy minio:9000 {
 			transport http {
 				read_timeout  10m
 				write_timeout 10m
 			}
+			header_down -Access-Control-Allow-Origin
+			header_down -Access-Control-Allow-Credentials
+			header_down -Access-Control-Allow-Methods
+			header_down -Access-Control-Allow-Headers
+			header_down -Access-Control-Expose-Headers
+			header_down -Vary
+		}
+		header {
+			Access-Control-Allow-Origin  "https://{$APP_FQDN}:{$WEB_PORT}"
+			Access-Control-Expose-Headers "ETag"
+			Vary "Origin"
 		}
 	}
 
