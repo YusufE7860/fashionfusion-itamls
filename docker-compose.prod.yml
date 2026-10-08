@@ -52,12 +52,16 @@ services:
       PORT:               "4000"
       CORS_ORIGIN:        ${WEB_BASE_URL}
       WEB_BASE_URL:       ${WEB_BASE_URL}
-      MINIO_ENDPOINT:     "minio"
-      MINIO_PORT:         "9000"
-      MINIO_USE_SSL:      "false"
-      MINIO_ACCESS_KEY:   ${MINIO_ROOT_USER}
-      MINIO_SECRET_KEY:   ${MINIO_ROOT_PASSWORD}
-      MINIO_BUCKET:       "itamls-invoices"
+      MINIO_ENDPOINT:         "minio"
+      MINIO_PORT:             "9000"
+      MINIO_USE_SSL:          "false"
+      MINIO_ACCESS_KEY:       ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY:       ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET:           "itamls-invoices"
+      # Public MinIO endpoint for presigned URLs (reached from the browser)
+      MINIO_PUBLIC_ENDPOINT:  ${MINIO_PUBLIC_ENDPOINT:-${APP_FQDN:-it.ffgsa.co.za}}
+      MINIO_PUBLIC_PORT:      ${MINIO_PUBLIC_PORT:-41236}
+      MINIO_PUBLIC_USE_SSL:   ${MINIO_PUBLIC_USE_SSL:-true}
       TOTP_ISSUER:        ${TOTP_ISSUER}
       HELPDESK_SYSTEM:    ${HELPDESK_SYSTEM:-STUB}
       PRICE_LOOKUP_PROVIDER: ${PRICE_LOOKUP_PROVIDER:-SEARCH_LINKS}
