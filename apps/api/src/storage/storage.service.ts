@@ -6,17 +6,34 @@ import { Readable } from 'node:stream';
 @Injectable()
 export class StorageService implements OnModuleInit {
   private readonly logger = new Logger(StorageService.name);
+  // Internal client — reaches MinIO over the Docker network (http://minio:9000).
+  // Used for all server-side operations (put/get/delete).
   private client: MinioClient;
+  // Public client — generates presigned URLs that the BROWSER can hit directly.
+  // Configured with the public hostname + TLS so returned URLs look like
+  //   https://minio.yourhost.co.za/bucket/key?...
+  private publicClient: MinioClient;
   readonly bucket: string;
 
   constructor() {
+    const accessKey = process.env.MINIO_ACCESS_KEY ?? 'minioadmin';
+    const secretKey = process.env.MINIO_SECRET_KEY ?? 'minioadmin';
     this.client = new MinioClient({
       endPoint: process.env.MINIO_ENDPOINT ?? 'localhost',
       port: Number(process.env.MINIO_PORT ?? 9000),
       useSSL: (process.env.MINIO_USE_SSL ?? 'false') === 'true',
-      accessKey: process.env.MINIO_ACCESS_KEY ?? 'minioadmin',
-      secretKey: process.env.MINIO_SECRET_KEY ?? 'minioadmin',
+      accessKey, secretKey,
     });
+
+    // Public endpoint for presigned URLs — falls back to the internal client's
+    // settings so dev setups keep working.
+    this.publicClient = new MinioClient({
+      endPoint: process.env.MINIO_PUBLIC_ENDPOINT ?? process.env.MINIO_ENDPOINT ?? 'localhost',
+      port: Number(process.env.MINIO_PUBLIC_PORT ?? process.env.MINIO_PORT ?? 9000),
+      useSSL: (process.env.MINIO_PUBLIC_USE_SSL ?? process.env.MINIO_USE_SSL ?? 'false') === 'true',
+      accessKey, secretKey,
+    });
+
     this.bucket = process.env.MINIO_BUCKET ?? 'itamls-invoices';
   }
 
@@ -49,11 +66,11 @@ export class StorageService implements OnModuleInit {
   }
 
   async presignedGet(key: string, expirySeconds = 60 * 60) {
-    return this.client.presignedGetObject(this.bucket, key, expirySeconds);
+    return this.publicClient.presignedGetObject(this.bucket, key, expirySeconds);
   }
 
   async presignedPut(key: string, expirySeconds = 60 * 60) {
-    return this.client.presignedPutObject(this.bucket, key, expirySeconds);
+    return this.publicClient.presignedPutObject(this.bucket, key, expirySeconds);
   }
 
   async remove(key: string) {

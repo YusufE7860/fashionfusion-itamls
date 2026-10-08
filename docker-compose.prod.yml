@@ -106,12 +106,14 @@ services:
       - web
       - api
     ports:
-      # Only WEB_PORT exposed -- no port 80 needed because we serve an
-      # imported cert (no ACME HTTP-01 challenge required).
+      # Main app (TLS)
       - "${WEB_PORT:-41235}:${WEB_PORT:-41235}"
+      # Public MinIO over TLS so browsers can hit presigned URLs
+      - "${MINIO_PUBLIC_PORT:-41236}:${MINIO_PUBLIC_PORT:-41236}"
     environment:
-      APP_FQDN:  ${APP_FQDN:-it.ffgsa.co.za}
-      WEB_PORT:  ${WEB_PORT:-41235}
+      APP_FQDN:          ${APP_FQDN:-it.ffgsa.co.za}
+      WEB_PORT:          ${WEB_PORT:-41235}
+      MINIO_PUBLIC_PORT: ${MINIO_PUBLIC_PORT:-41236}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/certs:/etc/caddy/certs:ro

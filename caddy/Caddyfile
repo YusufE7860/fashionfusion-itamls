@@ -45,3 +45,29 @@
 		format console
 	}
 }
+
+# ---- HTTPS :MINIO_PUBLIC_PORT (default 41236) ----
+# Public TLS endpoint for MinIO so the browser can hit presigned URLs over
+# HTTPS. The API server points the "public" MinIO client at this URL when
+# generating presigned links, so the signature matches what the browser
+# actually requests.
+{$APP_FQDN}:{$MINIO_PUBLIC_PORT} {
+	tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem
+
+	# MinIO can accept large uploads; let presigned PUTs go through.
+	request_body {
+		max_size 500MB
+	}
+
+	reverse_proxy minio:9000 {
+		transport http {
+			read_timeout  10m
+			write_timeout 10m
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

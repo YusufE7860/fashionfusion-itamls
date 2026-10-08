@@ -4,6 +4,13 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { RmmGateway } from './rmm/rmm.gateway';
 
+// Prisma returns BigInt for BigInt columns; JSON.stringify throws on BigInt
+// by default. Teach it to render as a plain number string so responses work.
+(BigInt.prototype as any).toJSON = function () {
+  const n = Number(this);
+  return Number.isSafeInteger(n) ? n : this.toString();
+};
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: false });
   app.enableCors({
