@@ -59,10 +59,29 @@
 		max_size 500MB
 	}
 
-	reverse_proxy minio:9000 {
-		transport http {
-			read_timeout  10m
-			write_timeout 10m
+	# CORS — the main app is on :41235 and uploads here on :41236; different
+	# port = different origin, so the browser requires these headers.
+	@cors_preflight method OPTIONS
+	handle @cors_preflight {
+		header {
+			Access-Control-Allow-Origin  "https://{$APP_FQDN}:{$WEB_PORT}"
+			Access-Control-Allow-Methods "GET, PUT, POST, HEAD, DELETE, OPTIONS"
+			Access-Control-Allow-Headers "*"
+			Access-Control-Max-Age       "86400"
+		}
+		respond 204
+	}
+
+	handle {
+		header {
+			Access-Control-Allow-Origin  "https://{$APP_FQDN}:{$WEB_PORT}"
+			Access-Control-Expose-Headers "ETag"
+		}
+		reverse_proxy minio:9000 {
+			transport http {
+				read_timeout  10m
+				write_timeout 10m
+			}
 		}
 	}
 
