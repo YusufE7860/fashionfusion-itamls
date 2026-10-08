@@ -7,31 +7,32 @@ import { Readable } from 'node:stream';
 export class StorageService implements OnModuleInit {
   private readonly logger = new Logger(StorageService.name);
   // Internal client — reaches MinIO over the Docker network (http://minio:9000).
-  // Used for all server-side operations (put/get/delete).
+  // Used for ALL server-side operations (put/get/delete).
   private client: MinioClient;
   // Public client — generates presigned URLs that the BROWSER can hit directly.
-  // Configured with the public hostname + TLS so returned URLs look like
-  //   https://minio.yourhost.co.za/bucket/key?...
+  // Configured with the public hostname + TLS and an EXPLICIT region so it
+  // doesn't try to detect it over the network (which would trigger a NAT
+  // hairpin call to the public IP from inside Docker and time out).
   private publicClient: MinioClient;
   readonly bucket: string;
 
   constructor() {
     const accessKey = process.env.MINIO_ACCESS_KEY ?? 'minioadmin';
     const secretKey = process.env.MINIO_SECRET_KEY ?? 'minioadmin';
+    const region    = process.env.MINIO_REGION ?? 'us-east-1';
+
     this.client = new MinioClient({
       endPoint: process.env.MINIO_ENDPOINT ?? 'localhost',
       port: Number(process.env.MINIO_PORT ?? 9000),
       useSSL: (process.env.MINIO_USE_SSL ?? 'false') === 'true',
-      accessKey, secretKey,
+      accessKey, secretKey, region,
     });
 
-    // Public endpoint for presigned URLs — falls back to the internal client's
-    // settings so dev setups keep working.
     this.publicClient = new MinioClient({
       endPoint: process.env.MINIO_PUBLIC_ENDPOINT ?? process.env.MINIO_ENDPOINT ?? 'localhost',
       port: Number(process.env.MINIO_PUBLIC_PORT ?? process.env.MINIO_PORT ?? 9000),
       useSSL: (process.env.MINIO_PUBLIC_USE_SSL ?? process.env.MINIO_USE_SSL ?? 'false') === 'true',
-      accessKey, secretKey,
+      accessKey, secretKey, region,
     });
 
     this.bucket = process.env.MINIO_BUCKET ?? 'itamls-invoices';
