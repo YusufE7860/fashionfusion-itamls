@@ -25,16 +25,18 @@ export class SignageInstallerController {
   @Public() @Get('installer.sh')
   async installer(
     @Query('platform') platform: 'pi' | 'ubuntu-desktop' | 'ubuntu-console' = 'ubuntu-desktop',
+    @Query('entity')   entity:   'FASHION_FUSION' | 'EVLV' = 'FASHION_FUSION',
     @Query('name')     name:     string | undefined,
     @Query('storeCode') storeCode: string | undefined,
     @Res() res: Response,
   ) {
     const serverUrl = process.env.PUBLIC_API_URL ?? 'https://it.ffgsa.co.za:41235/api/v1';
     const provisioningSecret = process.env.DEVICE_PROVISIONING_SECRET ?? '';
+    const safeEntity = entity === 'EVLV' ? 'EVLV' : 'FASHION_FUSION';
     const safeName = (name ?? '').replace(/[^\w\s\-\.]/g, '').trim();
     const safeStore = (storeCode ?? '').replace(/[^\w\-]/g, '').trim();
 
-    const script = buildInstallerScript({ platform, serverUrl, provisioningSecret, safeName, safeStore });
+    const script = buildInstallerScript({ platform, serverUrl, provisioningSecret, safeName, safeStore, safeEntity });
     res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
     res.setHeader('Content-Disposition', 'inline; filename="install-signage.sh"');
     res.send(script);
@@ -65,8 +67,9 @@ function buildInstallerScript(opts: {
   provisioningSecret: string;
   safeName: string;
   safeStore: string;
+  safeEntity: string;
 }) {
-  const { platform, serverUrl, provisioningSecret, safeName, safeStore } = opts;
+  const { platform, serverUrl, provisioningSecret, safeName, safeStore, safeEntity } = opts;
   const tarballUrl = `${serverUrl}/signage/agent.tar.gz`;
 
   // Platform-specific display/service tweaks.
@@ -104,6 +107,7 @@ fi
 
 echo "============================================================"
 echo " ITAMLS Signage — Agent installer"
+echo " Brand    : ${safeEntity === 'EVLV' ? 'Evolve' : 'Fashion Fusion'}"
 echo " Platform : ${platformNotes}"
 echo " Server   : ${serverUrl}"
 ${safeName ? `echo " Device   : ${safeName}"` : 'echo " Device   : (auto-named from hostname)"'}
@@ -153,6 +157,7 @@ cat > "\$CONFIG_DIR/config.json" <<CONFIG
   "provisioning_secret": "${provisioningSecret}",
   "hardware_id": "\$HWID",
   "device_name": "\$NAME",
+  "entity": "${safeEntity}",
   ${mpvExtra}
   "heartbeat_interval_seconds": 60
 }

@@ -19,9 +19,11 @@ export function SignagePlaylists() {
   const [selected, setSelected] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newEntity, setNewEntity] = useState<'FASHION_FUSION' | 'EVLV' | 'BOTH'>('FASHION_FUSION');
+  const [filterEntity, setFilterEntity] = useState<'ALL' | 'FASHION_FUSION' | 'EVLV' | 'BOTH'>('ALL');
 
   const create = useMutation({
-    mutationFn: () => api.post('/signage/playlists', { name: newName }).then((r) => r.data),
+    mutationFn: () => api.post('/signage/playlists', { name: newName, entity: newEntity }).then((r) => r.data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['signage-playlists'] }); setShowNew(false); setNewName(''); },
   });
   const del = useMutation({
@@ -79,6 +81,14 @@ export function SignagePlaylists() {
               <label className="label">Playlist name</label>
               <input className="field" value={newName} onChange={(e) => setNewName(e.target.value)} />
             </div>
+            <div>
+              <label className="label">Brand</label>
+              <select className="field" value={newEntity} onChange={(e) => setNewEntity(e.target.value as any)}>
+                <option value="FASHION_FUSION">Fashion Fusion</option>
+                <option value="EVLV">Evolve</option>
+                <option value="BOTH">Both brands</option>
+              </select>
+            </div>
             <button className="btn-primary" disabled={!newName.trim() || create.isPending} onClick={() => create.mutate()}>
               <Save size={12}/>Create
             </button>
@@ -88,15 +98,33 @@ export function SignagePlaylists() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr]">
         <section className="card p-0">
+          <div className="border-b border-ink-500/10 p-2">
+            <select className="field text-xs" value={filterEntity}
+              onChange={(e) => setFilterEntity(e.target.value as any)}>
+              <option value="ALL">All brands</option>
+              <option value="FASHION_FUSION">Fashion Fusion</option>
+              <option value="EVLV">Evolve</option>
+              <option value="BOTH">Shared</option>
+            </select>
+          </div>
           <ul className="divide-y divide-ink-500/10">
-            {playlists.data?.length === 0 && (
-              <li className="p-4 text-center text-xs text-ink-300">No playlists yet.</li>
+            {playlists.data?.filter((p: any) => filterEntity === 'ALL' || (p.entity ?? 'FASHION_FUSION') === filterEntity).length === 0 && (
+              <li className="p-4 text-center text-xs text-ink-300">No playlists for this filter.</li>
             )}
-            {playlists.data?.map((p: any) => (
+            {playlists.data?.filter((p: any) => filterEntity === 'ALL' || (p.entity ?? 'FASHION_FUSION') === filterEntity).map((p: any) => (
               <li key={p.id}>
                 <button className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-50 ${selected === p.id ? 'bg-brand-50' : ''}`}
                   onClick={() => { setSelected(p.id); setDraft([]); }}>
-                  <span>{p.name}</span>
+                  <span className="flex items-center gap-2">
+                    <span className={`rounded px-1 py-0.5 text-[9px] font-semibold ring-1 ${
+                      p.entity === 'EVLV' ? 'bg-indigo-50 text-indigo-700 ring-indigo-300'
+                        : p.entity === 'BOTH' ? 'bg-slate-100 text-slate-700 ring-slate-300'
+                        : 'bg-brand-50 text-brand-700 ring-brand-300'
+                    }`}>
+                      {p.entity === 'EVLV' ? 'EVLV' : p.entity === 'BOTH' ? 'Both' : 'FF'}
+                    </span>
+                    <span>{p.name}</span>
+                  </span>
                   <span className="text-[10px] text-ink-300">{p.items.length} items</span>
                 </button>
               </li>

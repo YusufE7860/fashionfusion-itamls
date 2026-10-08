@@ -16,6 +16,8 @@ export function SignageVideos() {
   const [err, setErr] = useState<string | null>(null);
 
   const [nextOrientation, setNextOrientation] = useState<'LANDSCAPE' | 'PORTRAIT' | 'ANY'>('LANDSCAPE');
+  const [nextEntity, setNextEntity] = useState<'FASHION_FUSION' | 'EVLV' | 'BOTH'>('FASHION_FUSION');
+  const [filterEntity, setFilterEntity] = useState<'ALL' | 'FASHION_FUSION' | 'EVLV' | 'BOTH'>('ALL');
 
   const upload = useMutation({
     mutationFn: async (file: File) => {
@@ -36,6 +38,7 @@ export function SignageVideos() {
         filename: file.name, storageKey: pre.storageKey,
         sizeBytes: file.size,
         orientation: nextOrientation,
+        entity: nextEntity,
       });
     },
     onSuccess: () => { setProgress(null); qc.invalidateQueries({ queryKey: ['signage-videos'] }); },
@@ -56,24 +59,46 @@ export function SignageVideos() {
       <PageHeader
         title="Signage — Videos"
         subtitle="Upload once, assign to playlists"
-        actions={canWrite && (
+        actions={
           <>
             <label className="flex items-center gap-1 text-xs text-ink-200">
-              Next upload is:
-              <select className="field !py-1 text-xs" value={nextOrientation}
-                onChange={(e) => setNextOrientation(e.target.value as any)}>
-                <option value="LANDSCAPE">Landscape</option>
-                <option value="PORTRAIT">Portrait</option>
-                <option value="ANY">Any orientation</option>
+              Filter:
+              <select className="field !py-1 text-xs" value={filterEntity}
+                onChange={(e) => setFilterEntity(e.target.value as any)}>
+                <option value="ALL">All brands</option>
+                <option value="FASHION_FUSION">Fashion Fusion</option>
+                <option value="EVLV">Evolve</option>
+                <option value="BOTH">Shared (Both)</option>
               </select>
             </label>
-            <input ref={fileInput} type="file" className="hidden" accept="video/*"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ''; }} />
-            <button className="btn-primary" onClick={() => fileInput.current?.click()}>
-              <Upload size={13}/>Upload video
-            </button>
+            {canWrite && (
+              <>
+                <label className="flex items-center gap-1 text-xs text-ink-200">
+                  Upload as:
+                  <select className="field !py-1 text-xs" value={nextEntity}
+                    onChange={(e) => setNextEntity(e.target.value as any)}>
+                    <option value="FASHION_FUSION">Fashion Fusion</option>
+                    <option value="EVLV">Evolve</option>
+                    <option value="BOTH">Both brands</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-1 text-xs text-ink-200">
+                  <select className="field !py-1 text-xs" value={nextOrientation}
+                    onChange={(e) => setNextOrientation(e.target.value as any)}>
+                    <option value="LANDSCAPE">Landscape</option>
+                    <option value="PORTRAIT">Portrait</option>
+                    <option value="ANY">Any orientation</option>
+                  </select>
+                </label>
+                <input ref={fileInput} type="file" className="hidden" accept="video/*"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ''; }} />
+                <button className="btn-primary" onClick={() => fileInput.current?.click()}>
+                  <Upload size={13}/>Upload video
+                </button>
+              </>
+            )}
           </>
-        )}
+        }
       />
 
       {progress && (
@@ -91,6 +116,7 @@ export function SignageVideos() {
           <thead className="bg-slate-50">
             <tr>
               <th className="th text-left">File</th>
+              <th className="th text-left">Brand</th>
               <th className="th text-left">Orientation</th>
               <th className="th text-right">Size</th>
               <th className="th text-left">Uploaded</th>
@@ -99,12 +125,22 @@ export function SignageVideos() {
             </tr>
           </thead>
           <tbody>
-            {items.data?.length === 0 && (
-              <tr><td colSpan={6} className="py-6 text-center text-xs text-ink-300">No videos yet.</td></tr>
+            {items.data?.filter((v: any) => filterEntity === 'ALL' || (v.entity ?? 'BOTH') === filterEntity).length === 0 && (
+              <tr><td colSpan={7} className="py-6 text-center text-xs text-ink-300">No videos for this filter.</td></tr>
             )}
-            {items.data?.map((v: any) => (
+            {items.data?.filter((v: any) => filterEntity === 'ALL' || (v.entity ?? 'BOTH') === filterEntity).map((v: any) => (
               <tr key={v.id} className="border-b border-ink-500/10">
                 <td className="py-2 font-mono text-xs">{v.filename}</td>
+                <td className="py-2 text-xs">
+                  {canWrite ? (
+                    <select className="field !py-0.5 text-xs" value={v.entity ?? 'BOTH'}
+                      onChange={(e) => update.mutate({ id: v.id, body: { entity: e.target.value } })}>
+                      <option value="FASHION_FUSION">Fashion Fusion</option>
+                      <option value="EVLV">Evolve</option>
+                      <option value="BOTH">Both</option>
+                    </select>
+                  ) : (v.entity ?? 'BOTH')}
+                </td>
                 <td className="py-2 text-xs">
                   {canWrite ? (
                     <select className="field !py-0.5 text-xs" value={v.orientation ?? 'ANY'}

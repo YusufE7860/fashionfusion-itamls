@@ -14,7 +14,7 @@ export class SignageService {
 
   // ---------- Device-facing (agent protocol — DO NOT break shape) ----------
 
-  async registerDevice(dto: { hardwareId: string; name?: string; provisioningSecret: string }) {
+  async registerDevice(dto: { hardwareId: string; name?: string; provisioningSecret: string; entity?: 'FASHION_FUSION' | 'EVLV' }) {
     const expected = process.env.DEVICE_PROVISIONING_SECRET;
     if (!expected || dto.provisioningSecret !== expected) throw new UnauthorizedException('Bad provisioning secret');
     if (!dto.hardwareId) throw new BadRequestException('hardwareId required');
@@ -23,7 +23,7 @@ export class SignageService {
     if (existing) {
       // Already enrolled — return its stored token (idempotent, so a re-enrol
       // after a reinstall gets the SAME device identity).
-      return { deviceId: existing.id, token: existing.token, status: existing.status };
+      return { deviceId: existing.id, token: existing.token, status: existing.status, entity: existing.entity };
     }
     const token = randomBytes(24).toString('hex');
     const d = await this.prisma.signageDevice.create({
@@ -31,9 +31,10 @@ export class SignageService {
         hardwareId: dto.hardwareId,
         name: dto.name ?? dto.hardwareId.slice(0, 12),
         token, status: 'PENDING',
+        entity: dto.entity ?? 'FASHION_FUSION',
       },
     });
-    return { deviceId: d.id, token: d.token, status: d.status };
+    return { deviceId: d.id, token: d.token, status: d.status, entity: d.entity };
   }
 
   async authDevice(deviceId: string, token: string) {
@@ -55,13 +56,19 @@ export class SignageService {
         })
       : [];
 
+    // Entity filter: a Fashion Fusion player never shows Evolve content, and
+    // vice versa. Videos tagged BOTH play on either. This keeps the two
+    // brands separated even if a mixed playlist is accidentally assigned.
+    const entityMatches = (v: any) =>
+      !v.entity || v.entity === 'BOTH' || v.entity === device.entity;
+
     // Orientation filter: a PORTRAIT device plays PORTRAIT + ANY items;
-    // a LANDSCAPE device plays LANDSCAPE + ANY items. The non-matching
-    // items in the shared playlist are silently skipped on this device.
+    // a LANDSCAPE device plays LANDSCAPE + ANY items.
     const items = allItems.filter((it) =>
-      !it.video.orientation
-      || it.video.orientation === 'ANY'
-      || it.video.orientation === device.orientation,
+      entityMatches(it.video)
+      && (!it.video.orientation
+          || it.video.orientation === 'ANY'
+          || it.video.orientation === device.orientation),
     );
 
     const resolvedItems = await Promise.all(items.map(async (it) => ({
@@ -428,9 +435,19 @@ export class SignageService {
   async updateDevice(id: string, dto: {
     name?: string; storeId?: string | null; status?: string; notes?: string | null;
     orientation?: 'LANDSCAPE' | 'PORTRAIT'; forceRotate90?: boolean;
+    entity?: 'FASHION_FUSION' | 'EVLV';
   }) {
     const d = await this.prisma.signageDevice.findUnique({ where: { id } });
     if (!d) throw new NotFoundException();
+
+    // When a store is attached, inherit its entity if the device doesn't have
+    // one set explicitly — keeps brands aligned with where the device lives.
+    let nextEntity = dto.entity ?? d.entity;
+    if (dto.storeId && !dto.entity) {
+      const s = await this.prisma.store.findUnique({ where: { id: dto.storeId }, select: { entity: true } });
+      if (s?.entity) nextEntity = s.entity;
+    }
+
     const next = await this.prisma.signageDevice.update({
       where: { id },
       data: {
@@ -440,11 +457,13 @@ export class SignageService {
         notes: dto.notes === undefined ? d.notes : (dto.notes || null),
         orientation: dto.orientation ?? d.orientation,
         forceRotate90: dto.forceRotate90 ?? d.forceRotate90,
+        entity: nextEntity,
       },
     });
-    // Orientation change usually means a different content set — bump
-    // forceResyncAt so the agent purges and re-downloads.
-    if (dto.orientation && dto.orientation !== d.orientation) {
+    // Orientation OR entity change usually means a different content set —
+    // bump forceResyncAt so the agent purges and re-downloads.
+    if ((dto.orientation && dto.orientation !== d.orientation)
+      || (nextEntity !== d.entity)) {
       await this.prisma.signageDevice.update({ where: { id }, data: { forceResyncAt: new Date() } });
     }
     return next;
@@ -481,6 +500,7 @@ export class SignageService {
     filename: string; storageKey: string; sizeBytes?: number; checksum?: string;
     durationSeconds?: number; tags?: string;
     orientation?: 'LANDSCAPE' | 'PORTRAIT' | 'ANY';
+    entity?: 'FASHION_FUSION' | 'EVLV' | 'BOTH';
   }, ctx: UserCtx) {
     return this.prisma.signageVideo.create({
       data: {
@@ -490,19 +510,25 @@ export class SignageService {
         durationSeconds: dto.durationSeconds ?? null,
         checksum: dto.checksum ?? null,
         orientation: dto.orientation ?? 'ANY',
+        entity: dto.entity ?? 'BOTH',
         tags: dto.tags ?? null,
         uploadedById: ctx.userId,
       },
     });
   }
 
-  async updateVideo(id: string, dto: { orientation?: 'LANDSCAPE' | 'PORTRAIT' | 'ANY'; tags?: string | null }) {
+  async updateVideo(id: string, dto: {
+    orientation?: 'LANDSCAPE' | 'PORTRAIT' | 'ANY';
+    entity?: 'FASHION_FUSION' | 'EVLV' | 'BOTH';
+    tags?: string | null;
+  }) {
     const v = await this.prisma.signageVideo.findUnique({ where: { id } });
     if (!v) throw new NotFoundException();
     return this.prisma.signageVideo.update({
       where: { id },
       data: {
         orientation: dto.orientation ?? v.orientation,
+        entity: dto.entity ?? v.entity,
         tags: dto.tags === undefined ? v.tags : dto.tags,
       },
     });
@@ -527,10 +553,14 @@ export class SignageService {
     });
   }
 
-  async createPlaylist(dto: { name: string; startsAt?: string | null; endsAt?: string | null }) {
+  async createPlaylist(dto: { name: string; entity?: 'FASHION_FUSION' | 'EVLV' | 'BOTH'; startsAt?: string | null; endsAt?: string | null }) {
     return this.prisma.signagePlaylist.create({
-      data: { name: dto.name, startsAt: dto.startsAt ? new Date(dto.startsAt) : null,
-              endsAt: dto.endsAt ? new Date(dto.endsAt) : null },
+      data: {
+        name: dto.name,
+        entity: dto.entity ?? 'FASHION_FUSION',
+        startsAt: dto.startsAt ? new Date(dto.startsAt) : null,
+        endsAt: dto.endsAt ? new Date(dto.endsAt) : null,
+      },
     });
   }
 

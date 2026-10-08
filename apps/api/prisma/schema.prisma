@@ -921,6 +921,7 @@ model SignageDevice {
   token              String?                   // per-device secret
   status             String   @default("PENDING")   // PENDING | ACTIVE | DISABLED
   storeId            String?                        // link to ITAMLS Store
+  entity             String   @default("FASHION_FUSION") // FASHION_FUSION | EVLV — which brand this player belongs to
   orientation        String   @default("LANDSCAPE") // LANDSCAPE | PORTRAIT
   forceRotate90      Boolean  @default(false)       // emergency: mpv --video-rotate=90
   agentVersion       String?
@@ -954,6 +955,7 @@ model SignageVideo {
   durationSeconds Int?
   checksum        String?
   orientation     String   @default("ANY")        // LANDSCAPE | PORTRAIT | ANY
+  entity          String   @default("BOTH")       // FASHION_FUSION | EVLV | BOTH — which brand owns this asset
   tags            String?                          // comma-separated
   uploadedById    String?
   createdAt       DateTime @default(now())
@@ -965,6 +967,7 @@ model SignageVideo {
 model SignagePlaylist {
   id        String   @id @default(cuid())
   name      String
+  entity    String   @default("FASHION_FUSION")   // FASHION_FUSION | EVLV | BOTH
   startsAt  DateTime?                              // optional campaign window
   endsAt    DateTime?
   createdAt DateTime @default(now())

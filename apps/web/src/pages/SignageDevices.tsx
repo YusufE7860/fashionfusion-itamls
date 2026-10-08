@@ -43,6 +43,7 @@ export function SignageDevices() {
           <thead className="bg-slate-50">
             <tr>
               <th className="th text-left">Name</th>
+              <th className="th text-left">Brand</th>
               <th className="th text-left">Store</th>
               <th className="th text-left">Orientation</th>
               <th className="th text-left">Status</th>
@@ -54,7 +55,7 @@ export function SignageDevices() {
           </thead>
           <tbody>
             {devices.data?.length === 0 && (
-              <tr><td colSpan={8} className="py-6 text-center text-xs text-ink-300">
+              <tr><td colSpan={9} className="py-6 text-center text-xs text-ink-300">
                 No signage devices yet. The agent on a media player enrols itself the first time it connects.
               </td></tr>
             )}
@@ -68,6 +69,15 @@ export function SignageDevices() {
                       {d.name}
                     </Link>
                   </div>
+                </td>
+                <td className="py-2 text-xs">
+                  {canWrite ? (
+                    <select className="field !py-1 text-xs" value={d.entity ?? 'FASHION_FUSION'}
+                      onChange={(e) => update.mutate({ id: d.id, body: { entity: e.target.value } })}>
+                      <option value="FASHION_FUSION">Fashion Fusion</option>
+                      <option value="EVLV">Evolve</option>
+                    </select>
+                  ) : <EntityBadge entity={d.entity}/>}
                 </td>
                 <td className="py-2 text-xs">
                   {canWrite ? (
@@ -145,6 +155,16 @@ export function SignageDevices() {
       {viewing && <PeekModal device={viewing} onClose={() => setViewing(null)} />}
     </>
   );
+}
+
+export function EntityBadge({ entity }: { entity?: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    FASHION_FUSION: { label: 'FF',    cls: 'bg-brand-50 text-brand-700 ring-brand-300' },
+    EVLV:           { label: 'EVLV',  cls: 'bg-indigo-50 text-indigo-700 ring-indigo-300' },
+    BOTH:           { label: 'Both',  cls: 'bg-slate-100 text-slate-700 ring-slate-300' },
+  };
+  const info = map[entity ?? 'FASHION_FUSION'] ?? map.FASHION_FUSION;
+  return <span className={clsx('rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1', info.cls)}>{info.label}</span>;
 }
 
 // =========================================================================

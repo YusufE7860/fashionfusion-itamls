@@ -12,6 +12,7 @@ import clsx from 'clsx';
  */
 export function SignageInstall() {
   const [platform, setPlatform] = useState<'pi' | 'ubuntu-desktop' | 'ubuntu-console'>('pi');
+  const [entity, setEntity] = useState<'FASHION_FUSION' | 'EVLV'>('FASHION_FUSION');
   const [name, setName] = useState('');
   const [storeCode, setStoreCode] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
@@ -22,10 +23,11 @@ export function SignageInstall() {
   const url = useMemo(() => {
     const params = new URLSearchParams();
     params.set('platform', platform);
+    params.set('entity', entity);
     if (name.trim()) params.set('name', name.trim());
     if (storeCode) params.set('storeCode', storeCode);
     return `${base}/signage/installer.sh?${params.toString()}`;
-  }, [platform, name, storeCode, base]);
+  }, [platform, entity, name, storeCode, base]);
 
   const oneLiner = `curl -fsSL "${url}" | sudo bash`;
 
@@ -49,7 +51,35 @@ export function SignageInstall() {
       />
 
       <section className="card mb-4 p-4">
-        <label className="label">1. Pick platform</label>
+        <label className="label">1. Which brand is this player for?</label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            className={clsx(
+              'rounded-lg border p-3 text-left transition-colors',
+              entity === 'FASHION_FUSION'
+                ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-400'
+                : 'border-ink-500 bg-white hover:border-brand-400 hover:bg-brand-50/40',
+            )}
+            onClick={() => setEntity('FASHION_FUSION')}>
+            <div className="text-sm font-semibold">Fashion Fusion</div>
+            <div className="mt-0.5 text-xs text-ink-300">Will only play FF or shared content.</div>
+          </button>
+          <button
+            className={clsx(
+              'rounded-lg border p-3 text-left transition-colors',
+              entity === 'EVLV'
+                ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-400'
+                : 'border-ink-500 bg-white hover:border-indigo-400 hover:bg-indigo-50/40',
+            )}
+            onClick={() => setEntity('EVLV')}>
+            <div className="text-sm font-semibold">Evolve</div>
+            <div className="mt-0.5 text-xs text-ink-300">Will only play Evolve or shared content.</div>
+          </button>
+        </div>
+      </section>
+
+      <section className="card mb-4 p-4">
+        <label className="label">2. Pick platform</label>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
           {platforms.map((p) => (
             <button key={p.id}
@@ -73,13 +103,13 @@ export function SignageInstall() {
       <section className="card mb-4 p-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
-            <label className="label">2. Device name (optional)</label>
+            <label className="label">3. Device name (optional)</label>
             <input className="field" placeholder="e.g. Store 012 Front Window"
               value={name} onChange={(e) => setName(e.target.value)} />
             <p className="mt-1 text-[11px] text-ink-300">If blank, the device's hostname is used.</p>
           </div>
           <div>
-            <label className="label">3. Store to pre-assign (optional)</label>
+            <label className="label">4. Store to pre-assign (optional)</label>
             <select className="field" value={storeCode}
               onChange={(e) => setStoreCode(e.target.value)}>
               <option value="">— assign later in the dashboard —</option>
@@ -93,7 +123,7 @@ export function SignageInstall() {
       </section>
 
       <section className="card mb-4 p-4">
-        <h3 className="mb-2 text-sm font-semibold text-slate-700">4. Run this on the device</h3>
+        <h3 className="mb-2 text-sm font-semibold text-slate-700">5. Run this on the device</h3>
         <p className="mb-2 text-xs text-ink-300">
           Open a terminal on the Pi / Ubuntu box and paste:
         </p>
