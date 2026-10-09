@@ -53,7 +53,10 @@
 # no path rewriting, no host rewriting, no surprises.
 {$APP_FQDN}:{$MINIO_PUBLIC_PORT} {
 	tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem
-	request_body { max_size 500MB }
+
+	request_body {
+		max_size 500MB
+	}
 
 	@cors_preflight method OPTIONS
 	handle @cors_preflight {
