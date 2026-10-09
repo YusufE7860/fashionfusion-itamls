@@ -70,6 +70,10 @@
 	}
 	handle {
 		reverse_proxy minio:9000 {
+			# Preserve the original Host header so MinIO's SigV4 check sees
+			# "it.ffgsa.co.za:41236" (what the SDK signed with), not
+			# "minio:9000" (Caddy's default dial-address rewrite).
+			header_up Host {host}
 			transport http {
 				read_timeout  10m
 				write_timeout 10m
@@ -87,5 +91,10 @@
 			Access-Control-Expose-Headers "ETag"
 			Vary "Origin"
 		}
+	}
+
+	log {
+		output stdout
+		format console
 	}
 }
