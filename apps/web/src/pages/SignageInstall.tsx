@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
-import { Check, Copy, Cpu, Monitor, Terminal } from 'lucide-react';
+import { Check, Copy, Cpu, Download, FileText, Monitor, Package, Terminal } from 'lucide-react';
 import clsx from 'clsx';
 
 /**
@@ -137,9 +137,33 @@ export function SignageInstall() {
           </button>
         </div>
 
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <a className="flex items-center gap-2 rounded border border-ink-500/20 bg-white p-3 text-xs hover:border-brand-400 hover:bg-brand-50/40"
+             href={url} download="install-signage.sh">
+            <FileText size={16} className="text-brand-600"/>
+            <div className="flex-1">
+              <div className="font-semibold text-ink-100">Download install.sh</div>
+              <div className="text-[11px] text-ink-300">
+                Save the script to a USB, SSH it over, or run through a UI terminal.
+              </div>
+            </div>
+            <Download size={14} className="text-ink-300"/>
+          </a>
+          <a className="flex items-center gap-2 rounded border border-ink-500/20 bg-white p-3 text-xs hover:border-brand-400 hover:bg-brand-50/40"
+             href={`${base}/signage/agent.tar.gz`} download="signage-agent.tar.gz">
+            <Package size={16} className="text-brand-600"/>
+            <div className="flex-1">
+              <div className="font-semibold text-ink-100">Download agent bundle</div>
+              <div className="text-[11px] text-ink-300">
+                The whole agent as one .tar.gz for air-gapped installs — no internet needed on the device.
+              </div>
+            </div>
+            <Download size={14} className="text-ink-300"/>
+          </a>
+        </div>
+
         <details className="mt-3 text-xs text-ink-300">
-          <summary className="cursor-pointer">Advanced — download the script to inspect first</summary>
-          <p className="mt-1">You can preview the script before piping to bash:</p>
+          <summary className="cursor-pointer">Advanced — preview the script before running</summary>
           <div className="group relative mt-1">
             <pre className="rounded bg-slate-100 p-2 font-mono text-[10px]">curl -fsSL "{url}" | less</pre>
             <button className="absolute right-1 top-1 rounded bg-white p-1 opacity-0 ring-1 ring-ink-500/20 transition-opacity group-hover:opacity-100 hover:bg-brand-50"
@@ -147,6 +171,13 @@ export function SignageInstall() {
               {copied === 'preview' ? <Check size={10} className="text-emerald-600"/> : <Copy size={10}/>}
             </button>
           </div>
+
+          <p className="mt-3 text-ink-300">
+            <b>Air-gapped install</b> (no internet on the device): copy both files to a USB stick, then on the device run:
+          </p>
+          <pre className="mt-1 rounded bg-slate-100 p-2 font-mono text-[10px]">{`# USB mounted at /mnt/usb — adjust path if needed
+cd /mnt/usb
+sudo bash install-signage.sh   # script extracts the local agent bundle if present`}</pre>
         </details>
 
         <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">

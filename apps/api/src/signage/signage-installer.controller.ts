@@ -125,12 +125,22 @@ apt-get install -y mpv python3 python3-venv python3-pip curl tar
 TMPDIR="\$(mktemp -d)"
 trap 'rm -rf "\$TMPDIR"' EXIT
 
-echo ">> Downloading agent tarball…"
-curl -fsSL -o "\$TMPDIR/agent.tar.gz" "${tarballUrl}"
+LOCAL_BUNDLE=""
+for candidate in "./signage-agent.tar.gz" "./agent.tar.gz" "/mnt/usb/signage-agent.tar.gz" "/media/*/signage-agent.tar.gz"; do
+  for match in \$candidate; do
+    if [[ -f "\$match" ]]; then LOCAL_BUNDLE="\$match"; break 2; fi
+  done
+done
 
-echo ">> Extracting…"
 mkdir -p "\$TMPDIR/agent"
-tar xzf "\$TMPDIR/agent.tar.gz" -C "\$TMPDIR/agent"
+if [[ -n "\$LOCAL_BUNDLE" ]]; then
+  echo ">> Using local agent bundle: \$LOCAL_BUNDLE"
+  tar xzf "\$LOCAL_BUNDLE" -C "\$TMPDIR/agent"
+else
+  echo ">> Downloading agent tarball from the server…"
+  curl -fsSL -o "\$TMPDIR/agent.tar.gz" "${tarballUrl}"
+  tar xzf "\$TMPDIR/agent.tar.gz" -C "\$TMPDIR/agent"
+fi
 
 echo ">> Running agent install.sh…"
 cd "\$TMPDIR/agent"
