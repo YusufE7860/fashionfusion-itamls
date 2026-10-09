@@ -101,7 +101,17 @@ function buildInstallerScript(opts: {
 set -euo pipefail
 
 if [[ \$EUID -ne 0 ]]; then
-  echo "Please run as root:  curl -fsSL ... | sudo bash" >&2
+  SCRIPT_NAME="\$(basename "\$0" 2>/dev/null)"
+  if [[ -z "\$SCRIPT_NAME" || "\$SCRIPT_NAME" == "bash" ]]; then SCRIPT_NAME="install-signage.sh"; fi
+  echo ""                                                          >&2
+  echo "This script must run as root."                              >&2
+  echo ""                                                           >&2
+  echo "Downloaded the file? Run:"                                  >&2
+  echo "    sudo bash \$SCRIPT_NAME"                                 >&2
+  echo ""                                                           >&2
+  echo "Or run it directly from the server:"                        >&2
+  echo "    curl -fsSL \"${serverUrl}/signage/installer.sh?platform=${platform}&entity=${safeEntity}\" | sudo bash" >&2
+  echo ""                                                           >&2
   exit 1
 fi
 
