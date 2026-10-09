@@ -15,8 +15,17 @@ export class SignageAgentController {
   constructor(private svc: SignageService) {}
 
   @Public() @Post('register')
-  register(@Body() body: { hardwareId: string; name?: string; provisioningSecret: string }) {
-    return this.svc.registerDevice(body);
+  register(
+    @Headers('x-device-secret') headerSecret: string | undefined,
+    @Body() body: { hardwareId?: string; hardware_id?: string; name?: string; provisioningSecret?: string },
+  ) {
+    // Python agent sends snake_case + the secret in a header.
+    // Also accept camelCase + body-field style for anything else.
+    return this.svc.registerDevice({
+      hardwareId: body.hardwareId ?? body.hardware_id ?? '',
+      name: body.name,
+      provisioningSecret: headerSecret ?? body.provisioningSecret ?? '',
+    });
   }
 
   @Public() @Get(':id/config')
