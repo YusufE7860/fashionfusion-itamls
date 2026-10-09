@@ -35,7 +35,27 @@ export class StorageService implements OnModuleInit {
       accessKey, secretKey, region,
     });
 
+    // Optional path prefix for presigned URLs. When MinIO is reverse-proxied
+    // behind the main site at /minio/*, set MINIO_PUBLIC_PATH_PREFIX=/minio.
+    // The prefix is INJECTED into the returned URL AFTER signing — Caddy
+    // strips it before MinIO sees it, so the SigV4 signature still verifies.
+    this.publicPathPrefix = (process.env.MINIO_PUBLIC_PATH_PREFIX ?? '').replace(/\/$/, '');
+
     this.bucket = process.env.MINIO_BUCKET ?? 'itamls-invoices';
+  }
+
+  private publicPathPrefix: string;
+
+  /** Insert the path prefix (if any) into a presigned URL after signing. */
+  private withPathPrefix(url: string): string {
+    if (!this.publicPathPrefix) return url;
+    try {
+      const u = new URL(url);
+      if (!u.pathname.startsWith(this.publicPathPrefix + '/')) {
+        u.pathname = this.publicPathPrefix + u.pathname;
+      }
+      return u.toString();
+    } catch { return url; }
   }
 
   async onModuleInit() {
@@ -67,11 +87,13 @@ export class StorageService implements OnModuleInit {
   }
 
   async presignedGet(key: string, expirySeconds = 60 * 60) {
-    return this.publicClient.presignedGetObject(this.bucket, key, expirySeconds);
+    const url = await this.publicClient.presignedGetObject(this.bucket, key, expirySeconds);
+    return this.withPathPrefix(url);
   }
 
   async presignedPut(key: string, expirySeconds = 60 * 60) {
-    return this.publicClient.presignedPutObject(this.bucket, key, expirySeconds);
+    const url = await this.publicClient.presignedPutObject(this.bucket, key, expirySeconds);
+    return this.withPathPrefix(url);
   }
 
   async remove(key: string) {
