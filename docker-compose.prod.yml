@@ -48,6 +48,10 @@ services:
     environment:
       DATABASE_URL:       "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
       JWT_SECRET:         ${JWT_SECRET}
+      # Public API base URL used by installers to build curl one-liners etc.
+      PUBLIC_API_URL:               ${PUBLIC_API_URL:-https://it.ffgsa.co.za:41235/api/v1}
+      # Signage device enrolment — must match whatever the Python agent sends
+      DEVICE_PROVISIONING_SECRET:   ${DEVICE_PROVISIONING_SECRET}
       JWT_EXPIRES_IN:     "1d"
       PORT:               "4000"
       CORS_ORIGIN:        ${WEB_BASE_URL}
