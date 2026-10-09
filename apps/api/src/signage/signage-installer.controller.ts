@@ -185,12 +185,7 @@ CONFIG
 chmod 600 "\$CONFIG_DIR/config.json"
 chown "\$PLAYER_USER":"\$PLAYER_USER" "\$CONFIG_DIR/config.json" || true
 
-echo ">> Enrolling device…"
-sudo -u "\$PLAYER_USER" signage-agent provision --unattended || {
-  echo "!! Auto-provision failed. Run manually: sudo -u \$PLAYER_USER signage-agent provision"
-}
-
-echo ">> Starting service…"
+echo ">> Starting service (agent will auto-enrol on first run using config.json)…"
 systemctl daemon-reload
 systemctl enable signage-agent.service >/dev/null 2>&1 || true
 systemctl restart signage-agent.service

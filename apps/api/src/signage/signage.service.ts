@@ -6,6 +6,88 @@ import { StorageService } from '../storage/storage.service';
 const OFFLINE_THRESHOLD_MS = 3 * 60 * 1000;
 const KEY_PREFIX = 'signage/';
 
+/**
+ * Pick a performance profile based on the hardware the agent reported.
+ * This is called when the device is left on AUTO (the default).
+ */
+function pickProfile(d: { hwCpuModel?: string | null; hwArch?: string | null;
+                         hwMemMB?: number | null; hwGpuDrm?: boolean | null }): string {
+  const cpu = (d.hwCpuModel ?? '').toLowerCase();
+  const arch = (d.hwArch ?? '').toLowerCase();
+  const mem = d.hwMemMB ?? 0;
+
+  // Raspberry Pi detection — the model string varies by OS; look for signals
+  if (cpu.includes('bcm2837') || cpu.includes('cortex-a53')) return 'PI3';
+  if (cpu.includes('bcm2711') || cpu.includes('cortex-a72')) return 'PI4';
+  if (cpu.includes('bcm2712') || cpu.includes('cortex-a76')) return 'PI5';
+  if (arch.startsWith('armv7') || arch === 'armv6l') return 'PI3';   // old ARM = treat as low-end Pi
+  if (arch === 'aarch64' && mem < 2048) return 'PI3';
+
+  // x86 — Intel/AMD with DRM render node → VAAPI candidate
+  if ((arch === 'x86_64' || arch === 'amd64') && d.hwGpuDrm) return 'X86_VAAPI';
+  if (arch === 'x86_64' || arch === 'amd64') return 'X86_SW';
+
+  // Unknown or very low-memory devices fall back to the safe profile
+  if (mem > 0 && mem < 1024) return 'LOW_END';
+  return 'X86_SW';
+}
+
+/**
+ * mpv flags per profile. The agent appends these to its base mpv args so
+ * each box gets the right decoder + output path + cache sizing.
+ */
+function flagsForProfile(profile: string): string[] {
+  switch (profile) {
+    case 'PI3':
+      return [
+        '--hwdec=v4l2m2m-copy',       // VideoCore IV HW decode via V4L2
+        '--vo=gpu',
+        '--gpu-context=drm',          // Console/kiosk default; mpv ignores on X
+        '--cache=yes', '--cache-secs=5',
+        '--vd-lavc-threads=4',
+      ];
+    case 'PI4':
+      return [
+        '--hwdec=v4l2m2m-copy',
+        '--vo=gpu',
+        '--gpu-context=drm',
+        '--cache=yes', '--cache-secs=10',
+      ];
+    case 'PI5':
+      return [
+        '--hwdec=drm',                // Pi 5 has first-class DRM/KMS decode
+        '--vo=gpu-next',
+        '--gpu-context=drm',
+        '--cache=yes', '--cache-secs=15',
+      ];
+    case 'X86_VAAPI':
+      return [
+        '--hwdec=vaapi',
+        '--vo=gpu-next',
+        '--cache=yes', '--cache-secs=15',
+      ];
+    case 'X86_SW':
+      return [
+        '--hwdec=no',
+        '--vo=gpu',
+        '--cache=yes', '--cache-secs=10',
+      ];
+    case 'LOW_END':
+      return [
+        '--hwdec=no',
+        '--vo=gpu',
+        '--cache=yes', '--cache-secs=3',
+        '--demuxer-max-bytes=10M',
+        '--vf=scale=-2:720',           // Downscale anything above 720p
+      ];
+    case 'CUSTOM':
+      // Nothing added — the agent config file provides its own mpv args
+      return [];
+    default:
+      return [];
+  }
+}
+
 export interface UserCtx { userId: string; permissions: string[] }
 
 @Injectable()
@@ -82,11 +164,13 @@ export class SignageService {
       downloadUrl: await this.storage.presignedGet(it.video.storageKey, 3600).catch(() => null),
     })));
 
-    // Emergency rotate: when the TV is physically mounted sideways and no
-    // orientation-matched content exists, the agent passes --video-rotate=90
-    // to mpv so landscape content renders readable on a portrait screen
-    // (ugly but better than sideways text).
-    const mpvExtraArgs = device.forceRotate90 ? ['--video-rotate=90'] : [];
+    // Build mpv flags based on the device's performance profile. AUTO picks
+    // one from the hardware the agent reported; explicit profiles override.
+    const resolvedProfile = device.perfProfile === 'AUTO' ? pickProfile(device) : device.perfProfile;
+    const mpvExtraArgs = [
+      ...flagsForProfile(resolvedProfile),
+      ...(device.forceRotate90 ? ['--video-rotate=90'] : []),
+    ];
 
     // Pending agent action — right now only SNAPSHOT. Agent screenshots mpv,
     // uploads via snapshot-upload-url + snapshot-complete endpoints.
@@ -105,6 +189,7 @@ export class SignageService {
       playlist: assignment ? { id: assignment.playlistId, name: assignment.name } : null,
       items: resolvedItems,
       mpvExtraArgs,
+      perfProfile: resolvedProfile,
       pendingAction,
       pendingCommands: pendingCommands.map((c) => ({ id: c.id, kind: c.kind, payload: c.payload })),
       // Agent compares this; when it changes, it purges cache and re-downloads.
@@ -176,6 +261,13 @@ export class SignageService {
     audioSink?: string;
     droppedFrames?: number;
     playerAlive?: boolean;
+    // Hardware info — reported on first heartbeat after enrol / agent restart
+    hwCpuModel?: string;
+    hwCpuCores?: number;
+    hwMemMB?: number;
+    hwGpuDrm?: boolean;
+    hwArch?: string;
+    hwOsName?: string;
   }) {
     const device = await this.authDevice(deviceId, token);
     const now = new Date();
@@ -188,6 +280,13 @@ export class SignageService {
           agentVersion: dto.agentVersion ?? device.agentVersion,
           diskFreePct: dto.diskFreePct ?? device.diskFreePct,
           uptimeSeconds: dto.uptimeSeconds ?? device.uptimeSeconds,
+          // HW info — only overwrites when the agent reports it this heartbeat
+          hwCpuModel: dto.hwCpuModel ?? device.hwCpuModel,
+          hwCpuCores: dto.hwCpuCores ?? device.hwCpuCores,
+          hwMemMB:    dto.hwMemMB    ?? device.hwMemMB,
+          hwGpuDrm:   dto.hwGpuDrm   ?? device.hwGpuDrm,
+          hwArch:     dto.hwArch     ?? device.hwArch,
+          hwOsName:   dto.hwOsName   ?? device.hwOsName,
           // Clear offline-alert flag so next outage will trigger a fresh alert
           offlineAlertedAt: null,
         },
@@ -436,6 +535,7 @@ export class SignageService {
     name?: string; storeId?: string | null; status?: string; notes?: string | null;
     orientation?: 'LANDSCAPE' | 'PORTRAIT'; forceRotate90?: boolean;
     entity?: 'FASHION_FUSION' | 'EVLV';
+    perfProfile?: 'AUTO' | 'PI3' | 'PI4' | 'PI5' | 'X86_VAAPI' | 'X86_SW' | 'LOW_END' | 'CUSTOM';
   }) {
     const d = await this.prisma.signageDevice.findUnique({ where: { id } });
     if (!d) throw new NotFoundException();
@@ -458,6 +558,7 @@ export class SignageService {
         orientation: dto.orientation ?? d.orientation,
         forceRotate90: dto.forceRotate90 ?? d.forceRotate90,
         entity: nextEntity,
+        perfProfile: dto.perfProfile ?? d.perfProfile,
       },
     });
     // Orientation OR entity change usually means a different content set —

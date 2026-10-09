@@ -88,6 +88,69 @@ def handle_pending_snapshot(cfg, server_url: str, device_id: str, token: str):
 Wire this in the agent's main sync loop right after it fetches the config
 and before it decides whether to resync the playlist.
 
+## Reporting hardware (for auto-tune)
+
+On the **first heartbeat after enrol or agent restart**, the agent SHOULD also
+POST these optional fields in the heartbeat body so the server can pick the
+right mpv flags per device:
+
+```json
+{
+  "hwCpuModel": "ARMv8 Processor rev 3 (v8l)",
+  "hwCpuCores": 4,
+  "hwMemMB":    7850,
+  "hwGpuDrm":   true,
+  "hwArch":     "aarch64",
+  "hwOsName":   "Ubuntu 24.04"
+}
+```
+
+How the agent collects them (Linux-safe):
+
+```python
+import os, platform, re
+
+def collect_hw():
+    hw = {
+        "hwArch":  platform.machine(),
+        "hwOsName": " ".join(x for x in platform.freedesktop_os_release().values()
+                             if isinstance(x, str))[:120] if hasattr(platform, "freedesktop_os_release") else platform.system(),
+        "hwCpuCores": os.cpu_count(),
+        "hwGpuDrm": os.path.exists("/dev/dri/renderD128"),
+    }
+    try:
+        with open("/proc/cpuinfo") as f:
+            text = f.read()
+        m = re.search(r"model name\s*:\s*(.+)", text) or re.search(r"Hardware\s*:\s*(.+)", text)
+        if m: hw["hwCpuModel"] = m.group(1).strip()
+    except Exception: pass
+    try:
+        with open("/proc/meminfo") as f:
+            text = f.read()
+        m = re.search(r"MemTotal:\s+(\d+)\s+kB", text)
+        if m: hw["hwMemMB"] = int(int(m.group(1)) / 1024)
+    except Exception: pass
+    return hw
+```
+
+Then merge `collect_hw()` into the first heartbeat payload. On later
+heartbeats, the fields can be omitted — the server keeps the last reported
+values and won't overwrite them with blanks.
+
+## Applying mpv flags from the server
+
+The server's `/config` response now includes:
+
+```json
+{
+  "mpvExtraArgs": ["--hwdec=v4l2m2m-copy", "--vo=gpu", "--gpu-context=drm", "--cache=yes", "--cache-secs=5"],
+  "perfProfile":  "PI3"
+}
+```
+
+The agent passes `mpvExtraArgs` to its mpv process. When these change, the
+agent should restart mpv so the new flags take effect.
+
 ## Operational notes
 
 - **Latency.** Default poll is 30s, so the first snapshot can take up to that

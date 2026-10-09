@@ -934,6 +934,16 @@ model SignageDevice {
   pendingSnapshotAt  DateTime?                      // when set, agent takes a screenshot on next poll
   latestSnapshotKey  String?                        // MinIO key of most recent snapshot
   latestSnapshotAt   DateTime?
+  // Performance tuning — auto-detected from hardware the agent reports, or
+  // overridden by an admin. Drives the mpv flags the agent uses.
+  perfProfile        String   @default("AUTO")      // AUTO | PI3 | PI4 | PI5 | X86_VAAPI | X86_SW | LOW_END | CUSTOM
+  // Hardware snapshot last reported by the agent (updated on hello/heartbeat)
+  hwCpuModel         String?
+  hwCpuCores         Int?
+  hwMemMB            Int?
+  hwGpuDrm           Boolean?                       // has /dev/dri/renderD128?
+  hwArch             String?                        // x86_64 | aarch64 | armv7l
+  hwOsName           String?
   notes              String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

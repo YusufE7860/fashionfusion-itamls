@@ -81,6 +81,12 @@ export function SignageDeviceDetail() {
 // ===== Overview tab =====
 function OverviewTab({ d, latest, snap, requestSnap }: any) {
   const bytes = (n: any) => n ? `${(Number(n) / 1024 / 1024 / 1024).toFixed(1)} GB` : '—';
+  const qc = useQueryClient();
+  const updatePerf = useMutation({
+    mutationFn: (profile: string) => api.patch(`/signage/devices/${d.id}`, { perfProfile: profile }).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['signage-device', d.id] }),
+  });
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
       <section className="card p-4">
@@ -102,6 +108,36 @@ function OverviewTab({ d, latest, snap, requestSnap }: any) {
             <span>Device hasn't reported in. Last seen {d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : 'never'}.</span>
           </div>
         )}
+      </section>
+
+      <section className="card p-4 lg:col-span-2">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700"><Cpu size={14}/>Hardware & performance tuning</h3>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Stat icon={<Cpu size={13}/>}   label="CPU model"  value={d.hwCpuModel ?? 'unknown'} />
+          <Stat icon={<Cpu size={13}/>}   label="Cores"      value={d.hwCpuCores ?? '—'} />
+          <Stat icon={<Monitor size={13}/>} label="Memory"   value={d.hwMemMB ? `${(d.hwMemMB / 1024).toFixed(1)} GB` : '—'} />
+          <Stat icon={<Film size={13}/>}  label="GPU"        value={d.hwGpuDrm ? 'DRM (hardware)' : d.hwGpuDrm === false ? 'software only' : '—'} />
+          <Stat icon={<Cpu size={13}/>}   label="Arch"       value={d.hwArch ?? '—'} />
+          <Stat icon={<Monitor size={13}/>} label="OS"       value={d.hwOsName ?? '—'} />
+        </div>
+        <div className="mt-4">
+          <label className="label">Performance profile</label>
+          <select className="field max-w-sm" value={d.perfProfile ?? 'AUTO'}
+            onChange={(e) => updatePerf.mutate(e.target.value)}>
+            <option value="AUTO">AUTO — pick best from hardware</option>
+            <option value="PI3">Raspberry Pi 3 (V4L2 M2M)</option>
+            <option value="PI4">Raspberry Pi 4 (V4L2 M2M)</option>
+            <option value="PI5">Raspberry Pi 5 (DRM native)</option>
+            <option value="X86_VAAPI">x86 with VAAPI (Intel/AMD iGPU)</option>
+            <option value="X86_SW">x86 software decode</option>
+            <option value="LOW_END">Low-end — downscale + minimal cache</option>
+            <option value="CUSTOM">Custom (use device's own config.json)</option>
+          </select>
+          <p className="mt-1 text-[11px] text-ink-300">
+            Changing the profile sends new mpv flags on the next config poll.
+            Click <b>Force resync</b> on the devices page or restart the agent to pick up immediately.
+          </p>
+        </div>
       </section>
 
       <section className="card p-3">

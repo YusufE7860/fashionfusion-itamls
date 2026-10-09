@@ -1,9 +1,9 @@
 """Thin HTTP client for the signage backend's device-facing API.
 
 Three calls, matching the backend routes:
-  POST /api/devices/register           (fleet provisioning secret) -> id + token
-  POST /api/devices/:id/heartbeat      (per-device token)
-  GET  /api/devices/:id/config         (per-device token)
+  POST /signage/devices/register           (fleet provisioning secret) -> id + token
+  POST /signage/devices/:id/heartbeat      (per-device token)
+  GET  /signage/devices/:id/config         (per-device token)
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ class SignageApiClient:
 
     def register(self, *, hardware_id: str, provisioning_secret: str, name: str, agent_version: str) -> dict[str, Any]:
         r = self.session.post(
-            f"{self.base}/api/devices/register",
+            f"{self.base}/signage/devices/register",
             headers={"x-device-secret": provisioning_secret},
             json={"hardwareId": hardware_id, "name": name, "agentVersion": agent_version},
             timeout=self.timeout,
@@ -38,7 +38,7 @@ class SignageApiClient:
 
     def get_config(self, *, device_id: str, token: str) -> dict[str, Any]:
         r = self.session.get(
-            f"{self.base}/api/devices/{device_id}/config",
+            f"{self.base}/signage/devices/{device_id}/config",
             headers={"x-device-token": token},
             timeout=self.timeout,
         )
@@ -66,7 +66,7 @@ class SignageApiClient:
         if currently_playing_id:
             payload["currentlyPlayingId"] = currently_playing_id
         r = self.session.post(
-            f"{self.base}/api/devices/{device_id}/heartbeat",
+            f"{self.base}/signage/devices/{device_id}/heartbeat",
             headers={"x-device-token": token},
             json=payload,
             timeout=self.timeout,
