@@ -84,7 +84,7 @@ class Agent:
             self.last_resync_token = resync
 
         playlist = cfg.get("playlist")
-        items: list[dict[str, Any]] = (playlist or {}).get("items", []) if playlist else []
+        items: list[dict[str, Any]] = cfg.get("items") or (playlist or {}).get("items", []) or []
 
         if not items:
             # Not active, unassigned, or campaign outside its window → blank screen.
