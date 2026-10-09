@@ -62,13 +62,12 @@ services:
       MINIO_ACCESS_KEY:       ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY:       ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET:           "itamls-invoices"
-      # Public MinIO reached via the main site's /minio/* path proxy.
-      # Signer uses host:port of the main site; path prefix is injected after
-      # signing and stripped by Caddy before MinIO sees it (SigV4-safe).
+      # Public MinIO reached on its own TLS port behind Caddy — SigV4 clean.
       MINIO_PUBLIC_ENDPOINT:     ${MINIO_PUBLIC_ENDPOINT:-${APP_FQDN:-it.ffgsa.co.za}}
-      MINIO_PUBLIC_PORT:         ${MINIO_PUBLIC_PORT:-${WEB_PORT:-41235}}
+      MINIO_PUBLIC_PORT:         ${MINIO_PUBLIC_PORT:-41236}
       MINIO_PUBLIC_USE_SSL:      ${MINIO_PUBLIC_USE_SSL:-true}
-      MINIO_PUBLIC_PATH_PREFIX:  ${MINIO_PUBLIC_PATH_PREFIX:-/minio}
+      # No path prefix with the dedicated-port approach
+      MINIO_PUBLIC_PATH_PREFIX:  ""
       TOTP_ISSUER:        ${TOTP_ISSUER}
       HELPDESK_SYSTEM:    ${HELPDESK_SYSTEM:-STUB}
       PRICE_LOOKUP_PROVIDER: ${PRICE_LOOKUP_PROVIDER:-SEARCH_LINKS}
@@ -117,11 +116,12 @@ services:
       - web
       - api
     ports:
-      # Single HTTPS port — API, SPA, and MinIO (/minio/*) all served here
       - "${WEB_PORT:-41235}:${WEB_PORT:-41235}"
+      - "${MINIO_PUBLIC_PORT:-41236}:${MINIO_PUBLIC_PORT:-41236}"
     environment:
-      APP_FQDN:  ${APP_FQDN:-it.ffgsa.co.za}
-      WEB_PORT:  ${WEB_PORT:-41235}
+      APP_FQDN:          ${APP_FQDN:-it.ffgsa.co.za}
+      WEB_PORT:          ${WEB_PORT:-41235}
+      MINIO_PUBLIC_PORT: ${MINIO_PUBLIC_PORT:-41236}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/certs:/etc/caddy/certs:ro

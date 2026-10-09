@@ -17,46 +17,6 @@
 		max_size 500MB
 	}
 
-	# --- /minio/* → MinIO (presigned uploads/downloads from the browser) ---
-	# Caddy strips the /minio prefix via `uri strip_prefix` and preserves the
-	# Host header so MinIO's SigV4 check matches what the SDK signed.
-	handle_path /minio/* {
-		reverse_proxy minio:9000 {
-			header_up Host "{$APP_FQDN}:{$WEB_PORT}"
-			transport http {
-				read_timeout  10m
-				write_timeout 10m
-			}
-			# Strip MinIO's own CORS headers — we add a single clean set below.
-			header_down -Access-Control-Allow-Origin
-			header_down -Access-Control-Allow-Credentials
-			header_down -Access-Control-Allow-Methods
-			header_down -Access-Control-Allow-Headers
-			header_down -Access-Control-Expose-Headers
-			header_down -Vary
-		}
-		header {
-			Access-Control-Allow-Origin   "https://{$APP_FQDN}:{$WEB_PORT}"
-			Access-Control-Expose-Headers "ETag"
-			Vary "Origin"
-		}
-	}
-
-	# --- CORS preflight for MinIO path ---
-	@minio_preflight {
-		method OPTIONS
-		path /minio/*
-	}
-	handle @minio_preflight {
-		header {
-			Access-Control-Allow-Origin   "https://{$APP_FQDN}:{$WEB_PORT}"
-			Access-Control-Allow-Methods  "GET, PUT, POST, HEAD, DELETE, OPTIONS"
-			Access-Control-Allow-Headers  "*"
-			Access-Control-Max-Age        "86400"
-		}
-		respond 204
-	}
-
 	# --- API traffic goes to the Nest container ---
 	handle /api/* {
 		reverse_proxy api:4000 {
@@ -87,5 +47,39 @@
 	}
 }
 
-# MinIO no longer has its own site — everything is reverse-proxied through
-# the main :WEB_PORT at /minio/*.
+# ---- HTTPS :MINIO_PUBLIC_PORT (default 41236) ----
+# Dedicated TLS endpoint for MinIO so the browser hits presigned URLs on a
+# clean host:port that matches what the SDK signed for. Keeps SigV4 safe —
+# no path rewriting, no host rewriting, no surprises.
+{$APP_FQDN}:{$MINIO_PUBLIC_PORT} {
+	tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem
+	request_body { max_size 500MB }
+
+	@cors_preflight method OPTIONS
+	handle @cors_preflight {
+		header {
+			Access-Control-Allow-Origin  "https://{$APP_FQDN}:{$WEB_PORT}"
+			Access-Control-Allow-Methods "GET, PUT, POST, HEAD, DELETE, OPTIONS"
+			Access-Control-Allow-Headers "*"
+			Access-Control-Max-Age       "86400"
+		}
+		respond 204
+	}
+	handle {
+		reverse_proxy minio:9000 {
+			transport http { read_timeout 10m; write_timeout 10m }
+			# Strip MinIO's own CORS headers; our single clean set added below.
+			header_down -Access-Control-Allow-Origin
+			header_down -Access-Control-Allow-Credentials
+			header_down -Access-Control-Allow-Methods
+			header_down -Access-Control-Allow-Headers
+			header_down -Access-Control-Expose-Headers
+			header_down -Vary
+		}
+		header {
+			Access-Control-Allow-Origin   "https://{$APP_FQDN}:{$WEB_PORT}"
+			Access-Control-Expose-Headers "ETag"
+			Vary "Origin"
+		}
+	}
+}
