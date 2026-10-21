@@ -56,6 +56,131 @@ export class UsersService {
     return this.prisma.user.update({ where: { id }, data: { isActive } });
   }
 
+  // ============================================================
+  //  Auto-provisioning helpers
+  //  Used by Stores + AreaManagers services so the "give the store/AM a
+  //  login" flow stays in one place. All of these generate a temporary
+  //  password that must be changed on first login.
+  // ============================================================
+
+  /** 12-char readable temp password: 2 words + 4 digits, no ambiguous chars. */
+  private tempPassword(): string {
+    const words = ['Store', 'Login', 'Fresh', 'Bright', 'Clear', 'Quick', 'Smart', 'Solid'];
+    const w = () => words[Math.floor(Math.random() * words.length)];
+    const d = () => String(Math.floor(1000 + Math.random() * 9000));
+    return `${w()}${w()}${d()}`;
+  }
+
+  private async roleByCode(code: string) {
+    const role = await this.prisma.role.findUnique({ where: { code } });
+    if (!role) throw new BadRequestException(`Role ${code} not found — run db seed first`);
+    return role;
+  }
+
+  /**
+   * Give a store a STORE_MANAGER login. Idempotent: if a user with that email
+   * already exists it just updates the storeId. Grants UserStoreAccess for the
+   * store so helpdesk + signage scoping work out of the box.
+   */
+  async provisionStoreLogin(args: { storeId: string; email: string; fullName?: string }) {
+    const email = args.email.trim().toLowerCase();
+    if (!email) throw new BadRequestException('email required');
+    const store = await this.prisma.store.findUnique({ where: { id: args.storeId } });
+    if (!store) throw new BadRequestException('store not found');
+
+    const role = await this.roleByCode('STORE_MANAGER');
+    const fullName = args.fullName?.trim() || `${store.code} — ${store.name}`;
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    let user;
+    let tempPassword: string | null = null;
+    if (existing) {
+      user = await this.prisma.user.update({
+        where: { id: existing.id },
+        data: { storeId: args.storeId, isActive: true },
+      });
+    } else {
+      tempPassword = this.tempPassword();
+      user = await this.prisma.user.create({
+        data: {
+          email, fullName, roleId: role.id, storeId: args.storeId,
+          passwordHash: await bcrypt.hash(tempPassword, 10),
+          mustChangePassword: true, isActive: true,
+        },
+      });
+    }
+    // Grant UserStoreAccess so DVR + ticket scoping work (store users don't
+    // get tickets:read:all so the scope list is their visibility).
+    await this.prisma.userStoreAccess.upsert({
+      where: { userId_storeId: { userId: user.id, storeId: args.storeId } },
+      create: { userId: user.id, storeId: args.storeId },
+      update: {},
+    });
+    return { userId: user.id, email, tempPassword };
+  }
+
+  /**
+   * Give an AreaManager a login (role AREA_MANAGER, linked via User.areaManagerId).
+   * Scoping walks that link to see all stores under them — no need to grant
+   * each store individually.
+   */
+  async provisionAreaManagerLogin(args: { areaManagerId: string }) {
+    const am = await this.prisma.areaManager.findUnique({ where: { id: args.areaManagerId } });
+    if (!am) throw new BadRequestException('area manager not found');
+    const email = am.email.trim().toLowerCase();
+    if (!email) throw new BadRequestException('AM has no email');
+
+    const role = await this.roleByCode('AREA_MANAGER');
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    let user;
+    let tempPassword: string | null = null;
+    if (existing) {
+      // Link the existing user to this AM (unless they are already an AM)
+      user = await this.prisma.user.update({
+        where: { id: existing.id },
+        data: { areaManagerId: am.id, isActive: true, roleId: role.id },
+      });
+    } else {
+      tempPassword = this.tempPassword();
+      user = await this.prisma.user.create({
+        data: {
+          email, fullName: am.fullName, roleId: role.id,
+          areaManagerId: am.id,
+          passwordHash: await bcrypt.hash(tempPassword, 10),
+          mustChangePassword: true, isActive: true,
+        },
+      });
+    }
+    return { userId: user.id, email, tempPassword };
+  }
+
+  /**
+   * Create a Marketing-team login. Role MARKETING is scoped to signage
+   * videos/playlists only — see seed.ts.
+   */
+  async provisionMarketingLogin(args: { email: string; fullName: string }) {
+    const email = args.email.trim().toLowerCase();
+    if (!email) throw new BadRequestException('email required');
+    if (!args.fullName?.trim()) throw new BadRequestException('fullName required');
+    const role = await this.roleByCode('MARKETING');
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      const user = await this.prisma.user.update({
+        where: { id: existing.id }, data: { roleId: role.id, isActive: true },
+      });
+      return { userId: user.id, email, tempPassword: null };
+    }
+    const tempPassword = this.tempPassword();
+    const user = await this.prisma.user.create({
+      data: {
+        email, fullName: args.fullName.trim(), roleId: role.id,
+        passwordHash: await bcrypt.hash(tempPassword, 10),
+        mustChangePassword: true, isActive: true,
+      },
+    });
+    return { userId: user.id, email, tempPassword };
+  }
+
   async resetPassword(id: string, newPassword: string) {
     if (!newPassword || newPassword.length < 8) {
       throw new BadRequestException('Password must be at least 8 characters');

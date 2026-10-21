@@ -117,6 +117,29 @@ export function Users() {
     onError: (e: any) => alert(e.response?.data?.message ?? 'Could not create user'),
   });
 
+  // One-click Marketing provisioner — just needs email + name. Backend
+  // picks the MARKETING role (signage videos/playlists only) + temp password.
+  const provisionMarketing = useMutation({
+    mutationFn: (body: { email: string; fullName: string }) =>
+      api.post('/users/provision-marketing', body).then((r) => r.data),
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      if (r?.tempPassword) {
+        alert(`Marketing user created:\n\nEmail: ${r.email}\nTemporary password: ${r.tempPassword}\n\nSend this to them. They'll be forced to change it on first login.`);
+      } else {
+        alert(`Existing user ${r.email} switched to Marketing role.`);
+      }
+    },
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not create marketing user'),
+  });
+  const addMarketing = () => {
+    const email = prompt('Marketing user email?');
+    if (!email?.trim()) return;
+    const fullName = prompt('Full name?', email.split('@')[0]);
+    if (!fullName?.trim()) return;
+    provisionMarketing.mutate({ email: email.trim(), fullName: fullName.trim() });
+  };
+
   const roleNeedsStore = (roleCode?: string) => roleCode === 'STORE_MANAGER';
   const selectedRoleCode = roles.data?.find((r: any) => r.id === form.roleId)?.code;
 
@@ -125,9 +148,14 @@ export function Users() {
       <PageHeader
         title="Users & Access"
         subtitle="Manage who can use the system and what each user can see"
-        actions={<button className="btn-primary" onClick={() => setShowNew(!showNew)}>
-          {showNew ? <><X size={14}/>Cancel</> : <><Plus size={14}/>New user</>}
-        </button>}
+        actions={<>
+          <button className="btn-ghost" onClick={addMarketing}>
+            <Plus size={14}/>Add marketing user
+          </button>
+          <button className="btn-primary" onClick={() => setShowNew(!showNew)}>
+            {showNew ? <><X size={14}/>Cancel</> : <><Plus size={14}/>New user</>}
+          </button>
+        </>}
       />
 
       {showNew && (

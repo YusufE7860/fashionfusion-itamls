@@ -34,6 +34,28 @@ export function StoreDetail() {
   const [editing, setEditing] = useState(false);
   const [transferring, setTransferring] = useState(false);
 
+  // Provision (or re-provision) the store's own login. Uses the store's
+  // contactEmail unless the admin wants to override it inline.
+  const provisionStoreLogin = useMutation({
+    mutationFn: (email?: string) =>
+      api.post(`/stores/${id}/provision-login`, email ? { email } : {}).then((r) => r.data),
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ['store', id] });
+      if (r?.tempPassword) {
+        alert(`Store login created:\n\nEmail: ${r.email}\nTemporary password: ${r.tempPassword}\n\nSend this to the store — they'll be forced to change it on first login.`);
+      } else {
+        alert(`Login refreshed for ${r?.email ?? 'the store'}. Password unchanged — use Users → Reset password if you need a fresh one.`);
+      }
+    },
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not create login'),
+  });
+  const onProvisionClick = () => {
+    const current = store.data?.contactEmail ?? '';
+    const email = prompt('Store contact email for login:', current);
+    if (!email?.trim()) return;
+    provisionStoreLogin.mutate(email.trim());
+  };
+
   if (!store.data) return <div>Loading…</div>;
   const s = store.data;
 
@@ -52,6 +74,10 @@ export function StoreDetail() {
                 </button>
                 <button className="btn-ghost" onClick={() => setTransferring(true)}>
                   <ArrowRightLeft size={13}/>Transfer stock
+                </button>
+                <button className="btn-ghost" onClick={onProvisionClick}
+                  title="Create or reset the store's own login so they can log tickets">
+                  Store login
                 </button>
                 <DeleteStoreButton store={s} onDeleted={() => nav('/stores')} />
               </>
@@ -129,14 +155,19 @@ function EditStoreModal({ store, onClose, onSaved }: { store: any; onClose: () =
     entity: store.entity ?? 'FASHION_FUSION', status: store.status,
     templateId: store.templateId ?? '',
     openingDate: store.openingDate ? store.openingDate.slice(0, 10) : '',
+    contactEmail: store.contactEmail ?? '',
+    areaManagerId: store.areaManagerId ?? '',
   });
   const templates = useQuery({ queryKey: ['store-templates'], queryFn: () => api.get('/admin/templates').then((r) => r.data).catch(() => []) });
+  const areaManagers = useQuery({ queryKey: ['area-managers'], queryFn: () => api.get('/area-managers').then((r) => r.data).catch(() => []) });
 
   const save = useMutation({
     mutationFn: () => api.patch(`/stores/${store.id}`, {
       ...form,
-      templateId: form.templateId || null,
-      openingDate: form.openingDate || null,
+      templateId:    form.templateId || null,
+      areaManagerId: form.areaManagerId || null,
+      contactEmail:  form.contactEmail || null,
+      openingDate:   form.openingDate || null,
     }).then((r) => r.data),
     onSuccess: onSaved,
     onError: (e: any) => alert(e?.response?.data?.message ?? 'Save failed'),
@@ -195,6 +226,24 @@ function EditStoreModal({ store, onClose, onSaved }: { store: any; onClose: () =
             <label className="label">Opening date</label>
             <input type="date" className="field" value={form.openingDate}
               onChange={(e) => setForm({ ...form, openingDate: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">Area Manager</label>
+            <select className="field" value={form.areaManagerId}
+              onChange={(e) => setForm({ ...form, areaManagerId: e.target.value })}>
+              <option value="">— Unassigned —</option>
+              {areaManagers.data?.map((am: any) => (
+                <option key={am.id} value={am.id}>{am.fullName}{am.region ? ` (${am.region.code})` : ''}</option>
+              ))}
+            </select>
+          </div>
+          <div className="md:col-span-2">
+            <label className="label">Store contact email <span className="text-ink-400">(for store login)</span></label>
+            <input type="email" className="field" value={form.contactEmail}
+              onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
+            <p className="mt-1 text-[11px] text-ink-400">
+              Changing this does not re-provision the login — use the "Store login" button to create or reset it.
+            </p>
           </div>
         </div>
         <div className="mt-4 flex justify-end gap-2">

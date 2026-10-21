@@ -510,12 +510,48 @@ export class SignageService {
 
   // ---------- Admin: devices ----------
 
-  async listDevices() {
+  async listDevices(ctx?: { userId?: string; permissions?: string[] }) {
+    const where = await this.deviceStoreFilter(ctx);
     const rows = await this.prisma.signageDevice.findMany({
+      where,
       orderBy: { name: 'asc' },
       include: { store: { select: { id: true, code: true, name: true } } },
     });
     return rows.map((d) => this.withStatus(d));
+  }
+
+  /**
+   * Build a Prisma `where` fragment that restricts devices to the stores a
+   * user can see. IT roles (tickets:read:all is used as the "sees all"
+   * marker because signage uses the same scoping idea) + Marketing see
+   * everything. Store/AM users see only devices in their accessible stores.
+   */
+  private async deviceStoreFilter(ctx?: { userId?: string; permissions?: string[] }) {
+    if (!ctx?.userId) return {};
+    const perms = ctx.permissions ?? [];
+    // Roles that always see everything: anyone with tickets:read:all (IT) or
+    // signage:assignments:manage (IT + Marketing).
+    if (perms.includes('tickets:read:all') || perms.includes('signage:assignments:manage')) {
+      return {};
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: ctx.userId }, select: { storeId: true, areaManagerId: true },
+    });
+    const grants = await this.prisma.userStoreAccess.findMany({
+      where: { userId: ctx.userId }, select: { storeId: true },
+    });
+    const storeIds = new Set<string>(grants.map((g) => g.storeId));
+    if (user?.storeId) storeIds.add(user.storeId);
+    if (user?.areaManagerId) {
+      const amStores = await this.prisma.store.findMany({
+        where: { areaManagerId: user.areaManagerId }, select: { id: true },
+      });
+      for (const s of amStores) storeIds.add(s.id);
+    }
+    // If the user has no store access at all, show nothing (prevents a
+    // misconfigured store user from seeing the full fleet).
+    if (storeIds.size === 0) return { id: '__none__' };
+    return { storeId: { in: [...storeIds] } };
   }
 
   async getDevice(id: string) {

@@ -7,8 +7,10 @@ import { ComplianceController } from './compliance.controller';
 import { ComplianceService } from './compliance.service';
 import { WizardController } from './wizard.controller';
 import { WizardService } from './wizard.service';
+import { UsersModule } from '../users/users.module';
 
 @Module({
+  imports: [UsersModule],
   controllers: [StoresController, TemplatesController, ComplianceController, WizardController],
   providers: [StoresService, TemplatesService, ComplianceService, WizardService],
 })

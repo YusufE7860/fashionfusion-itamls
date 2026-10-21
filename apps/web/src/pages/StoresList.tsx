@@ -24,19 +24,38 @@ export function StoresList() {
     status: 'OPEN',
     templateId: '',
     openedAt: new Date().toISOString().slice(0, 10),
+    contactEmail: '',
+    areaManagerId: '',
+  });
+
+  const areaManagers = useQuery({
+    queryKey: ['area-managers'],
+    queryFn: () => api.get('/area-managers').then((r) => r.data),
+    enabled: showNew,
   });
 
   const create = useMutation({
     mutationFn: () => api.post('/stores', {
       ...form,
-      templateId: form.templateId || undefined,
-      openedAt: form.openedAt || undefined,
+      templateId:    form.templateId    || undefined,
+      areaManagerId: form.areaManagerId || undefined,
+      contactEmail:  form.contactEmail  || undefined,
+      openedAt:      form.openedAt      || undefined,
     }).then((r) => r.data),
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ['stores'] });
+      // Reveal the auto-provisioned login once — admin must capture the temp password.
+      if (data?.login?.tempPassword) {
+        alert(
+          `Store login created:\n\n` +
+          `Email: ${data.login.email}\n` +
+          `Temporary password: ${data.login.tempPassword}\n\n` +
+          `Send this to the store. They'll be forced to change it on first login.`,
+        );
+      }
       setShowNew(false);
       setForm({ code:'', name:'', region:'', entity:'FASHION_FUSION', status:'OPEN', templateId:'',
-                openedAt: new Date().toISOString().slice(0, 10) });
+                openedAt: new Date().toISOString().slice(0, 10), contactEmail: '', areaManagerId: '' });
     },
     onError: (e: any) => alert(e.response?.data?.message ?? 'Could not create store'),
   });
@@ -105,6 +124,23 @@ export function StoresList() {
               </select>
               <p className="mt-1 text-[11px] text-ink-400">
                 The template drives the Store Standards Compliance check (which IT equipment this store must contain).
+              </p></div>
+
+            <div><label className="label">Area Manager</label>
+              <select className="field" value={form.areaManagerId}
+                      onChange={(e) => setForm({ ...form, areaManagerId: e.target.value })}>
+                <option value="">— Unassigned —</option>
+                {areaManagers.data?.map((am: any) => (
+                  <option key={am.id} value={am.id}>{am.fullName}{am.region ? ` (${am.region.code})` : ''}</option>
+                ))}
+              </select></div>
+            <div className="col-span-2"><label className="label">Store contact email <span className="text-ink-400">(auto-creates store login)</span></label>
+              <input className="field" type="email" value={form.contactEmail}
+                     onChange={(e) => setForm({ ...form, contactEmail: e.target.value })}
+                     placeholder="store001@fashionfusion.co.za" />
+              <p className="mt-1 text-[11px] text-ink-400">
+                If supplied, a STORE_MANAGER login is created immediately so the store can log IT tickets.
+                A one-time password will be shown after creation.
               </p></div>
           </div>
           <button className="btn-primary mt-4"

@@ -152,10 +152,29 @@ export class TicketsService {
   // ============================================================
   private async allowedStoreIds(ctx: UserCtx): Promise<string[] | null> {
     if (ctx.permissions.includes('tickets:read:all')) return null; // no filter
-    const rows = await this.prisma.userStoreAccess.findMany({
-      where: { userId: ctx.userId }, select: { storeId: true },
-    });
-    return rows.map((r) => r.storeId);
+
+    // Fan-in: explicit per-user grants + the user's own storeId + every store
+    // under their AreaManager record (if any). This is what gives an AM user
+    // visibility to all stores in their patch without having to grant each
+    // one via UserStoreAccess manually.
+    const [rows, user] = await Promise.all([
+      this.prisma.userStoreAccess.findMany({
+        where: { userId: ctx.userId }, select: { storeId: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: ctx.userId },
+        select: { storeId: true, areaManagerId: true },
+      }),
+    ]);
+    const ids = new Set<string>(rows.map((r) => r.storeId));
+    if (user?.storeId) ids.add(user.storeId);
+    if (user?.areaManagerId) {
+      const amStores = await this.prisma.store.findMany({
+        where: { areaManagerId: user.areaManagerId }, select: { id: true },
+      });
+      for (const s of amStores) ids.add(s.id);
+    }
+    return [...ids];
   }
 
   // ============================================================

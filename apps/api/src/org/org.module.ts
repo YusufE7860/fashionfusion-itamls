@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { RegionsController, AreaManagersController } from './org.controller';
 import { RegionsService, AreaManagersService } from './org.service';
+import { UsersModule } from '../users/users.module';
 
 @Module({
+  imports: [UsersModule],
   controllers: [RegionsController, AreaManagersController],
   providers: [RegionsService, AreaManagersService],
   exports: [RegionsService, AreaManagersService],

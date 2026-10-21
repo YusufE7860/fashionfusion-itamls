@@ -53,4 +53,8 @@ export class AreaManagersController {
   setStores(@Param('id') id: string, @Body() body: { storeIds: string[] }) {
     return this.svc.setStores(id, body.storeIds ?? []);
   }
+
+  @Post(':id/provision-login')
+  @RequirePermissions(Permissions.UsersManage)
+  provisionLogin(@Param('id') id: string) { return this.svc.provisionLogin(id); }
 }

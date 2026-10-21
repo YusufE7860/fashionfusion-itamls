@@ -67,4 +67,13 @@ export class UsersController {
   setStoreAccess(@Param('id') id: string, @Body() body: { storeIds: string[] }, @Req() req: any) {
     return this.users.setStoreAccess(id, body.storeIds ?? [], req.user?.sub);
   }
+
+  // One-shot provisioner for a Marketing-team login. UI uses this instead of
+  // the generic /users POST so the caller never has to guess a role id or
+  // pick a temp password — the service does both.
+  @Post('users/provision-marketing')
+  @RequirePermissions(Permissions.UsersManage)
+  provisionMarketing(@Body() body: { email: string; fullName: string }) {
+    return this.users.provisionMarketingLogin(body);
+  }
 }

@@ -32,6 +32,11 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.TicketsRead, Permissions.TicketsReadAll, Permissions.TicketsWrite,
     Permissions.TicketsAssign, Permissions.TicketsManageCategories, Permissions.TicketsReports,
     Permissions.TicketsManageWebhooks,
+    // IT Manager owns the full signage stack
+    Permissions.SignageVideosRead, Permissions.SignageVideosWrite,
+    Permissions.SignagePlaylistsRead, Permissions.SignagePlaylistsWrite,
+    Permissions.SignageDevicesRead, Permissions.SignageDevicesWrite,
+    Permissions.SignageAssignmentsManage,
   ],
   [Roles.Technician]: [
     Permissions.CatalogRead,
@@ -52,6 +57,10 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.DvrsRead, Permissions.DvrsReadAll, Permissions.DvrsWrite,
     Permissions.TicketsRead, Permissions.TicketsReadAll,
     Permissions.TicketsWrite, Permissions.TicketsAssign, Permissions.TicketsReports,
+    // Technicians can see device status + push commands, but don't edit videos/playlists
+    Permissions.SignageDevicesRead, Permissions.SignageDevicesWrite,
+    Permissions.SignageVideosRead, Permissions.SignagePlaylistsRead,
+    Permissions.SignageAssignmentsManage,
   ],
   [Roles.StoreManager]: [
     Permissions.AssetsRead, Permissions.StockRead, Permissions.StoresRead,
@@ -59,12 +68,16 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.TonerOrderReceive,
     Permissions.DvrsRead,   // sees only their store(s) via UserStoreAccess
     Permissions.TicketsRead, Permissions.TicketsWrite,  // log calls + see own store's queue
+    // See the screens in their own store (device status + what's playing)
+    Permissions.SignageDevicesRead,
   ],
   [Roles.AreaManager]: [
     Permissions.AssetsRead, Permissions.StoresRead, Permissions.ReportsRead,
     Permissions.DvrsRead,
-    // AM sees every ticket for their stores via UserStoreAccess, plus can log on behalf
+    // AM sees every ticket for stores under them (scoped via AreaManager link)
     Permissions.TicketsRead, Permissions.TicketsWrite, Permissions.TicketsReports,
+    // See screens for every store they oversee
+    Permissions.SignageDevicesRead,
   ],
   [Roles.Finance]: [
     Permissions.CatalogRead, Permissions.AssetsRead, Permissions.StockRead,
@@ -78,6 +91,16 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.ReportsExport, Permissions.AuditLogRead,
     Permissions.DvrsRead,   // sees only stores they audit via UserStoreAccess
     Permissions.TicketsRead, Permissions.TicketsReports,   // read-only visibility for their stores
+  ],
+  // Marketing — upload and manage signage videos + playlists ONLY. No tickets,
+  // no assets, no stores, no device admin. They can see devices read-only so
+  // they can confirm their playlists are landing where expected.
+  [Roles.Marketing]: [
+    Permissions.SignageVideosRead,    Permissions.SignageVideosWrite,
+    Permissions.SignagePlaylistsRead, Permissions.SignagePlaylistsWrite,
+    Permissions.SignageDevicesRead,
+    Permissions.SignageAssignmentsManage,
+    Permissions.StoresRead,   // needed to pick which stores/regions a playlist targets
   ],
 };
 

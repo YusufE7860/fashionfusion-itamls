@@ -13,6 +13,7 @@ export const Roles = {
   StoreManager: 'STORE_MANAGER',
   Finance: 'FINANCE',
   Auditor: 'AUDITOR',
+  Marketing: 'MARKETING',
 } as const;
 export type Role = (typeof Roles)[keyof typeof Roles];
 
@@ -83,6 +84,16 @@ export const Permissions = {
   TicketsManageCategories: 'tickets:manage:categories',
   TicketsReports: 'tickets:reports',
   TicketsManageWebhooks: 'tickets:manage:webhooks',
+  // Digital Signage — split out from generic stores:read/write so Marketing
+  // can be given videos+playlists only, and Store/AM users can see their
+  // own screens without broader signage admin rights.
+  SignageVideosRead:        'signage:videos:read',
+  SignageVideosWrite:       'signage:videos:write',
+  SignagePlaylistsRead:     'signage:playlists:read',
+  SignagePlaylistsWrite:    'signage:playlists:write',
+  SignageDevicesRead:       'signage:devices:read',    // scoped by UserStoreAccess for store/AM users
+  SignageDevicesWrite:      'signage:devices:write',   // approve, rename, delete, snapshot, resync
+  SignageAssignmentsManage: 'signage:assignments:manage',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

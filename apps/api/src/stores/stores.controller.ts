@@ -33,4 +33,13 @@ export class StoresController {
   transfer(@Body() dto: TransferAssetsDto, @Req() req: any) {
     return this.svc.transferAssets(dto, req.user?.sub);
   }
+
+  // Provision (or re-provision) the store's own login. Called from the store
+  // detail page's "Create store login" button. Idempotent — returns a fresh
+  // temp password only when a brand-new user was created.
+  @Post(':id/provision-login')
+  @RequirePermissions(Permissions.StoresWrite)
+  provisionLogin(@Param('id') id: string, @Body() body: { email?: string }) {
+    return this.svc.provisionLogin(id, body.email);
+  }
 }

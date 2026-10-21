@@ -6,9 +6,11 @@ import { useAuth } from '@/store/auth';
 import { Plus, Save, Trash2, X, Store as StoreIcon, ChevronDown, ChevronRight } from 'lucide-react';
 
 /**
- * Area Managers are NOT ITAMLS users. They are records with an email that
- * the Ops app references when a store logs a ticket. ITAMLS uses the AM's
- * assignedTechId to decide which technician should pick the ticket up.
+ * Area Managers are a reference record used by the Ops app for ticket
+ * routing. They CAN also optionally be given an ITAMLS login (role
+ * AREA_MANAGER) so they can view the queue + sign off tickets for every
+ * store under them — tick "Create login" when adding the AM, or use
+ * "Create / reset login" on the row later.
  */
 export function AreaManagers() {
   const qc = useQueryClient();
@@ -25,7 +27,7 @@ export function AreaManagers() {
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing]   = useState<any | null>(null);
-  const empty = { fullName: '', email: '', phone: '', regionId: '', assignedTechId: '', isActive: true, notes: '' };
+  const empty = { fullName: '', email: '', phone: '', regionId: '', assignedTechId: '', isActive: true, notes: '', provisionLogin: false };
   const [form, setForm] = useState<any>(empty);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -37,12 +39,26 @@ export function AreaManagers() {
     mutationFn: () => editing
       ? api.patch(`/area-managers/${editing.id}`, form).then((r) => r.data)
       : api.post('/area-managers', form).then((r) => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['area-managers'] }); setShowForm(false); setEditing(null); setForm(empty); },
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ['area-managers'] });
+      if (data?.login?.tempPassword) {
+        alert(`Login created:\n\nEmail: ${data.login.email}\nTemporary password: ${data.login.tempPassword}\n\nThey'll be forced to change it on first login.`);
+      }
+      setShowForm(false); setEditing(null); setForm(empty);
+    },
     onError: (e: any) => alert(e?.response?.data?.message ?? 'Save failed'),
   });
   const remove = useMutation({
     mutationFn: (id: string) => api.delete(`/area-managers/${id}`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['area-managers'] }),
+  });
+  const provisionLogin = useMutation({
+    mutationFn: (id: string) => api.post(`/area-managers/${id}/provision-login`).then((r) => r.data),
+    onSuccess: (r: any) => {
+      if (r?.tempPassword) alert(`Login created:\n\nEmail: ${r.email}\nTemporary password: ${r.tempPassword}`);
+      else alert(`Login refreshed for ${r?.email ?? 'this AM'}. Password unchanged — use Users → Reset password if needed.`);
+    },
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not create login'),
   });
 
   return (
@@ -116,6 +132,15 @@ export function AreaManagers() {
                 Active
               </label>
             </div>
+            {!editing && (
+              <div className="flex items-end md:col-span-2">
+                <label className="flex items-center gap-1 text-sm">
+                  <input type="checkbox" checked={form.provisionLogin}
+                    onChange={(e) => setForm({ ...form, provisionLogin: e.target.checked })} />
+                  Create AREA_MANAGER login (lets this AM view every ticket in their patch)
+                </label>
+              </div>
+            )}
             <div className="md:col-span-3">
               <button className="btn-primary"
                 disabled={!form.fullName || !form.email || save.isPending}
@@ -154,9 +179,10 @@ export function AreaManagers() {
                   onEdit={() => { setEditing(am); setShowForm(true); setForm({
                     fullName: am.fullName, email: am.email, phone: am.phone ?? '',
                     regionId: am.regionId ?? '', assignedTechId: am.assignedTechId ?? '',
-                    isActive: am.isActive, notes: am.notes ?? '',
+                    isActive: am.isActive, notes: am.notes ?? '', provisionLogin: false,
                   }); }}
-                  onDelete={() => { if (confirm(`Delete ${am.fullName}?`)) remove.mutate(am.id); }} />
+                  onDelete={() => { if (confirm(`Delete ${am.fullName}?`)) remove.mutate(am.id); }}
+                  onProvisionLogin={() => provisionLogin.mutate(am.id)} />
               )}
             </li>
           ))}
@@ -166,7 +192,7 @@ export function AreaManagers() {
   );
 }
 
-function AreaManagerDetail({ am, canWrite, onEdit, onDelete }: { am: any; canWrite: boolean; onEdit: () => void; onDelete: () => void }) {
+function AreaManagerDetail({ am, canWrite, onEdit, onDelete, onProvisionLogin }: { am: any; canWrite: boolean; onEdit: () => void; onDelete: () => void; onProvisionLogin: () => void }) {
   const qc = useQueryClient();
   const detail = useQuery({
     queryKey: ['area-manager', am.id],
@@ -200,6 +226,7 @@ function AreaManagerDetail({ am, canWrite, onEdit, onDelete }: { am: any; canWri
       {canWrite && (
         <div className="mb-3 flex items-center justify-end gap-2">
           <button className="btn-ghost" onClick={onEdit}>Edit details</button>
+          <button className="btn-ghost" onClick={onProvisionLogin}>Create / reset login</button>
           <button className="btn-ghost text-rose-500" onClick={onDelete}><Trash2 size={12}/>Delete</button>
         </div>
       )}

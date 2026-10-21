@@ -60,6 +60,9 @@ model User {
   adSid               String?  @unique
   roleId              String
   storeId             String?
+  // Link to an AreaManager record (set when a user IS that AM and logs in
+  // to see all stores they oversee). Scoping in tickets/signage walks this.
+  areaManagerId       String?  @unique
   isActive            Boolean  @default(true)
   totpSecret          String?
   totpEnabled         Boolean  @default(false)
@@ -69,6 +72,7 @@ model User {
 
   role  Role   @relation(fields: [roleId], references: [id])
   store Store? @relation(fields: [storeId], references: [id])
+  areaManagerAccount AreaManager? @relation("AreaManagerLogin", fields: [areaManagerId], references: [id])
 
   assignedAssets Asset[]        @relation("AssignedUser")
   historyEntries AssetHistory[]
@@ -217,6 +221,10 @@ model Store {
   openedAt   DateTime?
   openingDate DateTime?                    // planned opening date for upcoming openings
   status     String   @default("PLANNED")
+  // Store contact email — used to auto-provision a STORE_MANAGER login so
+  // the store can log/track tickets from the admin app until the ops app
+  // integration is live.
+  contactEmail String?
 
   location   Location       @relation(fields: [locationId], references: [id])
   template   StoreTemplate? @relation(fields: [templateId], references: [id])
@@ -270,6 +278,7 @@ model AreaManager {
 
   region         Region? @relation(fields: [regionId],       references: [id])
   assignedTech   User?   @relation("AreaManagerAssignedTech", fields: [assignedTechId], references: [id])
+  loginUser      User?   @relation("AreaManagerLogin")
 
   stores         Store[]
   tickets        Ticket[]

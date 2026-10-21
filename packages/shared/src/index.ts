@@ -12,6 +12,7 @@ export const Roles = {
   StoreManager: 'STORE_MANAGER',
   Finance: 'FINANCE',
   Auditor: 'AUDITOR',
+  Marketing: 'MARKETING',
 } as const;
 export type Role = (typeof Roles)[keyof typeof Roles];
 
@@ -85,6 +86,13 @@ export const Permissions = {
   TicketsManageCategories: 'tickets:manage:categories',
   TicketsReports: 'tickets:reports',
   TicketsManageWebhooks: 'tickets:manage:webhooks',
+  SignageVideosRead:        'signage:videos:read',
+  SignageVideosWrite:       'signage:videos:write',
+  SignagePlaylistsRead:     'signage:playlists:read',
+  SignagePlaylistsWrite:    'signage:playlists:write',
+  SignageDevicesRead:       'signage:devices:read',
+  SignageDevicesWrite:      'signage:devices:write',
+  SignageAssignmentsManage: 'signage:assignments:manage',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
+import { UsersService } from '../users/users.service';
 import { LocationType, StoreStatus } from '../shared';
 
 export class CreateStoreDto {
@@ -12,6 +13,10 @@ export class CreateStoreDto {
   @IsOptional() @IsString() status?: string;      // OPEN | PLANNED | REMODEL | CLOSED
   @IsOptional() @IsString() templateId?: string;
   @IsOptional() @IsString() openedAt?: string;    // ISO date
+  // Optional contact email — when supplied, a STORE_MANAGER login is
+  // auto-provisioned so the store can log tickets from day one.
+  @IsOptional() @IsString() contactEmail?: string;
+  @IsOptional() @IsString() areaManagerId?: string;
 }
 
 export class UpdateStoreDto {
@@ -23,6 +28,8 @@ export class UpdateStoreDto {
   @IsOptional() @IsString() templateId?: string;
   @IsOptional() @IsString() openedAt?: string;
   @IsOptional() @IsString() openingDate?: string;
+  @IsOptional() @IsString() contactEmail?: string;
+  @IsOptional() @IsString() areaManagerId?: string;
 }
 
 export class TransferAssetsDto {
@@ -39,7 +46,7 @@ export class BulkCreateStoresDto {
 
 @Injectable()
 export class StoresService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private users: UsersService) {}
 
   list() {
     return this.prisma.store.findMany({
@@ -114,6 +121,12 @@ export class StoresService {
           templateId: templateId === undefined ? s.templateId : templateId,
           openedAt: dto.openedAt ? new Date(dto.openedAt) : s.openedAt,
           openingDate: dto.openingDate ? new Date(dto.openingDate) : (s as any).openingDate,
+          contactEmail: dto.contactEmail === undefined
+            ? (s as any).contactEmail
+            : (dto.contactEmail?.trim().toLowerCase() || null),
+          areaManagerId: dto.areaManagerId === undefined
+            ? (s as any).areaManagerId
+            : (dto.areaManagerId?.trim() || null),
         },
         include: { template: true, location: true },
       });
@@ -261,6 +274,8 @@ export class StoresService {
           templateId,
           status: dto.status ?? StoreStatus.Open,
           openedAt: dto.openedAt ? new Date(dto.openedAt) : new Date(),
+          contactEmail: dto.contactEmail?.trim().toLowerCase() || null,
+          areaManagerId: dto.areaManagerId?.trim() || null,
         },
         include: { template: true, location: true },
       });
@@ -271,6 +286,26 @@ export class StoresService {
         create: { storeId: store.id },
         update: {},
       });
+
+      // If a contact email was given, provision the store's own login so they
+      // can log tickets from the admin app right away. The temp password is
+      // returned to the caller so the UI can show it once.
+      let provisionedLogin: { email: string; tempPassword: string | null } | null = null;
+      if (dto.contactEmail?.trim()) {
+        try {
+          const res = await this.users.provisionStoreLogin({
+            storeId: store.id,
+            email: dto.contactEmail.trim(),
+            fullName: `${store.code} — ${store.name}`,
+          });
+          provisionedLogin = { email: res.email, tempPassword: res.tempPassword };
+        } catch (e: any) {
+          // Don't block store creation if the login provision fails — admin
+          // can retry from the store detail page. Attach a warning instead.
+          (store as any).__loginWarning = e?.message ?? 'Could not auto-create login';
+        }
+      }
+      if (provisionedLogin) (store as any).login = provisionedLogin;
       return store;
     } catch (e: any) {
       // Surface Prisma unique-constraint / FK errors as readable messages
@@ -282,6 +317,23 @@ export class StoresService {
       }
       throw new BadRequestException(e?.message ?? 'Could not create store');
     }
+  }
+
+  /** Provision (or re-provision) the store's own STORE_MANAGER login. */
+  async provisionLogin(storeId: string, email?: string) {
+    const s = await this.prisma.store.findUnique({ where: { id: storeId } });
+    if (!s) throw new NotFoundException();
+    const useEmail = email?.trim() || (s as any).contactEmail;
+    if (!useEmail) throw new BadRequestException('Store has no contact email — set one on the store first');
+    // Keep contactEmail in sync if the caller supplied one
+    if (email && email.trim().toLowerCase() !== ((s as any).contactEmail ?? '')) {
+      await this.prisma.store.update({
+        where: { id: storeId }, data: { contactEmail: email.trim().toLowerCase() },
+      });
+    }
+    return this.users.provisionStoreLogin({
+      storeId, email: useEmail, fullName: `${s.code} — ${s.name}`,
+    });
   }
 
   /** Bulk import — creates each store independently, returns per-row status. */

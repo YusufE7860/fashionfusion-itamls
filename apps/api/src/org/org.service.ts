@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UsersService } from '../users/users.service';
 
 export interface RegionDto { code: string; name: string; isActive?: boolean }
 export interface AreaManagerDto {
@@ -11,6 +12,7 @@ export interface AreaManagerDto {
   isActive?: boolean;
   notes?: string;
   storeIds?: string[];                 // stores to attach (full replace)
+  provisionLogin?: boolean;            // when true, auto-create AREA_MANAGER login
 }
 
 @Injectable()
@@ -52,7 +54,7 @@ export class RegionsService {
 
 @Injectable()
 export class AreaManagersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private users: UsersService) {}
 
   list(includeInactive = false) {
     return this.prisma.areaManager.findMany({
@@ -93,7 +95,21 @@ export class AreaManagersService {
       },
     });
     if (dto.storeIds?.length) await this.setStores(am.id, dto.storeIds);
-    return this.get(am.id);
+    let loginInfo: { email: string; tempPassword: string | null } | null = null;
+    if (dto.provisionLogin) {
+      try {
+        const r = await this.users.provisionAreaManagerLogin({ areaManagerId: am.id });
+        loginInfo = { email: r.email, tempPassword: r.tempPassword };
+      } catch (e: any) { /* non-fatal */ }
+    }
+    const result: any = await this.get(am.id);
+    if (loginInfo) result.login = loginInfo;
+    return result;
+  }
+
+  /** Explicit button on the AM detail page — re-provision or create their login later. */
+  async provisionLogin(id: string) {
+    return this.users.provisionAreaManagerLogin({ areaManagerId: id });
   }
 
   async update(id: string, dto: AreaManagerDto) {
