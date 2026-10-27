@@ -18,6 +18,7 @@ from .api import ApiError, SignageApiClient
 from .cache import CacheManager
 from .config import AgentConfig, save_config
 from .executor import CommandExecutor
+from .snapshot import run_snapshot, DEFAULT_MPV_SOCK
 
 log = logging.getLogger("signage.agent")
 
@@ -100,6 +101,23 @@ class Agent:
         # Execute any pending commands the admin queued for us (restart,
         # tail-log, apt-install, upload-file, etc.). Each command is HMAC-
         # verified before dispatch; outcomes stream back via complete-command.
+        # Pending snapshot — admin clicked "View" in the UI. Capture a JPEG
+        # from mpv, upload it, and tell the server. Doing it BEFORE commands
+        # so if the follow-up commands restart mpv, we still get the pre-
+        # restart frame.
+        if cfg.get("pendingAction") == "SNAPSHOT":
+            try:
+                mpv_sock = str(Path(self.cfg.runtime_dir) / "mpv.sock")
+                if not Path(mpv_sock).exists():
+                    mpv_sock = DEFAULT_MPV_SOCK
+                run_snapshot(
+                    api=self.api, server_url=self.cfg.server_url,
+                    device_id=self.cfg.device_id, token=self.cfg.device_token,
+                    mpv_sock=mpv_sock,
+                )
+            except Exception as e:
+                log.warning("Snapshot handler failed: %s", e)
+
         pending_cmds = cfg.get("pendingCommands") or []
         if pending_cmds:
             try:
