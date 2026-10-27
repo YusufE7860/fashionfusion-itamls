@@ -131,8 +131,28 @@ echo ">> Player will run as: \$PLAYER_USER"
 
 echo ">> Installing system packages…"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y mpv python3 python3-venv python3-pip curl tar
+
+# Allow operators to skip apt entirely if the box is already provisioned or
+# the mirror is being unhelpful (e.g. Raspberry Pi OS Bullseye after a package
+# has been superseded: the cached .deb filename is gone from the mirror).
+if [[ "\${SKIP_APT:-0}" != "1" ]]; then
+  apt-get update -y --allow-releaseinfo-change || apt-get update -y || true
+
+  # Install missing packages only — do NOT force upgrade. This avoids the
+  # "404 Not Found" dance when apt wants to pull a security update whose .deb
+  # has already been replaced on the mirror. curl + tar are usually pre-installed
+  # on Debian/Ubuntu/Pi OS anyway.
+  if ! apt-get install -y --no-upgrade mpv python3 python3-venv python3-pip curl tar; then
+    echo ">> apt install hit an error; retrying with --fix-missing…" >&2
+    apt-get install -y --no-upgrade --fix-missing mpv python3 python3-venv python3-pip curl tar || {
+      echo "!! apt install failed. If curl + mpv + python3 are already present, re-run with SKIP_APT=1:" >&2
+      echo "   curl -fsSL \"<installer-url>\" | sudo SKIP_APT=1 bash" >&2
+      exit 1
+    }
+  fi
+else
+  echo ">> SKIP_APT=1 set; assuming mpv/python3/curl/tar are already installed."
+fi
 
 TMPDIR="\$(mktemp -d)"
 trap 'rm -rf "\$TMPDIR"' EXIT
