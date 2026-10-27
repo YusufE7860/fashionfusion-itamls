@@ -11,7 +11,9 @@ import clsx from 'clsx';
  * command to paste on the target machine.
  */
 export function SignageInstall() {
-  const [platform, setPlatform] = useState<'pi' | 'ubuntu-desktop' | 'ubuntu-console'>('pi');
+  // Default to the console path — that's what Ubuntu Server boxes need and
+  // picking "desktop" by mistake on a server install silently breaks mpv.
+  const [platform, setPlatform] = useState<'pi' | 'ubuntu-desktop' | 'ubuntu-console'>('ubuntu-console');
   const [entity, setEntity] = useState<'FASHION_FUSION' | 'EVLV'>('FASHION_FUSION');
   const [name, setName] = useState('');
   const [storeCode, setStoreCode] = useState('');
@@ -19,7 +21,15 @@ export function SignageInstall() {
 
   const stores = useQuery({ queryKey: ['stores'], queryFn: () => api.get('/stores').then((r) => r.data).catch(() => []) });
 
-  const base = (api.defaults.baseURL ?? '').replace(/\/$/, '');
+  // The one-liner has to be an absolute URL — curl rejects relative paths with
+  // "No host part in the URL". Our axios baseURL is often configured as
+  // "/api/v1" (relative, uses the browser's current origin), so we must
+  // prepend window.location.origin when it isn't already absolute.
+  const base = useMemo(() => {
+    const raw = (api.defaults.baseURL ?? '').replace(/\/$/, '');
+    if (/^https?:\/\//i.test(raw)) return raw;
+    return `${window.location.origin}${raw.startsWith('/') ? raw : `/${raw}`}`;
+  }, []);
   const url = useMemo(() => {
     const params = new URLSearchParams();
     params.set('platform', platform);
@@ -38,9 +48,9 @@ export function SignageInstall() {
   }
 
   const platforms = [
+    { id: 'ubuntu-console' as const,  label: 'Ubuntu Server / Console', icon: <Terminal size={16}/>, hint: 'Recommended — no X. mpv draws to DRM/KMS directly. The right pick for a signage-only box.' },
     { id: 'pi' as const,              label: 'Raspberry Pi OS',  icon: <Cpu size={16}/>,     hint: 'Pi 3/4/5 with the desktop OS' },
-    { id: 'ubuntu-desktop' as const,  label: 'Ubuntu Desktop',   icon: <Monitor size={16}/>, hint: 'Any x86 or ARM box with a graphical session' },
-    { id: 'ubuntu-console' as const,  label: 'Ubuntu Server/Console', icon: <Terminal size={16}/>, hint: 'No X — mpv draws to DRM/KMS directly' },
+    { id: 'ubuntu-desktop' as const,  label: 'Ubuntu Desktop',   icon: <Monitor size={16}/>, hint: 'Only pick this if the box also runs a desktop. GNOME holds the GPU and will block playback.' },
   ];
 
   return (
@@ -124,6 +134,13 @@ export function SignageInstall() {
 
       <section className="card mb-4 p-4">
         <h3 className="mb-2 text-sm font-semibold text-slate-700">5. Run this on the device</h3>
+        {platform === 'ubuntu-desktop' && (
+          <div className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900">
+            <b>Heads-up:</b> you've selected Ubuntu Desktop. GNOME holds the GPU/DRM master and will
+            prevent mpv from drawing to the screen. For a signage-only device, pick <b>Ubuntu
+            Server / Console</b> above.
+          </div>
+        )}
         <p className="mb-2 text-xs text-ink-300">
           Open a terminal on the Pi / Ubuntu box and paste:
         </p>

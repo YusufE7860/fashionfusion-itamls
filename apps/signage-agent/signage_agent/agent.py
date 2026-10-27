@@ -83,6 +83,16 @@ class Agent:
                 self.player.stop()
             self.last_resync_token = resync
 
+        # Apply server-side mpv flags (orientation rotation, perf profile, etc.)
+        # before touching the playlist. If they changed, set_extra_args() stops
+        # mpv so the next play() launches with the new args.
+        server_mpv_args = cfg.get("mpvExtraArgs") or []
+        if hasattr(self.player, "set_extra_args"):
+            try:
+                self.player.set_extra_args(server_mpv_args)
+            except Exception as e:
+                log.warning("Could not apply server mpv flags: %s", e)
+
         playlist = cfg.get("playlist")
         items: list[dict[str, Any]] = cfg.get("items") or (playlist or {}).get("items", []) or []
 

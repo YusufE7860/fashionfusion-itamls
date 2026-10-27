@@ -74,6 +74,21 @@ class MpvPlayer:
         self._proc = subprocess.Popen(self._build_command())
         self._current = list(paths)
 
+    def set_extra_args(self, extra_args: list[str]) -> bool:
+        """Swap out the mpv flag list. Returns True if they changed — the caller
+        should then restart mpv so the new flags take effect (e.g. a new
+        --video-rotate=90 arrived from the server because the admin flipped the
+        device to portrait). No-op when the list is identical."""
+        new = list(extra_args or [])
+        if new == self.extra_args:
+            return False
+        log.info("mpv flags changed; will restart mpv (new: %s)", new)
+        self.extra_args = new
+        # Force the next play() to actually relaunch mpv even if paths match.
+        self.stop()
+        self._current = []
+        return True
+
     def is_alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 

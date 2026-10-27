@@ -167,9 +167,19 @@ export class SignageService {
     // Build mpv flags based on the device's performance profile. AUTO picks
     // one from the hardware the agent reported; explicit profiles override.
     const resolvedProfile = device.perfProfile === 'AUTO' ? pickProfile(device) : device.perfProfile;
+
+    // Software rotation. HDMI panels report their native resolution regardless
+    // of how the TV is physically mounted — a landscape 1920×1080 panel turned
+    // sideways on a wall still gives mpv a 1920×1080 framebuffer. So whenever
+    // the device is tagged PORTRAIT we rotate the video 90° so the content
+    // appears upright on the physically-rotated screen. forceRotate90 is an
+    // explicit OR-boost for weird setups (e.g. a landscape-mounted TV showing
+    // portrait-shot content that was never rotated in post).
+    const needsRotation =
+      device.orientation === 'PORTRAIT' || device.forceRotate90 === true;
     const mpvExtraArgs = [
       ...flagsForProfile(resolvedProfile),
-      ...(device.forceRotate90 ? ['--video-rotate=90'] : []),
+      ...(needsRotation ? ['--video-rotate=90'] : []),
     ];
 
     // Pending agent action — right now only SNAPSHOT. Agent screenshots mpv,
