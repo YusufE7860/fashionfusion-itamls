@@ -87,3 +87,19 @@ class SignageApiClient:
         )
         if not r.ok:
             raise ApiError(f"Heartbeat failed ({r.status_code}): {r.text}")
+
+    def complete_command(self, *, device_id: str, token: str, command_id: str,
+                         status: str, result_text: str = "",
+                         exit_code: Optional[int] = None,
+                         result_key: Optional[str] = None) -> None:
+        body: dict[str, Any] = {"status": status, "resultText": result_text}
+        if exit_code is not None: body["exitCode"] = exit_code
+        if result_key is not None: body["resultKey"] = result_key
+        r = self.session.post(
+            f"{self.base}/signage/devices/{device_id}/commands/{command_id}/complete",
+            headers={"x-device-token": token},
+            json=body,
+            timeout=self.timeout,
+        )
+        if not r.ok:
+            raise ApiError(f"Complete-command failed ({r.status_code}): {r.text}")

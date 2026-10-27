@@ -8,6 +8,7 @@ successful sync replaces it.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -16,6 +17,7 @@ from . import __version__
 from .api import ApiError, SignageApiClient
 from .cache import CacheManager
 from .config import AgentConfig, save_config
+from .executor import CommandExecutor
 
 log = logging.getLogger("signage.agent")
 
@@ -94,6 +96,25 @@ class Agent:
                 self.player.set_extra_args(server_mpv_args)
             except Exception as e:
                 log.warning("Could not apply server mpv flags: %s", e)
+
+        # Execute any pending commands the admin queued for us (restart,
+        # tail-log, apt-install, upload-file, etc.). Each command is HMAC-
+        # verified before dispatch; outcomes stream back via complete-command.
+        pending_cmds = cfg.get("pendingCommands") or []
+        if pending_cmds:
+            try:
+                hmac_secret = (
+                    os.environ.get("SIGNAGE_HMAC_SECRET")
+                    or getattr(self.cfg, "hmac_secret", "")
+                    or self.cfg.provisioning_secret   # fall-back so bootstrap works
+                )
+                executor = CommandExecutor(
+                    api=self.api, device_id=self.cfg.device_id,
+                    token=self.cfg.device_token, hmac_secret=hmac_secret,
+                )
+                executor.run_all(pending_cmds)
+            except Exception as e:
+                log.warning("Executor failed: %s", e)
 
         playlist = cfg.get("playlist")
         items: list[dict[str, Any]] = cfg.get("items") or (playlist or {}).get("items", []) or []

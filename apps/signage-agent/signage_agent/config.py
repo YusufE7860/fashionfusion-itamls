@@ -26,6 +26,8 @@ class AgentConfig:
     # --- operator supplied (set during provisioning) ---
     server_url: str = ""
     provisioning_secret: str = ""
+    # Shared secret for verifying remote-exec commands (HMAC-SHA256).
+    hmac_secret: str = ""
     device_name: str = ""
     # Carried from the installer and sent on first enrol so the server
     # auto-attaches the device to this store — no need to pick it in the

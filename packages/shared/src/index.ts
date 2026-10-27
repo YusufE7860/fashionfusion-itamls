@@ -93,6 +93,9 @@ export const Permissions = {
   SignageDevicesRead:       'signage:devices:read',
   SignageDevicesWrite:      'signage:devices:write',
   SignageAssignmentsManage: 'signage:assignments:manage',
+  AgentsRemoteExec:   'agents:remote-exec',
+  AgentsRemoteShell:  'agents:remote-shell',
+  AgentsRemoteManage: 'agents:remote-manage',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

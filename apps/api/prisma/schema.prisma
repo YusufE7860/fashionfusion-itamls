@@ -1082,12 +1082,24 @@ model SignageEvent {
 model SignagePlayerCommand {
   id            String   @id @default(cuid())
   deviceId      String
-  kind          String                              // RESTART_AGENT | RESTART_MPV | REBOOT | UPLOAD_LOGS | TEST_PATTERN | TEST_AUDIO | PLAY_NOW
+  // Known kinds:
+  //   RESTART_AGENT | RESTART_MPV | REBOOT | UPLOAD_LOGS | TEST_PATTERN
+  //   TEST_AUDIO | PLAY_NOW
+  //   SHELL_EXEC          — admin escape hatch, allowlisted binaries only
+  //   RUN_PREDEFINED      — pick a curated script by key
+  //   UPLOAD_FILE         — place a file at a server-provided path
+  //   TAIL_LOG            — read N lines of a journalctl unit
+  //   APT_INSTALL         — install a package by name
+  //   RESTART_SERVICE     — systemctl restart <unit>
+  kind          String
   payload       Json?
   issuedById    String
-  status        String   @default("QUEUED")         // QUEUED | SENT | DONE | FAILED
+  status        String   @default("QUEUED")         // QUEUED | SENT | DONE | FAILED | REJECTED
   resultText    String?                             // log tail / message from agent
   resultKey     String?                             // MinIO key when the result is a file (log upload)
+  exitCode      Int?                                // process exit code when applicable
+  reason        String?                             // human reason the operator supplied (required for SHELL_EXEC)
+  hmac          String?                             // server-computed HMAC(id|kind|payload|secret) — agent verifies before running
   queuedAt      DateTime @default(now())
   sentAt        DateTime?
   completedAt   DateTime?
@@ -1097,6 +1109,18 @@ model SignagePlayerCommand {
 
   @@index([deviceId, queuedAt])
   @@index([status, queuedAt])
+}
+
+// Fleet-wide kill switch. One row. When frozen=true, every /config and
+// /commands endpoint refuses to issue new work. Any admin can set it; a
+// specific admin must unfreeze with a reason, which is audited.
+model FleetFreeze {
+  id          Int      @id @default(1)
+  frozen      Boolean  @default(false)
+  reason      String?
+  frozenById  String?
+  frozenAt    DateTime?
+  updatedAt   DateTime @updatedAt
 }
 
 model SignageSettings {

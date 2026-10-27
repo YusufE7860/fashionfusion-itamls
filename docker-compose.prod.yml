@@ -52,6 +52,10 @@ services:
       PUBLIC_API_URL:               ${PUBLIC_API_URL:-https://it.ffgsa.co.za:41235/api/v1}
       # Signage device enrolment — must match whatever the Python agent sends
       DEVICE_PROVISIONING_SECRET:   ${DEVICE_PROVISIONING_SECRET}
+      # Signs remote-exec command envelopes. Agent verifies this HMAC before
+      # running anything. Defaults to JWT_SECRET for easier rollout but set
+      # explicitly for production.
+      REMOTE_EXEC_HMAC_SECRET:      ${REMOTE_EXEC_HMAC_SECRET:-}
       JWT_EXPIRES_IN:     "1d"
       PORT:               "4000"
       CORS_ORIGIN:        ${WEB_BASE_URL}

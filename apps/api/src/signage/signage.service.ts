@@ -217,10 +217,19 @@ export class SignageService {
 
     // Pending higher-level commands (RESTART_MPV, UPLOAD_LOGS, etc.) — agent
     // acts on each and POSTs to /commands/:id/complete when done.
-    const pendingCommands = await this.prisma.signagePlayerCommand.findMany({
-      where: { deviceId: device.id, status: 'QUEUED' },
+    // Fleet freeze: don't hand out any commands while frozen.
+    const freeze = await this.prisma.fleetFreeze.findUnique({ where: { id: 1 } });
+    const pendingCommands = freeze?.frozen ? [] : await this.prisma.signagePlayerCommand.findMany({
+      where: { deviceId: device.id, status: { in: ['QUEUED', 'SENT'] } },
       orderBy: { queuedAt: 'asc' },
     });
+    // Mark as SENT so the executor doesn't double-run them if a poll races.
+    if (pendingCommands.length) {
+      await this.prisma.signagePlayerCommand.updateMany({
+        where: { id: { in: pendingCommands.map((p) => p.id) }, status: 'QUEUED' },
+        data: { status: 'SENT', sentAt: new Date() },
+      });
+    }
 
     return {
       deviceStatus: device.status,
@@ -230,7 +239,7 @@ export class SignageService {
       mpvExtraArgs,
       perfProfile: resolvedProfile,
       pendingAction,
-      pendingCommands: pendingCommands.map((c) => ({ id: c.id, kind: c.kind, payload: c.payload })),
+      pendingCommands: pendingCommands.map((c) => ({ id: c.id, kind: c.kind, payload: c.payload, hmac: c.hmac })),
       // Agent compares this; when it changes, it purges cache and re-downloads.
       resyncToken: device.forceResyncAt ? device.forceResyncAt.toISOString() : null,
     };
@@ -405,23 +414,32 @@ export class SignageService {
 
   async pendingCommandsForAgent(deviceId: string, token: string) {
     const device = await this.authDevice(deviceId, token);
+    // Fleet-wide freeze: no commands handed out while frozen.
+    const freeze = await this.prisma.fleetFreeze.findUnique({ where: { id: 1 } });
+    if (freeze?.frozen) return [];
+
     const pending = await this.prisma.signagePlayerCommand.findMany({
       where: { deviceId: device.id, status: { in: ['QUEUED', 'SENT'] } },
       orderBy: { queuedAt: 'asc' },
     });
-    // Mark as SENT so agent doesn't execute them twice if it polls while
-    // still processing a previous one.
     if (pending.length) {
       await this.prisma.signagePlayerCommand.updateMany({
         where: { id: { in: pending.map((p) => p.id) }, status: 'QUEUED' },
         data: { status: 'SENT', sentAt: new Date() },
       });
     }
-    return pending.map((p) => ({ id: p.id, kind: p.kind, payload: p.payload }));
+    // Agent needs the HMAC to verify the command before executing. Server
+    // signs on queue; we just hand it along here.
+    return pending.map((p) => ({
+      id: p.id,
+      kind: p.kind,
+      payload: p.payload,
+      hmac: p.hmac,
+    }));
   }
 
   async completeCommand(deviceId: string, token: string, commandId: string, body: {
-    status?: 'DONE' | 'FAILED'; resultText?: string; resultKey?: string;
+    status?: 'DONE' | 'FAILED'; resultText?: string; resultKey?: string; exitCode?: number;
   }) {
     await this.authDevice(deviceId, token);
     return this.prisma.signagePlayerCommand.update({
@@ -430,6 +448,7 @@ export class SignageService {
         status: body.status ?? 'DONE',
         resultText: body.resultText ?? null,
         resultKey: body.resultKey ?? null,
+        exitCode: typeof body.exitCode === 'number' ? body.exitCode : null,
         completedAt: new Date(),
       },
     });

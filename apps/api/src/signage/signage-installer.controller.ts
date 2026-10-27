@@ -32,11 +32,12 @@ export class SignageInstallerController {
   ) {
     const serverUrl = process.env.PUBLIC_API_URL ?? 'https://it.ffgsa.co.za:41235/api/v1';
     const provisioningSecret = process.env.DEVICE_PROVISIONING_SECRET ?? '';
+    const hmacSecret = process.env.REMOTE_EXEC_HMAC_SECRET ?? process.env.JWT_SECRET ?? '';
     const safeEntity = entity === 'EVLV' ? 'EVLV' : 'FASHION_FUSION';
     const safeName = (name ?? '').replace(/[^\w\s\-\.]/g, '').trim();
     const safeStore = (storeCode ?? '').replace(/[^\w\-]/g, '').trim();
 
-    const script = buildInstallerScript({ platform, serverUrl, provisioningSecret, safeName, safeStore, safeEntity });
+    const script = buildInstallerScript({ platform, serverUrl, provisioningSecret, hmacSecret, safeName, safeStore, safeEntity });
     res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
     res.setHeader('Content-Disposition', 'inline; filename="install-signage.sh"');
     res.send(script);
@@ -65,11 +66,12 @@ function buildInstallerScript(opts: {
   platform: string;
   serverUrl: string;
   provisioningSecret: string;
+  hmacSecret: string;
   safeName: string;
   safeStore: string;
   safeEntity: string;
 }) {
-  const { platform, serverUrl, provisioningSecret, safeName, safeStore, safeEntity } = opts;
+  const { platform, serverUrl, provisioningSecret, hmacSecret, safeName, safeStore, safeEntity } = opts;
   const tarballUrl = `${serverUrl}/signage/agent.tar.gz`;
 
   // Platform-specific display/service tweaks.
@@ -175,6 +177,7 @@ cat > "\$CONFIG_DIR/config.json" <<CONFIG
 {
   "server_url": "${serverUrl}",
   "provisioning_secret": "${provisioningSecret}",
+  "hmac_secret": "${hmacSecret}",
   "hardware_id": "\$HWID",
   "device_name": "\$NAME",
   "entity": "${safeEntity}",

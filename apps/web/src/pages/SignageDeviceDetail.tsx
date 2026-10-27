@@ -204,14 +204,33 @@ function EventsTab({ id }: { id: string }) {
 // ===== Commands tab =====
 function CommandsTab({ id, canWrite }: { id: string; canWrite: boolean }) {
   const qc = useQueryClient();
+  const hasPerm = useAuth((s) => s.hasPermission);
+  const canExec  = hasPerm('agents:remote-exec');
+  const canShell = hasPerm('agents:remote-shell');
+
   const cmds = useQuery({
     queryKey: ['signage-cmds', id],
     queryFn: () => api.get(`/signage/devices/${id}/commands`).then((r) => r.data),
     refetchInterval: 3_000,
   });
-  const run = useMutation({
+  const scripts = useQuery({
+    queryKey: ['exec-actions'],
+    queryFn: () => api.get('/signage/exec/actions').then((r) => r.data),
+  });
+
+  // The old simple-queue endpoint is still used for the pre-existing kinds
+  // (RESTART_MPV, UPLOAD_LOGS, test patterns). The new executor endpoint is
+  // used for everything that needs validation / HMAC / audit (restart-service,
+  // apt-install, upload-file, tail-log, run-script, shell-exec).
+  const runSimple = useMutation({
     mutationFn: (kind: string) => api.post(`/signage/devices/${id}/commands`, { kind }).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['signage-cmds', id] }),
+  });
+  const runExec = useMutation({
+    mutationFn: (body: { kind: string; payload?: any; reason?: string }) =>
+      api.post(`/signage/exec/devices/${id}/queue`, body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['signage-cmds', id] }),
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not queue command'),
   });
 
   const buttons: Array<{ kind: string; label: string; icon: any; danger?: boolean; confirm?: string }> = [
@@ -233,7 +252,7 @@ function CommandsTab({ id, canWrite }: { id: string; canWrite: boolean }) {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-[320px_1fr]">
       <section className="card p-4">
-        <h3 className="mb-3 text-sm font-semibold text-slate-700">Actions</h3>
+        <h3 className="mb-3 text-sm font-semibold text-slate-700">Quick actions</h3>
         {canWrite ? (
           <div className="space-y-1.5">
             {buttons.map((b) => (
@@ -245,13 +264,99 @@ function CommandsTab({ id, canWrite }: { id: string; canWrite: boolean }) {
                 )}
                 onClick={() => {
                   if (b.confirm && !confirm(b.confirm)) return;
-                  run.mutate(b.kind);
+                  runSimple.mutate(b.kind);
                 }}>
                 {b.icon}{b.label}
               </button>
             ))}
           </div>
         ) : <div className="text-xs text-ink-300">You need the stores:write permission to run commands.</div>}
+
+        {canExec && (
+          <>
+            <h3 className="mt-4 mb-2 text-sm font-semibold text-slate-700">Remote operations</h3>
+            <div className="space-y-1.5">
+              <button className="flex w-full items-center gap-2 rounded border border-ink-500/20 px-3 py-1.5 text-xs text-ink-100 hover:border-brand-400 hover:bg-brand-50/40"
+                onClick={() => {
+                  const unit = prompt('journalctl unit?', 'signage-agent'); if (!unit) return;
+                  const lines = Number(prompt('How many lines?', '200') ?? 200);
+                  runExec.mutate({ kind: 'TAIL_LOG', payload: { unit, lines } });
+                }}>
+                <FileText size={12}/>Tail service log
+              </button>
+              <button className="flex w-full items-center gap-2 rounded border border-ink-500/20 px-3 py-1.5 text-xs text-ink-100 hover:border-brand-400 hover:bg-brand-50/40"
+                onClick={() => {
+                  const unit = prompt('systemctl unit to restart?', 'signage-agent');
+                  if (!unit) return;
+                  runExec.mutate({ kind: 'RESTART_SERVICE', payload: { unit } });
+                }}>
+                <RefreshCw size={12}/>Restart a service
+              </button>
+              <button className="flex w-full items-center gap-2 rounded border border-ink-500/20 px-3 py-1.5 text-xs text-ink-100 hover:border-brand-400 hover:bg-brand-50/40"
+                onClick={() => {
+                  const raw = prompt('Packages to install (space-separated):', 'mpv');
+                  if (!raw?.trim()) return;
+                  runExec.mutate({ kind: 'APT_INSTALL', payload: { packages: raw.trim().split(/\s+/) } });
+                }}>
+                <Download size={12}/>apt install…
+              </button>
+              <button className="flex w-full items-center gap-2 rounded border border-ink-500/20 px-3 py-1.5 text-xs text-ink-100 hover:border-brand-400 hover:bg-brand-50/40"
+                onClick={() => {
+                  const path = prompt('Target path (/etc/signage-agent/* or /opt/signage/*):',
+                    '/etc/signage-agent/config.json');
+                  if (!path) return;
+                  const content = prompt('File content (will OVERWRITE if the file exists):');
+                  if (content === null) return;
+                  runExec.mutate({ kind: 'UPLOAD_FILE', payload: { path, content } });
+                }}>
+                <FileText size={12}/>Upload file / edit config
+              </button>
+
+              <div className="pt-2 border-t border-ink-500/10">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-300">
+                  Predefined scripts
+                </div>
+                <div className="space-y-1">
+                  {scripts.data?.predefinedScripts?.map((s: any) => (
+                    <button key={s.key}
+                      className="flex w-full items-start gap-2 rounded border border-ink-500/20 px-3 py-1.5 text-left text-xs text-ink-100 hover:border-brand-400 hover:bg-brand-50/40"
+                      title={s.description}
+                      onClick={() => {
+                        if (!confirm(`Run "${s.key}" — ${s.description}?`)) return;
+                        runExec.mutate({ kind: 'RUN_PREDEFINED', payload: { key: s.key } });
+                      }}>
+                      <Terminal size={11} className="mt-0.5"/>
+                      <div className="flex-1">
+                        <div className="font-mono">{s.key}</div>
+                        <div className="text-[10px] text-ink-300">{s.description}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {canShell && (
+          <>
+            <h3 className="mt-4 mb-2 text-sm font-semibold text-rose-600">Escape hatch</h3>
+            <button className="flex w-full items-center gap-2 rounded border border-rose-200 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50"
+              onClick={() => {
+                const cmd = prompt('Shell command (first token must be allowlisted):');
+                if (!cmd?.trim()) return;
+                const reason = prompt('Reason for this shell exec (audited):');
+                if (!reason?.trim()) { alert('Reason required'); return; }
+                if (!confirm(`Run: ${cmd}\n\nReason: ${reason}\n\nConfirm?`)) return;
+                runExec.mutate({ kind: 'SHELL_EXEC', payload: { cmd }, reason });
+              }}>
+              <Terminal size={12}/>Run shell command…
+            </button>
+            <p className="mt-1 text-[10px] text-ink-300">
+              First binary must be allowlisted (systemctl, apt, cat, journalctl, …). Reason required and audited.
+            </p>
+          </>
+        )}
       </section>
 
       <section className="card p-0">

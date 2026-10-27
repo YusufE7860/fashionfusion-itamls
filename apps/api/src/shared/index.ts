@@ -94,6 +94,10 @@ export const Permissions = {
   SignageDevicesRead:       'signage:devices:read',    // scoped by UserStoreAccess for store/AM users
   SignageDevicesWrite:      'signage:devices:write',   // approve, rename, delete, snapshot, resync
   SignageAssignmentsManage: 'signage:assignments:manage',
+  // Remote command executor on signage/RMM devices
+  AgentsRemoteExec:   'agents:remote-exec',    // run scoped actions (restart, apt-install, tail-log, upload-file, rotate, run-script)
+  AgentsRemoteShell:  'agents:remote-shell',   // escape-hatch SHELL_EXEC — admin only, requires reason + confirmation
+  AgentsRemoteManage: 'agents:remote-manage',  // freeze/unfreeze the whole fleet
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

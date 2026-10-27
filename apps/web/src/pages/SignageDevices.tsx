@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
-import { Monitor, RefreshCw, RotateCw, Eye, X } from 'lucide-react';
+import { Monitor, RefreshCw, RotateCw, Eye, X, ShieldAlert, Shield } from 'lucide-react';
 import clsx from 'clsx';
 
 export function SignageDevices() {
@@ -32,12 +32,51 @@ export function SignageDevices() {
   const online = devices.data?.filter((d: any) => d.online).length ?? 0;
   const total = devices.data?.length ?? 0;
 
+  const canManage = hasPerm('agents:remote-manage');
+  const freeze = useQuery({
+    queryKey: ['fleet-freeze'],
+    queryFn: () => api.get('/signage/exec/freeze').then((r) => r.data).catch(() => null),
+    refetchInterval: 10_000,
+  });
+  const toggleFreeze = useMutation({
+    mutationFn: (body: { frozen: boolean; reason?: string }) =>
+      api.post('/signage/exec/freeze', body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fleet-freeze'] }),
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not toggle freeze'),
+  });
+
   return (
     <>
       <PageHeader
         title="Signage — Media players"
         subtitle={`${online} of ${total} players online`}
+        actions={canManage && (
+          freeze.data?.frozen ? (
+            <button className="btn-ghost text-emerald-700"
+              onClick={() => {
+                if (!confirm('Unfreeze the fleet? Queued commands will start executing.')) return;
+                toggleFreeze.mutate({ frozen: false });
+              }}>
+              <Shield size={13}/>Unfreeze fleet
+            </button>
+          ) : (
+            <button className="btn-ghost text-rose-600"
+              onClick={() => {
+                const reason = prompt('Reason for freezing (audited):');
+                if (!reason?.trim()) return;
+                toggleFreeze.mutate({ frozen: true, reason });
+              }}>
+              <ShieldAlert size={13}/>Freeze fleet
+            </button>
+          )
+        )}
       />
+      {freeze.data?.frozen && (
+        <div className="mb-3 rounded border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
+          <b>Fleet is FROZEN.</b> No commands are being dispatched to any device.
+          Reason: <i>{freeze.data.reason ?? '—'}</i>. Unfreeze from the top-right button.
+        </div>
+      )}
       <section className="card p-4">
         <table className="w-full text-sm">
           <thead className="bg-slate-50">

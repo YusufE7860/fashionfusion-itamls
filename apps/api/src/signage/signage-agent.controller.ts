@@ -84,7 +84,10 @@ export class SignageAgentController {
     @Param('id') id: string,
     @Param('cmdId') cmdId: string,
     @Headers('x-device-token') token: string,
-    @Body() body: { status?: 'DONE' | 'FAILED'; resultText?: string; resultKey?: string },
+    @Body() body: {
+      status?: 'DONE' | 'FAILED'; resultText?: string;
+      resultKey?: string; exitCode?: number;
+    },
   ) {
     return this.svc.completeCommand(id, token, cmdId, body);
   }

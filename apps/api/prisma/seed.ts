@@ -37,6 +37,9 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.SignagePlaylistsRead, Permissions.SignagePlaylistsWrite,
     Permissions.SignageDevicesRead, Permissions.SignageDevicesWrite,
     Permissions.SignageAssignmentsManage,
+    // Remote exec: IT Manager can run scoped actions AND freeze fleet, but
+    // SHELL_EXEC stays Administrator-only (set in the Administrator role).
+    Permissions.AgentsRemoteExec, Permissions.AgentsRemoteManage,
   ],
   [Roles.Technician]: [
     Permissions.CatalogRead,
@@ -61,6 +64,9 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.SignageDevicesRead, Permissions.SignageDevicesWrite,
     Permissions.SignageVideosRead, Permissions.SignagePlaylistsRead,
     Permissions.SignageAssignmentsManage,
+    // Technicians can run scoped actions on devices in their patch (scoping
+    // enforced by the service, same as helpdesk).
+    Permissions.AgentsRemoteExec,
   ],
   [Roles.StoreManager]: [
     Permissions.AssetsRead, Permissions.StockRead, Permissions.StoresRead,
