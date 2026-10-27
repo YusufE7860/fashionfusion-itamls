@@ -59,6 +59,8 @@ class Agent:
             provisioning_secret=self.cfg.provisioning_secret,
             name=self.cfg.device_name,
             agent_version=__version__,
+            store_code=getattr(self.cfg, "store_code", "") or "",
+            entity=getattr(self.cfg, "entity", "") or "",
         )
         self.cfg.device_id = res["deviceId"]
         self.cfg.device_token = res["token"]

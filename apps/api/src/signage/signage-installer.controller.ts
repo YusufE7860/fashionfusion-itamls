@@ -121,7 +121,7 @@ echo " Brand    : ${safeEntity === 'EVLV' ? 'Evolve' : 'Fashion Fusion'}"
 echo " Platform : ${platformNotes}"
 echo " Server   : ${serverUrl}"
 ${safeName ? `echo " Device   : ${safeName}"` : 'echo " Device   : (auto-named from hostname)"'}
-${safeStore ? `echo " Store    : ${safeStore} (store assignment is done later in the admin app)"` : ''}
+${safeStore ? `echo " Store    : ${safeStore} (auto-assigned on first enrol)"` : 'echo " Store    : (none — assign later in the admin app)"'}
 echo "============================================================"
 
 ${playerUserCmd}
@@ -178,6 +178,7 @@ cat > "\$CONFIG_DIR/config.json" <<CONFIG
   "hardware_id": "\$HWID",
   "device_name": "\$NAME",
   "entity": "${safeEntity}",
+  "store_code": "${safeStore}",
   ${mpvExtra}
   "heartbeat_interval_seconds": 60
 }

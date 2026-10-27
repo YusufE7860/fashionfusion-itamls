@@ -117,6 +117,13 @@ export class SignageAdminController {
   @RequirePermissions(Permissions.SignageAssignmentsManage)
   setAssignment(@Body() dto: any) { return this.svc.setAssignment(dto); }
 
+  // Bulk "assign to every Fashion Fusion store" / "every Evolve store" / "all".
+  @Post('assignments/bulk')
+  @RequirePermissions(Permissions.SignageAssignmentsManage)
+  bulkAssign(@Body() dto: { playlistId: string; entity: 'FASHION_FUSION' | 'EVLV' | 'ALL' }) {
+    return this.svc.bulkAssignToEntity(dto);
+  }
+
   @Delete('assignments/:id')
   @RequirePermissions(Permissions.SignageAssignmentsManage)
   deleteAssignment(@Param('id') id: string) { return this.svc.deleteAssignment(id); }

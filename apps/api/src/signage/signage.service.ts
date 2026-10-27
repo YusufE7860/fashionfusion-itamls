@@ -96,15 +96,28 @@ export class SignageService {
 
   // ---------- Device-facing (agent protocol — DO NOT break shape) ----------
 
-  async registerDevice(dto: { hardwareId: string; name?: string; provisioningSecret: string; entity?: 'FASHION_FUSION' | 'EVLV' }) {
+  async registerDevice(dto: {
+    hardwareId: string;
+    name?: string;
+    provisioningSecret: string;
+    entity?: 'FASHION_FUSION' | 'EVLV';
+    storeCode?: string;        // optional — set by the installer's ?storeCode= param
+  }) {
     const expected = process.env.DEVICE_PROVISIONING_SECRET;
     if (!expected || dto.provisioningSecret !== expected) throw new UnauthorizedException('Bad provisioning secret');
     if (!dto.hardwareId) throw new BadRequestException('hardwareId required');
 
+    // Resolve storeCode → storeId once; applies to both new and existing devices
+    // so a reinstall with a corrected storeCode fixes the assignment too.
+    const storeId = await this.resolveStoreCode(dto.storeCode);
+
     const existing = await this.prisma.signageDevice.findUnique({ where: { hardwareId: dto.hardwareId } });
     if (existing) {
-      // Already enrolled — return its stored token (idempotent, so a re-enrol
-      // after a reinstall gets the SAME device identity).
+      // Already enrolled — return its stored token (idempotent). If the
+      // installer carried a storeCode and we didn't have one, attach it now.
+      if (storeId && !existing.storeId) {
+        await this.prisma.signageDevice.update({ where: { id: existing.id }, data: { storeId } });
+      }
       return { deviceId: existing.id, token: existing.token, status: existing.status, entity: existing.entity };
     }
     const token = randomBytes(24).toString('hex');
@@ -114,9 +127,24 @@ export class SignageService {
         name: dto.name ?? dto.hardwareId.slice(0, 12),
         token, status: 'PENDING',
         entity: dto.entity ?? 'FASHION_FUSION',
+        storeId: storeId ?? undefined,
       },
     });
     return { deviceId: d.id, token: d.token, status: d.status, entity: d.entity };
+  }
+
+  /** Resolve a user-friendly store code (e.g. "FFN0221" or "001") to a storeId. */
+  private async resolveStoreCode(code: string | undefined | null): Promise<string | null> {
+    const trimmed = (code ?? '').trim();
+    if (!trimmed) return null;
+    // Try exact match first, then case-insensitive — admins type codes
+    // inconsistently.
+    const upper = trimmed.toUpperCase();
+    const s = await this.prisma.store.findFirst({
+      where: { OR: [{ code: trimmed }, { code: upper }] },
+      select: { id: true },
+    });
+    return s?.id ?? null;
   }
 
   async authDevice(deviceId: string, token: string) {
@@ -168,18 +196,19 @@ export class SignageService {
     // one from the hardware the agent reported; explicit profiles override.
     const resolvedProfile = device.perfProfile === 'AUTO' ? pickProfile(device) : device.perfProfile;
 
-    // Software rotation. HDMI panels report their native resolution regardless
-    // of how the TV is physically mounted — a landscape 1920×1080 panel turned
-    // sideways on a wall still gives mpv a 1920×1080 framebuffer. So whenever
-    // the device is tagged PORTRAIT we rotate the video 90° so the content
-    // appears upright on the physically-rotated screen. forceRotate90 is an
-    // explicit OR-boost for weird setups (e.g. a landscape-mounted TV showing
-    // portrait-shot content that was never rotated in post).
-    const needsRotation =
-      device.orientation === 'PORTRAIT' || device.forceRotate90 === true;
+    // Software rotation. HDMI panels report their native resolution no matter
+    // how the TV is physically mounted, so we rotate the video in software to
+    // match. The `rotation` field drives this directly (0 / 90 / 180 / 270).
+    // Legacy fallback: if rotation is 0 but someone set forceRotate90, honour
+    // it. If rotation is 0 but orientation=PORTRAIT and no explicit rotation
+    // was set, assume 90° so existing portrait devices keep working.
+    let rot = Number((device as any).rotation ?? 0);
+    if (![0, 90, 180, 270].includes(rot)) rot = 0;
+    if (rot === 0 && device.forceRotate90) rot = 90;
+    if (rot === 0 && device.orientation === 'PORTRAIT') rot = 90;
     const mpvExtraArgs = [
       ...flagsForProfile(resolvedProfile),
-      ...(needsRotation ? ['--video-rotate=90'] : []),
+      ...(rot !== 0 ? [`--video-rotate=${rot}`] : []),
     ];
 
     // Pending agent action — right now only SNAPSHOT. Agent screenshots mpv,
@@ -580,6 +609,7 @@ export class SignageService {
   async updateDevice(id: string, dto: {
     name?: string; storeId?: string | null; status?: string; notes?: string | null;
     orientation?: 'LANDSCAPE' | 'PORTRAIT'; forceRotate90?: boolean;
+    rotation?: 0 | 90 | 180 | 270;
     entity?: 'FASHION_FUSION' | 'EVLV';
     perfProfile?: 'AUTO' | 'PI3' | 'PI4' | 'PI5' | 'X86_VAAPI' | 'X86_SW' | 'LOW_END' | 'CUSTOM';
   }) {
@@ -594,6 +624,15 @@ export class SignageService {
       if (s?.entity) nextEntity = s.entity;
     }
 
+    // Validate rotation — reject anything that isn't a cardinal direction.
+    let nextRotation = (d as any).rotation ?? 0;
+    if (dto.rotation !== undefined) {
+      if (![0, 90, 180, 270].includes(dto.rotation)) {
+        throw new BadRequestException('rotation must be 0, 90, 180 or 270');
+      }
+      nextRotation = dto.rotation;
+    }
+
     const next = await this.prisma.signageDevice.update({
       where: { id },
       data: {
@@ -603,15 +642,24 @@ export class SignageService {
         notes: dto.notes === undefined ? d.notes : (dto.notes || null),
         orientation: dto.orientation ?? d.orientation,
         forceRotate90: dto.forceRotate90 ?? d.forceRotate90,
+        rotation: nextRotation,
         entity: nextEntity,
         perfProfile: dto.perfProfile ?? d.perfProfile,
       },
     });
-    // Orientation OR entity change usually means a different content set —
-    // bump forceResyncAt so the agent purges and re-downloads.
-    if ((dto.orientation && dto.orientation !== d.orientation)
-      || (nextEntity !== d.entity)) {
-      await this.prisma.signageDevice.update({ where: { id }, data: { forceResyncAt: new Date() } });
+
+    // Only CONTENT changes bump forceResyncAt — those make the agent purge
+    // its cache and re-download. Flag-only changes (rotation / perfProfile /
+    // forceRotate90) are handled by the agent's set_extra_args: on the next
+    // poll it sees a different mpvExtraArgs list, stops mpv, and relaunches
+    // with the new flags. No cache purge needed.
+    const contentChanged =
+      (dto.orientation && dto.orientation !== d.orientation)
+      || (nextEntity !== d.entity);
+    if (contentChanged) {
+      await this.prisma.signageDevice.update({
+        where: { id }, data: { forceResyncAt: new Date() },
+      });
     }
     return next;
   }
@@ -736,6 +784,36 @@ export class SignageService {
     else if (storeId) await this.prisma.signageAssignment.deleteMany({ where: { storeId } });
     else if (regionId) await this.prisma.signageAssignment.deleteMany({ where: { regionId } });
     return this.prisma.signageAssignment.create({ data: { playlistId, deviceId, storeId, regionId } });
+  }
+
+  /**
+   * Bulk-assign a playlist to every store belonging to a brand (or every
+   * store, period). Replaces any prior per-store assignment for each store
+   * so there's no duplicate-row conflict. Marketing uses this constantly:
+   * "roll this video out to every Evolve store" without clicking 30 times.
+   */
+  async bulkAssignToEntity(dto: { playlistId: string; entity: 'FASHION_FUSION' | 'EVLV' | 'ALL' }) {
+    if (!dto.playlistId) throw new BadRequestException('playlistId required');
+    const pl = await this.prisma.signagePlaylist.findUnique({ where: { id: dto.playlistId } });
+    if (!pl) throw new BadRequestException('playlist not found');
+
+    const where = dto.entity === 'ALL' ? {} : { entity: dto.entity };
+    const stores = await this.prisma.store.findMany({ where, select: { id: true } });
+    if (stores.length === 0) return { ok: true, count: 0, assigned: [] };
+
+    // Replace-all: nuke each store's existing per-store assignment, then
+    // create a fresh row pointing at this playlist. Done in one transaction
+    // so partial failures don't leave the fleet half-assigned.
+    const ops = [
+      this.prisma.signageAssignment.deleteMany({
+        where: { storeId: { in: stores.map((s) => s.id) } },
+      }),
+      this.prisma.signageAssignment.createMany({
+        data: stores.map((s) => ({ playlistId: dto.playlistId, storeId: s.id })),
+      }),
+    ];
+    await this.prisma.$transaction(ops);
+    return { ok: true, count: stores.length, playlist: pl.name, entity: dto.entity };
   }
 
   listAssignments() {

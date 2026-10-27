@@ -23,11 +23,25 @@ class SignageApiClient:
         self.timeout = timeout
         self.session = requests.Session()
 
-    def register(self, *, hardware_id: str, provisioning_secret: str, name: str, agent_version: str) -> dict[str, Any]:
+    def register(
+        self,
+        *,
+        hardware_id: str,
+        provisioning_secret: str,
+        name: str,
+        agent_version: str,
+        store_code: str = "",
+        entity: str = "",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "hardwareId": hardware_id, "name": name, "agentVersion": agent_version,
+        }
+        if store_code: payload["storeCode"] = store_code
+        if entity:     payload["entity"]    = entity
         r = self.session.post(
             f"{self.base}/signage/devices/register",
             headers={"x-device-secret": provisioning_secret},
-            json={"hardwareId": hardware_id, "name": name, "agentVersion": agent_version},
+            json=payload,
             timeout=self.timeout,
         )
         if r.status_code == 401:

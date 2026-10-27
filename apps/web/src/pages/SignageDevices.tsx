@@ -46,6 +46,7 @@ export function SignageDevices() {
               <th className="th text-left">Brand</th>
               <th className="th text-left">Store</th>
               <th className="th text-left">Orientation</th>
+              <th className="th text-left">Rotation</th>
               <th className="th text-left">Status</th>
               <th className="th text-left">Last seen</th>
               <th className="th text-left">Agent</th>
@@ -55,7 +56,7 @@ export function SignageDevices() {
           </thead>
           <tbody>
             {devices.data?.length === 0 && (
-              <tr><td colSpan={9} className="py-6 text-center text-xs text-ink-300">
+              <tr><td colSpan={10} className="py-6 text-center text-xs text-ink-300">
                 No signage devices yet. The agent on a media player enrols itself the first time it connects.
               </td></tr>
             )}
@@ -90,26 +91,30 @@ export function SignageDevices() {
                 </td>
                 <td className="py-2 text-xs">
                   {canWrite ? (
-                    <div className="flex items-center gap-1">
-                      <select className="field !py-1 text-xs" value={d.orientation ?? 'LANDSCAPE'}
-                        onChange={(e) => update.mutate({ id: d.id, body: { orientation: e.target.value } })}>
-                        <option value="LANDSCAPE">Landscape</option>
-                        <option value="PORTRAIT">Portrait</option>
-                      </select>
-                      <button
-                        className={clsx(
-                          'rounded p-1 ring-1',
-                          d.forceRotate90
-                            ? 'bg-amber-100 text-amber-700 ring-amber-300'
-                            : 'bg-white text-ink-300 ring-ink-500/30 hover:text-amber-600',
-                        )}
-                        title={d.forceRotate90 ? 'Rotating 90° — click to disable' : 'Force rotate 90° (emergency fallback)'}
-                        onClick={() => update.mutate({ id: d.id, body: { forceRotate90: !d.forceRotate90 } })}>
-                        <RotateCw size={11}/>
-                      </button>
-                    </div>
+                    <select className="field !py-1 text-xs" value={d.orientation ?? 'LANDSCAPE'}
+                      onChange={(e) => update.mutate({ id: d.id, body: { orientation: e.target.value } })}
+                      title="Content filter — portrait devices only receive portrait videos (plus BOTH)">
+                      <option value="LANDSCAPE">Landscape</option>
+                      <option value="PORTRAIT">Portrait</option>
+                    </select>
                   ) : (
-                    <span>{d.orientation}{d.forceRotate90 && ' (⟲90°)'}</span>
+                    <span>{d.orientation}</span>
+                  )}
+                </td>
+                <td className="py-2 text-xs">
+                  {canWrite ? (
+                    <select
+                      className="field !py-1 text-xs"
+                      value={String(d.rotation ?? 0)}
+                      onChange={(e) => update.mutate({ id: d.id, body: { rotation: Number(e.target.value) } })}
+                      title="Screen rotation in degrees — changes take effect on the next device poll (~60s). Matches physical mount angle, clockwise.">
+                      <option value="0">0° (normal)</option>
+                      <option value="90">90° CW</option>
+                      <option value="180">180° (upside-down)</option>
+                      <option value="270">270° CW</option>
+                    </select>
+                  ) : (
+                    <span className="font-mono">{Number(d.rotation ?? 0)}°</span>
                   )}
                 </td>
                 <td className="py-2 text-xs">

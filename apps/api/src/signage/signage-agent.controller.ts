@@ -17,7 +17,15 @@ export class SignageAgentController {
   @Public() @Post('register')
   register(
     @Headers('x-device-secret') headerSecret: string | undefined,
-    @Body() body: { hardwareId?: string; hardware_id?: string; name?: string; provisioningSecret?: string },
+    @Body() body: {
+      hardwareId?: string;
+      hardware_id?: string;
+      name?: string;
+      provisioningSecret?: string;
+      entity?: 'FASHION_FUSION' | 'EVLV';
+      storeCode?: string;
+      store_code?: string;
+    },
   ) {
     // Python agent sends snake_case + the secret in a header.
     // Also accept camelCase + body-field style for anything else.
@@ -25,6 +33,8 @@ export class SignageAgentController {
       hardwareId: body.hardwareId ?? body.hardware_id ?? '',
       name: body.name,
       provisioningSecret: headerSecret ?? body.provisioningSecret ?? '',
+      entity: body.entity,
+      storeCode: body.storeCode ?? body.store_code,
     });
   }
 

@@ -42,6 +42,18 @@ export function SignagePlaylists() {
     mutationFn: (id: string) => api.delete(`/signage/assignments/${id}`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['signage-assigns'] }),
   });
+  // Bulk-assign to every store of a brand (or all brands at once). Replaces
+  // existing per-store assignments so Marketing doesn't have to click 30
+  // stores one by one every time they roll out a new campaign.
+  const bulkAssign = useMutation({
+    mutationFn: (dto: { playlistId: string; entity: 'FASHION_FUSION' | 'EVLV' | 'ALL' }) =>
+      api.post('/signage/assignments/bulk', dto).then((r) => r.data),
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ['signage-assigns'] });
+      alert(`Playlist assigned to ${r?.count ?? 0} store(s).`);
+    },
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Bulk assign failed'),
+  });
 
   const picked = playlists.data?.find((p: any) => p.id === selected);
   const [draft, setDraft] = useState<any[]>([]);
@@ -199,11 +211,48 @@ export function SignagePlaylists() {
                 ))}
               </ul>
               {canWrite && (
-                <AssignPicker
-                  stores={stores.data ?? []}
-                  regions={regions.data ?? []}
-                  onPick={(scope) => assign.mutate({ playlistId: picked.id, ...scope })}
-                />
+                <>
+                  <AssignPicker
+                    stores={stores.data ?? []}
+                    regions={regions.data ?? []}
+                    onPick={(scope) => assign.mutate({ playlistId: picked.id, ...scope })}
+                  />
+                  <div className="mt-3 border-t border-ink-500/10 pt-3">
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-300">
+                      Roll out to every store of a brand
+                    </div>
+                    <p className="mb-2 text-[11px] text-ink-300">
+                      Replaces each store's existing playlist assignment. Device- or region-level
+                      assignments are left untouched.
+                    </p>
+                    <div className="flex gap-2">
+                      <button className="btn-ghost text-xs"
+                        disabled={bulkAssign.isPending}
+                        onClick={() => {
+                          if (confirm('Assign this playlist to every Fashion Fusion store?'))
+                            bulkAssign.mutate({ playlistId: picked.id, entity: 'FASHION_FUSION' });
+                        }}>
+                        All Fashion Fusion
+                      </button>
+                      <button className="btn-ghost text-xs"
+                        disabled={bulkAssign.isPending}
+                        onClick={() => {
+                          if (confirm('Assign this playlist to every Evolve store?'))
+                            bulkAssign.mutate({ playlistId: picked.id, entity: 'EVLV' });
+                        }}>
+                        All Evolve
+                      </button>
+                      <button className="btn-ghost text-xs"
+                        disabled={bulkAssign.isPending}
+                        onClick={() => {
+                          if (confirm('Assign this playlist to EVERY store (both brands)?'))
+                            bulkAssign.mutate({ playlistId: picked.id, entity: 'ALL' });
+                        }}>
+                        All stores
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </section>

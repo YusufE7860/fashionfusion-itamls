@@ -27,6 +27,11 @@ class AgentConfig:
     server_url: str = ""
     provisioning_secret: str = ""
     device_name: str = ""
+    # Carried from the installer and sent on first enrol so the server
+    # auto-attaches the device to this store — no need to pick it in the
+    # admin app when approving.
+    store_code: str = ""
+    entity: str = ""
 
     # --- earned at enrolment, written back to the config file ---
     device_id: str = ""

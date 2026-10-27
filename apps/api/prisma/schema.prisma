@@ -931,8 +931,13 @@ model SignageDevice {
   status             String   @default("PENDING")   // PENDING | ACTIVE | DISABLED
   storeId            String?                        // link to ITAMLS Store
   entity             String   @default("FASHION_FUSION") // FASHION_FUSION | EVLV — which brand this player belongs to
-  orientation        String   @default("LANDSCAPE") // LANDSCAPE | PORTRAIT
-  forceRotate90      Boolean  @default(false)       // emergency: mpv --video-rotate=90
+  orientation        String   @default("LANDSCAPE") // LANDSCAPE | PORTRAIT — content filter
+  forceRotate90      Boolean  @default(false)       // deprecated — kept for back-compat; use rotation
+  // Explicit screen rotation in degrees. 0 = no rotation (TV mounted normally),
+  // 90 = TV rotated clockwise (right ear down), 180 = upside-down,
+  // 270 = rotated anti-clockwise. Pushed to mpv as --video-rotate=<n>, so a
+  // change in the admin app propagates to the player on the next sync.
+  rotation           Int      @default(0)           // 0 | 90 | 180 | 270
   agentVersion       String?
   lastSeenAt         DateTime?
   lastPlayingVideoId String?
