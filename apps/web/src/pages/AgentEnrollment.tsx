@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
+import { usePublicApiUrl } from '@/hooks/usePublicApiUrl';
 import {
   AlertTriangle, Copy, Download, KeyRound, MonitorSmartphone, PlusCircle, RefreshCw, Trash2, Terminal, Store, Building2,
   FolderOpen, Save, X, Power,
@@ -77,7 +78,10 @@ export function AgentEnrollment() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent-tokens'] }),
   });
 
-  const apiBase = api.defaults.baseURL ?? '';
+  // Use the server-configured public URL — not the browser's current origin.
+  // An admin who opened the app via LAN IP would otherwise bake that LAN IP
+  // into the enrollment command, breaking the agent from stores elsewhere.
+  const { apiUrl: apiBase, isConfigured } = usePublicApiUrl();
   const oneLiner = useMemo(() => {
     const tk = lastIssued?.token ?? '<TOKEN>';
     return `iwr ${apiBase}/tools/install-pc.ps1 -UseB | iex; Install-ITAMLSAgent -Token '${tk}' -Api '${apiBase}'`;
@@ -87,11 +91,20 @@ export function AgentEnrollment() {
   function downloadCmd(embedToken?: string) {
     // Bake the token + API URL into the .cmd on the server so the operator
     // just double-clicks it — no manual entry on the PC.
+    //
+    // Two different URLs are at play here:
+    //   - `apiBase`      → embedded in the .cmd so the agent on the target PC
+    //                      calls back here over the internet. MUST be the DNS.
+    //   - `fetchBase`    → the URL the BROWSER uses to download the .cmd.
+    //                      Should be the browser's current origin, otherwise
+    //                      an admin on LAN IP would hairpin through the WAN.
     const params = new URLSearchParams();
     if (embedToken) params.set('token', embedToken);
     params.set('api', apiBase);
     const suffix = embedToken ? `-${embedToken}` : '';
-    fetch(`${apiBase}/tools/install-itamlsagent.cmd?${params.toString()}`, {
+    const fetchBase = (api.defaults.baseURL ?? '').replace(/\/$/, '')
+      || `${window.location.origin}/api/v1`;
+    fetch(`${fetchBase}/tools/install-itamlsagent.cmd?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.blob())
@@ -169,6 +182,20 @@ export function AgentEnrollment() {
             <div className="font-semibold">You can view but not issue tokens.</div>
             <div className="mt-1 text-xs">
               Sign out and back in to refresh your session, or ask an admin to re-run the seed if the <code>agents:manage</code> permission hasn't been applied yet.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!isConfigured && (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <div>
+            <div className="font-semibold">Public API URL not configured.</div>
+            <div className="mt-1 text-xs">
+              The server's <code>PUBLIC_API_URL</code> env var isn't set, so the enrollment command below falls back to the URL in your browser bar
+              (<code>{apiBase}</code>). If that's a LAN IP, PCs at other stores won't be able to reach it. Set it on the server:
+              <code> PUBLIC_API_URL=https://it.ffgsa.co.za:41235/api/v1</code>
             </div>
           </div>
         </div>

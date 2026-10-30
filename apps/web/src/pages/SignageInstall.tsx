@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
+import { usePublicApiUrl } from '@/hooks/usePublicApiUrl';
 import { Check, Copy, Cpu, Download, FileText, Monitor, Package, Terminal } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -21,15 +22,10 @@ export function SignageInstall() {
 
   const stores = useQuery({ queryKey: ['stores'], queryFn: () => api.get('/stores').then((r) => r.data).catch(() => []) });
 
-  // The one-liner has to be an absolute URL — curl rejects relative paths with
-  // "No host part in the URL". Our axios baseURL is often configured as
-  // "/api/v1" (relative, uses the browser's current origin), so we must
-  // prepend window.location.origin when it isn't already absolute.
-  const base = useMemo(() => {
-    const raw = (api.defaults.baseURL ?? '').replace(/\/$/, '');
-    if (/^https?:\/\//i.test(raw)) return raw;
-    return `${window.location.origin}${raw.startsWith('/') ? raw : `/${raw}`}`;
-  }, []);
+  // Always use the server-configured public URL — NOT the browser's current
+  // origin. If the admin loaded the app via a LAN IP, we still need the
+  // installer to point at the DNS so a store on another network can reach it.
+  const { apiUrl: base, isConfigured } = usePublicApiUrl();
   const url = useMemo(() => {
     const params = new URLSearchParams();
     params.set('platform', platform);
@@ -133,6 +129,14 @@ export function SignageInstall() {
       </section>
 
       <section className="card mb-4 p-4">
+        {!isConfigured && (
+          <div className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900">
+            <b>Heads-up:</b> the server's <code>PUBLIC_API_URL</code> isn't set, so the one-liner
+            below uses the URL in your browser bar. If that's a LAN IP, stores elsewhere won't be
+            able to reach it. Set <code>PUBLIC_API_URL=https://it.ffgsa.co.za:41235/api/v1</code> in
+            the server's <code>.env</code>.
+          </div>
+        )}
         <h3 className="mb-2 text-sm font-semibold text-slate-700">5. Run this on the device</h3>
         {platform === 'ubuntu-desktop' && (
           <div className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900">

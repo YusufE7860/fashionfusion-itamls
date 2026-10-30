@@ -39,6 +39,7 @@ import { AgentsModule } from './agents/agents.module';
 import { PinPadsModule } from './pinpads/pinpads.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { DvrsModule } from './dvrs/dvrs.module';
+import { SystemModule } from './system/system.module';
 import { JwtAuthGuard } from './common/guards/jwt.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
@@ -84,6 +85,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     PinPadsModule,
     DepartmentsModule,
     DvrsModule,
+    SystemModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
