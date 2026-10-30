@@ -70,10 +70,14 @@ set "API=__EMBEDDED_API__"
 set "TOKEN=__EMBEDDED_TOKEN__"
 
 REM --- API URL: prompt if not embedded ---
-if "%API%"=="__EMBEDDED_API__" (
+REM The server globally replaces __EMBEDDED_API__ when it stamps this file,
+REM so we can't compare against the full sentinel (it gets replaced too).
+REM Instead, check whether the first 10 chars still start with "__EMBEDDED",
+REM which only an unstamped template does.
+if "!API:~0,10!"=="__EMBEDDED" (
     echo   Enter the ITAMLS API URL. Examples:
+    echo      https://it.ffgsa.co.za:41235/api/v1
     echo      http://10.168.0.55/api/v1
-    echo      https://itamls.fashionfusion.local/api/v1
     set /p "API=   API URL: "
 )
 
@@ -98,7 +102,9 @@ if errorlevel 1 (
 )
 
 REM --- Token: prompt if not embedded ---
-if "%TOKEN%"=="__EMBEDDED_TOKEN__" (
+REM Same guard as above — compare against the first 10 chars so the server's
+REM global placeholder-replace can't accidentally make this condition true.
+if "!TOKEN:~0,10!"=="__EMBEDDED" (
     echo.
     echo   Enter the 12-character enrollment token you generated in ITAMLS.
     set /p "TOKEN=   Token: "

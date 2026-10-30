@@ -129,13 +129,22 @@ export class ToolsController {
     let body = fs.readFileSync(file, 'utf-8');
 
     // Only substitute values that (a) were provided and (b) look sane.
-    // Regex-anchored on the placeholder to avoid accidentally replacing
-    // strings that happen to match part of the value.
+    // IMPORTANT: anchor the replacement to the `set "VAR=__PLACEHOLDER__"`
+    // line only. A naive /__EMBEDDED_TOKEN__/g replace rewrites EVERY
+    // occurrence — including sentinel comparisons later in the file — and
+    // breaks the "did the operator get a stamped file?" check. (That's why
+    // the installer used to still prompt even with the token baked in.)
     if (token && /^[A-Z0-9]{6,32}$/i.test(token)) {
-      body = body.replace(/__EMBEDDED_TOKEN__/g, token.toUpperCase());
+      body = body.replace(
+        /set "TOKEN=__EMBEDDED_TOKEN__"/,
+        `set "TOKEN=${token.toUpperCase()}"`,
+      );
     }
     if (api && /^https?:\/\/[\w.\-]+(:\d+)?(\/[\w.\-/]*)?$/i.test(api)) {
-      body = body.replace(/__EMBEDDED_API__/g, api.replace(/\/$/, ''));
+      body = body.replace(
+        /set "API=__EMBEDDED_API__"/,
+        `set "API=${api.replace(/\/$/, '')}"`,
+      );
     }
 
     // Include the token in the filename when embedded, so it's obvious
