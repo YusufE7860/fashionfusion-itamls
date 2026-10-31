@@ -243,11 +243,17 @@ export function Layout() {
         <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setDrawerOpen(false)} />
       )}
 
-      {/* ---------- Sidebar (drawer on mobile, fixed on desktop) ---------- */}
+      {/* ---------- Sidebar (drawer on mobile, static column on desktop) ----------
+          IMPORTANT: do NOT add `relative` to the base class — Tailwind defines
+          `.relative` AFTER `.fixed` in its stylesheet so `relative` would win
+          and the sidebar would stay in the flex-column flow on mobile, pushing
+          the main content down by its full height. Mobile is purely `fixed`;
+          desktop uses the media query `md:static` which wins on >= 768px. */}
       <aside className={clsx(
-        'relative z-50 flex max-h-screen w-[280px] shrink-0 flex-col border-r border-ink-500 bg-sidebar-gradient',
-        'fixed inset-y-0 left-0 transition-transform duration-200 md:static md:translate-x-0',
-        drawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+        'z-50 flex max-h-screen w-[280px] shrink-0 flex-col border-r border-ink-500 bg-sidebar-gradient',
+        'fixed inset-y-0 left-0 transition-transform duration-200',
+        drawerOpen ? 'translate-x-0' : '-translate-x-full',
+        'md:static md:translate-x-0',
       )}
       style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         {/* Brand */}
