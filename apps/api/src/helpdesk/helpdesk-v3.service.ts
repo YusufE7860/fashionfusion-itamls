@@ -69,7 +69,7 @@ export class HelpdeskV3Service {
   // ======================================================================
   // Parse @mentions out of a comment body and return the users mentioned.
   // Format: @user.name or @"Full Name" (double-quoted for names with spaces).
-  async parseMentions(body: string): Promise<Array<{ userId: string; email: string; fullName: string }>> {
+  async parseMentions(body: string): Promise<Array<{ id: string; email: string; fullName: string }>> {
     if (!body) return [];
     const names = new Set<string>();
     const re = /@(?:"([^"]+)"|(\S+))/g;
@@ -77,7 +77,7 @@ export class HelpdeskV3Service {
     while ((m = re.exec(body)) !== null) names.add((m[1] ?? m[2]).trim());
     if (names.size === 0) return [];
     // Match against email prefix OR fullName (case-insensitive)
-    const users = await this.prisma.user.findMany({
+    return this.prisma.user.findMany({
       where: {
         isActive: true,
         OR: Array.from(names).flatMap((n) => [
@@ -87,7 +87,6 @@ export class HelpdeskV3Service {
       },
       select: { id: true, email: true, fullName: true },
     });
-    return users;
   }
 
   /** Hook called by the base comment-creation path. Auto-adds mentioned users
@@ -109,15 +108,13 @@ export class HelpdeskV3Service {
       if (t) {
         for (const u of mentioned) {
           if (u.id === authorId) continue;
-          this.mailer.send({
-            to: u.email,
-            subject: `[${t.code}] You were mentioned in a ticket`,
-            html: `
-              <p>Hi ${u.fullName},</p>
-              <p>You were @mentioned in ticket <b>${t.code}</b> — <i>${t.subject}</i>.</p>
-              <blockquote style="border-left:3px solid #ccc;padding-left:10px">${body.slice(0,400)}</blockquote>
-            `,
-          }).catch(() => {});
+          this.mailer.send(
+            u.email,
+            `[${t.code}] You were mentioned in a ticket`,
+            `<p>Hi ${u.fullName},</p>
+             <p>You were @mentioned in ticket <b>${t.code}</b> — <i>${t.subject}</i>.</p>
+             <blockquote style="border-left:3px solid #ccc;padding-left:10px">${body.slice(0,400)}</blockquote>`,
+          ).catch(() => {});
         }
       }
     }
@@ -198,12 +195,12 @@ export class HelpdeskV3Service {
     await this.prisma.ticket.update({
       where: { id: ticketId }, data: { requiresApproval: true },
     });
-    this.mailer.send({
-      to: approver.email,
-      subject: `[${t.code}] Approval requested`,
-      html: `<p>You have been asked to approve <b>${t.code}</b> — ${t.subject}.</p>
-             <p>Open the ticket in ITAMLS to approve or reject.</p>`,
-    }).catch(() => {});
+    this.mailer.send(
+      approver.email,
+      `[${t.code}] Approval requested`,
+      `<p>You have been asked to approve <b>${t.code}</b> — ${t.subject}.</p>
+       <p>Open the ticket in ITAMLS to approve or reject.</p>`,
+    ).catch(() => {});
     return ap;
   }
 
@@ -562,7 +559,7 @@ export class HelpdeskV3Service {
     const assets = assetIds.length
       ? await this.prisma.asset.findMany({
           where: { id: { in: assetIds } },
-          select: { id: true, assetTag: true, serialNumber: true, sku: { select: { name: true } } },
+          select: { id: true, assetTag: true, serialNo: true, sku: { select: { name: true } } },
         })
       : [];
     const byId = new Map(assets.map((a) => [a.id, a]));
@@ -594,26 +591,29 @@ export class HelpdeskV3Service {
       where: { id: assetId },
       include: {
         sku: { include: { category: true } },
-        currentStore: true,
+        assignedStore: true,
       },
     });
     if (!a) throw new NotFoundException();
     // Try to map asset's SKU-category to a ticket category by name match.
-    let category = null;
+    // Typed explicitly so TS doesn't infer `null` and then complain when we
+    // reassign it.
+    let category: { id: string; defaultPriority: string } | null = null;
     if (a.sku?.category?.name) {
       category = await this.prisma.ticketCategory.findFirst({
         where: { name: { contains: a.sku.category.name, mode: 'insensitive' } },
         orderBy: { sortOrder: 'asc' },
+        select: { id: true, defaultPriority: true },
       });
     }
     return {
       prefillSubject: `${a.sku?.name ?? 'Asset'} (${a.assetTag}) — <describe issue>`,
       prefillDescription: a.sku?.category?.name
-        ? `Asset: ${a.sku.name}\nTag: ${a.assetTag}\nSerial: ${a.serialNumber ?? '—'}\nStore: ${(a as any).currentStore?.name ?? '—'}\n\nIssue:\n`
+        ? `Asset: ${a.sku.name}\nTag: ${a.assetTag}\nSerial: ${a.serialNo ?? '—'}\nStore: ${a.assignedStore?.name ?? '—'}\n\nIssue:\n`
         : '',
       categoryId: category?.id ?? null,
       priority: category?.defaultPriority ?? 'P3',
-      storeId: (a as any).currentStoreId ?? null,
+      storeId: a.assignedStoreId ?? null,
       assetId: a.id,
     };
   }
