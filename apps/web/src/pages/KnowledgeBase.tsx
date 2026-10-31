@@ -91,16 +91,16 @@ export function KnowledgeBase() {
             </button>
           )}
           {showNew ? (
-            <ArticleForm onCancel={() => setShowNew(false)} onSave={(body) => create.mutate(body)} />
+            <ArticleForm onCancel={() => setShowNew(false)} onSave={(body: any) => create.mutate(body)} />
           ) : !slug ? (
             <div className="p-6 text-center text-sm text-ink-300">Pick an article on the left, or create one.</div>
           ) : article.data ? (
             <ArticleView
               a={article.data}
               canWrite={canWrite}
-              onEdit={(body) => update.mutate({ id: article.data.id, body })}
+              onEdit={(body: any) => update.mutate({ id: article.data.id, body })}
               onDelete={() => { if (confirm(`Delete "${article.data.title}"?`)) remove.mutate(article.data.id); }}
-              onVote={(helpful) => vote.mutate({ id: article.data.id, helpful })} />
+              onVote={(helpful: boolean) => vote.mutate({ id: article.data.id, helpful })} />
           ) : <div className="p-6 text-xs text-ink-300">Loading…</div>}
         </section>
       </div>
