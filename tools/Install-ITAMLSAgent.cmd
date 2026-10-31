@@ -132,9 +132,18 @@ REM --- Write the PowerShell installer to a temp file. Using plain PS
 REM     syntax (not cmd-escaped) because the file is read directly by PS. ---
 set "PSFILE=%TEMP%\itamls-install-%RANDOM%.ps1"
 > "%PSFILE%" echo $ErrorActionPreference = 'Continue'
->> "%PSFILE%" echo # Allow TLS 1.2 and skip cert validation (dev / on-prem self-signed)
->> "%PSFILE%" echo [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+>> "%PSFILE%" echo # Negotiate the strongest TLS Windows supports. SystemDefault
+>> "%PSFILE%" echo # (Win10+ / Server 2016+) picks TLS 1.3 or 1.2 as the server
+>> "%PSFILE%" echo # advertises. Fall back to explicit Tls12 on older boxes where
+>> "%PSFILE%" echo # SystemDefault isn't present.
+>> "%PSFILE%" echo try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::SystemDefault } catch { }
+>> "%PSFILE%" echo try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+>> "%PSFILE%" echo try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 12288 } catch { }
+>> "%PSFILE%" echo # Dev/on-prem: accept self-signed certs. Trust is already
+>> "%PSFILE%" echo # established by the operator installing from an admin console.
 >> "%PSFILE%" echo [Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+>> "%PSFILE%" echo [Net.ServicePointManager]::Expect100Continue = $false
+>> "%PSFILE%" echo [Net.ServicePointManager]::DefaultConnectionLimit = 64
 >> "%PSFILE%" echo $agentPs1 = Join-Path $env:TEMP ('itamls-agent-installer-' + [guid]::NewGuid().ToString('N') + '.ps1')
 >> "%PSFILE%" echo try {
 >> "%PSFILE%" echo     Write-Host '   ^> Loading installer from server...' -ForegroundColor Cyan
@@ -142,7 +151,15 @@ set "PSFILE=%TEMP%\itamls-install-%RANDOM%.ps1"
 >> "%PSFILE%" echo     # Save the installer to a real .ps1 file, then dot-source it -- that
 >> "%PSFILE%" echo     # brings Install-ITAMLSAgent into the current scope reliably (IEX
 >> "%PSFILE%" echo     # sometimes doesn't when called from inside another temp script).
->> "%PSFILE%" echo     $installerScript = (Invoke-WebRequest -Uri '%API%/tools/install-itamlsagent.ps1' -UseBasicParsing -TimeoutSec 30).Content
+>> "%PSFILE%" echo     # Three-way fallback: Invoke-WebRequest, then .NET WebClient (older
+>> "%PSFILE%" echo     # TLS stacks), then curl.exe (ships with Win10 1803+). Any one that
+>> "%PSFILE%" echo     # succeeds wins; the triple is because 'underlying connection was
+>> "%PSFILE%" echo     # closed' can hit any one of them depending on cipher / proxy / AV.
+>> "%PSFILE%" echo     $installerScript = $null
+>> "%PSFILE%" echo     try { $installerScript = (Invoke-WebRequest -Uri '%API%/tools/install-itamlsagent.ps1' -UseBasicParsing -TimeoutSec 30).Content } catch { Write-Host ('   ^> IWR failed: ' + $_.Exception.Message) -ForegroundColor Yellow }
+>> "%PSFILE%" echo     if (-not $installerScript) { try { $wc = New-Object System.Net.WebClient; $installerScript = $wc.DownloadString('%API%/tools/install-itamlsagent.ps1') } catch { Write-Host ('   ^> WebClient failed: ' + $_.Exception.Message) -ForegroundColor Yellow } }
+>> "%PSFILE%" echo     if (-not $installerScript) { try { $installerScript = (curl.exe --silent --insecure '%API%/tools/install-itamlsagent.ps1' ^| Out-String) } catch { } }
+>> "%PSFILE%" echo     if (-not $installerScript) { throw 'Could not fetch installer from %API% — see errors above. Check: TLS reachability (try opening the URL in a browser from this PC), firewall / AV, and whether the server cert chain is complete.' }
 >> "%PSFILE%" echo     Set-Content -Path $agentPs1 -Value $installerScript -Encoding UTF8
 >> "%PSFILE%" echo     Write-Host '   ^> Executing installer...' -ForegroundColor Cyan
 >> "%PSFILE%" echo     . $agentPs1
