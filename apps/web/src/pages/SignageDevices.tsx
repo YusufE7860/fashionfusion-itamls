@@ -77,8 +77,14 @@ export function SignageDevices() {
           Reason: <i>{freeze.data.reason ?? '—'}</i>. Unfreeze from the top-right button.
         </div>
       )}
-      <section className="card p-4">
-        <table className="w-full text-sm">
+      <section className="card p-2 md:p-4">
+        {/* Mobile hint — dense editable table doesn't collapse cleanly to
+            cards, so we let the user swipe. */}
+        <div className="mb-2 text-[11px] text-ink-300 md:hidden">
+          ← swipe to see all columns →
+        </div>
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[900px] text-sm">
           <thead className="bg-slate-50">
             <tr>
               <th className="th text-left">Name</th>
@@ -194,6 +200,7 @@ export function SignageDevices() {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       {viewing && <PeekModal device={viewing} onClose={() => setViewing(null)} />}

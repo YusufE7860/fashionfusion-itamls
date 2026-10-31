@@ -5,6 +5,8 @@ import { MailerService } from '../mailer/mailer.service';
 import { StorageService } from '../storage/storage.service';
 import { HelpdeskRoutingService } from './routing.service';
 import { HelpdeskWebhooksService } from './webhooks.service';
+import { BusinessHoursService } from './business-hours.service';
+import { HelpdeskV3Service } from './helpdesk-v3.service';
 
 function escapeHtml(s: string) {
   return (s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]!));
@@ -79,6 +81,8 @@ export class TicketsService {
     private storage: StorageService,
     private routing: HelpdeskRoutingService,
     private webhooks: HelpdeskWebhooksService,
+    private businessHours: BusinessHoursService,
+    private v3: HelpdeskV3Service,
   ) {}
 
   /** Snapshot a ticket for webhook payloads (lean shape — no comments/events). */
@@ -195,7 +199,16 @@ export class TicketsService {
   // ============================================================
   //  SLA calculation
   // ============================================================
-  private calcSlaTargets(policy: { p1FirstResponseMinutes: number; p1ResolveMinutes: number; p2FirstResponseMinutes: number; p2ResolveMinutes: number; p3FirstResponseMinutes: number; p3ResolveMinutes: number; p4FirstResponseMinutes: number; p4ResolveMinutes: number }, priority: Priority, from = new Date()) {
+  private async calcSlaTargets(
+    policy: {
+      p1FirstResponseMinutes: number; p1ResolveMinutes: number;
+      p2FirstResponseMinutes: number; p2ResolveMinutes: number;
+      p3FirstResponseMinutes: number; p3ResolveMinutes: number;
+      p4FirstResponseMinutes: number; p4ResolveMinutes: number;
+      businessHoursOnly?: boolean;
+    },
+    priority: Priority, from = new Date(),
+  ) {
     const map: Record<Priority, { fr: number; res: number }> = {
       P1: { fr: policy.p1FirstResponseMinutes, res: policy.p1ResolveMinutes },
       P2: { fr: policy.p2FirstResponseMinutes, res: policy.p2ResolveMinutes },
@@ -203,6 +216,15 @@ export class TicketsService {
       P4: { fr: policy.p4FirstResponseMinutes, res: policy.p4ResolveMinutes },
     };
     const { fr, res } = map[priority];
+    if (policy.businessHoursOnly) {
+      // Advance from `from` by business-time minutes, skipping weekends and
+      // holidays. Keeps techs honest without penalising them for logging
+      // tickets at 2am Saturday.
+      return {
+        slaFirstResponseBy: await this.businessHours.addBusinessMs(from, fr),
+        slaResolveBy:       await this.businessHours.addBusinessMs(from, res),
+      };
+    }
     return {
       slaFirstResponseBy: new Date(from.getTime() + fr * 60_000),
       slaResolveBy:       new Date(from.getTime() + res * 60_000),
@@ -238,7 +260,7 @@ export class TicketsService {
     const sla = category.slaPolicy
       || await this.prisma.slaPolicy.findFirst({ where: { isDefault: true } });
     const now = new Date();
-    const slaTargets = sla ? this.calcSlaTargets(sla, priority, now) : null;
+    const slaTargets = sla ? await this.calcSlaTargets(sla, priority, now) : null;
 
     const code = await this.nextCode();
     // Smart auto-assignment via Store → Area Manager → Technician.
@@ -448,7 +470,7 @@ export class TicketsService {
 
     // Priority change may recompute SLA targets
     if (dto.priority && dto.priority !== before.priority && before.slaPolicy) {
-      const targets = this.calcSlaTargets(before.slaPolicy as any, dto.priority, before.createdAt);
+      const targets = await this.calcSlaTargets(before.slaPolicy as any, dto.priority, before.createdAt);
       data.slaFirstResponseBy = targets.slaFirstResponseBy;
       data.slaResolveBy       = targets.slaResolveBy;
     }
@@ -553,6 +575,10 @@ export class TicketsService {
     // (identified on the ticket itself) — notifyComment handles both.
     const notifyId = isTech ? ticket.reporterId : ticket.assignedToId;
     if (!isInternal) this.notifyComment(id, notifyId, body.trim(), isTech).catch(() => {});
+
+    // @mentions — parse body, add mentioned users as watchers, email them.
+    // Non-fatal if any step errors.
+    this.v3.handleMentionsOnComment(id, ctx.userId, body.trim()).catch(() => {});
 
     // Webhook (public comments only — internal notes stay private)
     if (!isInternal) {

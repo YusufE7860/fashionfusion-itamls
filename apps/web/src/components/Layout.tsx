@@ -5,6 +5,7 @@ import {
   LayoutDashboard, Boxes, Store, Truck, ShieldCheck, LogOut, Wrench,
   FileBarChart, Bell, Printer, ChevronDown, Package, MonitorSmartphone, Building2, LifeBuoy,
   ClipboardList, Monitor, Film, Terminal, Eye, EyeOff, Pencil, RotateCcw, GripVertical,
+  Menu, X, Plus, Home,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/store/auth';
@@ -12,6 +13,7 @@ import { api } from '@/api/client';
 import { FusionMark } from './FusionMark';
 import { ForceChangePasswordModal } from './ForceChangePasswordModal';
 import { InactivityGuard } from './InactivityGuard';
+import { InstallPrompt } from './InstallPrompt';
 
 type SingleItem  = { kind: 'single'; id: string; label: string; icon: any; to: string; end?: boolean };
 type GroupItem   = { kind: 'group';  id: string; label: string; icon: any; items: { to: string; label: string; end?: boolean }[] };
@@ -48,10 +50,12 @@ const NAV: NavEntry[] = [
   ] },
 
   { kind: 'group', id: 'helpdesk', label: 'Helpdesk', icon: LifeBuoy, items: [
-    { to: '/helpdesk',         label: 'Queue' },
-    { to: '/helpdesk/new',     label: 'Log a call' },
-    { to: '/helpdesk/reports', label: 'Reports' },
-    { to: '/helpdesk/admin',   label: 'Configuration' },
+    { to: '/helpdesk',                label: 'Queue' },
+    { to: '/helpdesk/new',            label: 'Log a call' },
+    { to: '/helpdesk/kb',             label: 'Knowledge base' },
+    { to: '/helpdesk/reports',        label: 'Reports' },
+    { to: '/helpdesk/business-hours', label: 'Business hours' },
+    { to: '/helpdesk/admin',          label: 'Configuration' },
   ] },
 
   { kind: 'group', id: 'toner', label: 'Toner', icon: Printer, items: [
@@ -119,6 +123,10 @@ export function Layout() {
   const updateAvailable = useUpdateBadge();
   const [open, setOpen] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
+  // Mobile drawer open state. Starts closed. On route change we auto-close so
+  // tapping a nav link doesn't leave the drawer covering the content.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
   // Load per-user sidebar preferences (order + hide/show).
   const prefs = useQuery({
@@ -203,11 +211,39 @@ export function Layout() {
   }, [location.pathname]);
 
   return (
-    <div className="grid h-full grid-cols-[280px_1fr] bg-white">
+    <div className="relative flex h-full flex-col bg-white md:grid md:grid-cols-[280px_1fr]">
       <ForceChangePasswordModal />
       <InactivityGuard />
-      {/* ---------- Sidebar ---------- */}
-      <aside className="relative flex flex-col border-r border-ink-500 bg-sidebar-gradient">
+      <InstallPrompt />
+
+      {/* ---------- Mobile top bar ---------- */}
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-ink-500/20 bg-white px-3 py-2 shadow-sm md:hidden"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}>
+        <button onClick={() => setDrawerOpen(true)}
+          className="rounded-lg p-2 text-ink-100 hover:bg-slate-100 active:scale-95"
+          aria-label="Open menu">
+          <Menu size={22} />
+        </button>
+        <FusionMark size="sm" />
+        <NavLink to="/helpdesk/new"
+          className="rounded-lg p-2 text-brand-600 hover:bg-brand-50 active:scale-95"
+          aria-label="New ticket">
+          <Plus size={22}/>
+        </NavLink>
+      </header>
+
+      {/* ---------- Mobile backdrop ---------- */}
+      {drawerOpen && (
+        <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setDrawerOpen(false)} />
+      )}
+
+      {/* ---------- Sidebar (drawer on mobile, fixed on desktop) ---------- */}
+      <aside className={clsx(
+        'relative z-50 flex max-h-screen w-[280px] shrink-0 flex-col border-r border-ink-500 bg-sidebar-gradient',
+        'fixed inset-y-0 left-0 transition-transform duration-200 md:static md:translate-x-0',
+        drawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+      )}
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         {/* Brand */}
         <div className="relative flex flex-col items-center px-4 py-6">
           <div className="rounded-lg bg-[#0b0f1a] px-6 py-4">
@@ -309,19 +345,47 @@ export function Layout() {
       </aside>
 
       {/* ---------- Main ---------- */}
-      <main className="relative overflow-y-auto bg-white">
+      <main className="relative flex-1 overflow-y-auto bg-white pb-16 md:pb-0">
         {updateAvailable && (
-          <div className="border-b border-brand-200 bg-brand-50 px-8 py-2 text-xs text-brand-700">
+          <div className="border-b border-brand-200 bg-brand-50 px-4 py-2 text-xs text-brand-700 md:px-8">
             <NavLink to="/admin/updates" className="inline-flex items-center gap-2 hover:underline">
               <Package size={12}/> A new version is available — click here to review and install
             </NavLink>
           </div>
         )}
-        <div className="mx-auto max-w-7xl px-8 py-8">
+        <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 md:px-8 md:py-8">
           <Outlet />
         </div>
       </main>
+
+      {/* ---------- Mobile bottom tab bar ---------- */}
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-ink-500/20 bg-white/95 backdrop-blur md:hidden"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+        <BottomTab to="/" icon={<Home size={20}/>} label="Home" end />
+        <BottomTab to="/helpdesk" icon={<LifeBuoy size={20}/>} label="Tickets" />
+        <BottomTab to="/helpdesk/new" icon={<Plus size={24}/>} label="Log" primary />
+        <BottomTab to="/signage/devices" icon={<Film size={20}/>} label="Signage" />
+        <BottomTab to="/alerts" icon={<Bell size={20}/>} label="Alerts" />
+      </nav>
     </div>
+  );
+}
+
+function BottomTab({ to, icon, label, end, primary }:
+  { to: string; icon: any; label: string; end?: boolean; primary?: boolean }) {
+  return (
+    <NavLink to={to} end={end}
+      className={({ isActive }) => clsx(
+        'flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium active:scale-95',
+        primary
+          ? 'text-white'
+          : isActive ? 'text-brand-700' : 'text-ink-300',
+      )}>
+      {primary ? (
+        <span className="-mt-5 grid h-11 w-11 place-items-center rounded-full bg-brand-500 shadow-lg">{icon}</span>
+      ) : icon}
+      <span className={primary ? 'text-ink-200' : ''}>{label}</span>
+    </NavLink>
   );
 }
 

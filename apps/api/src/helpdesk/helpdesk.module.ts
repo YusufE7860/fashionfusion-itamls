@@ -12,20 +12,21 @@ import { TicketsCron } from './tickets.cron';
 import { EmailIngestService } from './email-ingest.service';
 import { HelpdeskRoutingService } from './routing.service';
 import { HelpdeskWebhooksService } from './webhooks.service';
+import { BusinessHoursService } from './business-hours.service';
+import { HelpdeskV3Service } from './helpdesk-v3.service';
+import { HelpdeskV3Controller } from './helpdesk-v3.controller';
 import { DiscoveryModule } from '../discovery/discovery.module';
 
-/**
- * Native tickets (primary) plus the legacy external-helpdesk integration
- * controller (kept for Kaseya / Freshdesk sync features). Both live under
- * /helpdesk but the legacy one is scoped to /helpdesk/external.
- */
 @Module({
-  imports: [DiscoveryModule], // for ApiKeysService (shared across store PCs + Ops app)
-  controllers: [TicketsController, HelpdeskExternalController, PublicHelpdeskController, HelpdeskWebhooksController, CannedResponsesController],
+  imports: [DiscoveryModule],
+  controllers: [
+    TicketsController, HelpdeskExternalController, PublicHelpdeskController,
+    HelpdeskWebhooksController, CannedResponsesController, HelpdeskV3Controller,
+  ],
   providers: [
     TicketsService, HelpdeskAdminService, TicketsCron, HelpdeskService,
     EmailIngestService, HelpdeskRoutingService, HelpdeskWebhooksService,
-    CannedResponsesService,
+    CannedResponsesService, BusinessHoursService, HelpdeskV3Service,
   ],
   exports: [TicketsService],
 })

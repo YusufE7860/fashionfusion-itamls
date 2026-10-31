@@ -111,6 +111,11 @@ model User {
   rmmSessionsInitiated RmmSession[]     @relation("RmmSessionInitiator")
   rmmCommandsIssued    RmmCommand[]     @relation("RmmCommandIssuer")
   rmmScriptsCreated    RmmScript[]      @relation("RmmScriptCreator")
+  // Helpdesk v3 back-relations
+  ticketWatcherLinks    TicketWatcher[]  @relation("TicketWatcherUser")
+  ticketApprovalsAsked  TicketApproval[] @relation("TicketApprovalRequester")
+  ticketApprovalsOwed   TicketApproval[] @relation("TicketApprovalApprover")
+  techSkills            TechSkill[]      @relation("TechSkills")
 }
 
 // ---------- Catalog / Master Data ----------
@@ -865,6 +870,24 @@ model Ticket {
   // Reopen tracking — escalation after N reopens
   reopenCount          Int      @default(0)
 
+  // Approval gate — set to true when ticket needs sign-off before resolve.
+  // See TicketApproval for the actual approval records.
+  requiresApproval     Boolean  @default(false)
+
+  // Cost tracking — labour minutes + parts cost (ZAR cents) for cost-per-ticket
+  // reporting. Techs log these in the UI on resolve.
+  labourMinutes        Int      @default(0)
+  partsCostCents       Int      @default(0)
+
+  // Visibility — restricts which roles can see the ticket beyond the normal
+  // store-scope rules. "" = default (all with tickets:read on scope), or
+  // comma-separated role codes allowed to see it ("ADMINISTRATOR,IT_MANAGER").
+  visibility           String   @default("")
+
+  // Set when the ticket is first-contact-resolved (closed on the same comment
+  // thread as creation, no reassign). Used for FCR trend reports.
+  isFirstContactResolution Boolean @default(false)
+
   // Satisfaction (reporter rates 1-5 when ticket is RESOLVED)
   satisfactionRating   Int?                        // 1-5
   satisfactionComment  String?
@@ -885,6 +908,11 @@ model Ticket {
   comments    TicketComment[]
   events      TicketEvent[]
   attachments TicketAttachment[]
+  slaPauses   TicketSlaPause[]  @relation("TicketSlaPauses")
+  watchers    TicketWatcher[]   @relation("TicketWatchers")
+  linksFrom   TicketLink[]      @relation("TicketLinkSource")
+  linksTo     TicketLink[]      @relation("TicketLinkTarget")
+  approvals   TicketApproval[]  @relation("TicketApprovals")
 
   @@index([status])
   @@index([priority])
@@ -914,6 +942,7 @@ model TicketCategory {
   slaPolicy        SlaPolicy?       @relation(fields: [slaPolicyId], references: [id])
   tickets          Ticket[]
   cannedResponses  CannedResponse[]
+  kbArticles       KbArticle[]      @relation("KbCategoryArticles")
 }
 
 // =========================================================================
@@ -1670,4 +1699,191 @@ model MikrotikConfig {
   configText        String                       @db.Text
   createdAt         DateTime @default(now())
   createdById       String?
+}
+
+// =========================================================================
+// Helpdesk v3 — business hours / watchers / mentions / merge-link / KB /
+// approvals / scheduled / deflection / field-level visibility. Everything
+// below layers on top of the Ticket model without changing its shape.
+// =========================================================================
+
+model BusinessHours {
+  id          Int      @id @default(1)             // singleton (1 row)
+  // Per-day open/close times. Null closedAt means "closed all day".
+  // Stored as "HH:MM" strings in the server timezone.
+  monOpen     String?  @default("08:00")
+  monClose    String?  @default("17:00")
+  tueOpen     String?  @default("08:00")
+  tueClose    String?  @default("17:00")
+  wedOpen     String?  @default("08:00")
+  wedClose    String?  @default("17:00")
+  thuOpen     String?  @default("08:00")
+  thuClose    String?  @default("17:00")
+  friOpen     String?  @default("08:00")
+  friClose    String?  @default("17:00")
+  satOpen     String?
+  satClose    String?
+  sunOpen     String?
+  sunClose    String?
+  timezone    String   @default("Africa/Johannesburg")
+  updatedAt   DateTime @updatedAt
+}
+
+// Public / company holidays. SLA timers skip these dates entirely.
+model Holiday {
+  id        String   @id @default(cuid())
+  date      DateTime                              // UTC midnight of the day
+  name      String                                // "Workers' Day"
+  recurring Boolean  @default(false)              // same month+day each year
+  createdAt DateTime @default(now())
+
+  @@unique([date, name])
+  @@index([date])
+}
+
+// Granular SLA pause events — "clock stopped at X for reason Y". Covers
+// WAITING_ON_USER + approvals + after-hours. Enables accurate SLA burn-down
+// + audit of what counted vs didn't.
+model TicketSlaPause {
+  id         String    @id @default(cuid())
+  ticketId   String
+  reason     String                              // WAITING_ON_USER | APPROVAL | AFTER_HOURS | HOLIDAY | ADMIN
+  startedAt  DateTime
+  endedAt    DateTime?                           // null while active
+  notes      String?
+
+  ticket Ticket @relation("TicketSlaPauses", fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, startedAt])
+}
+
+// People to CC on ticket updates — not assignees, not reporters, just want
+// to know. Can be an ITAMLS user OR an email address (for externals who
+// don't have a login).
+model TicketWatcher {
+  id        String   @id @default(cuid())
+  ticketId  String
+  userId    String?                              // null = email-only watcher
+  email     String?                              // only when userId null
+  addedById String?
+  addedAt   DateTime @default(now())
+
+  ticket Ticket @relation("TicketWatchers", fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User?  @relation("TicketWatcherUser", fields: [userId], references: [id])
+
+  @@unique([ticketId, userId])
+  @@unique([ticketId, email])
+  @@index([ticketId])
+  @@index([userId])
+}
+
+// Merge / link relationships between tickets. `kind=MERGED` means
+// `sourceId` was folded into `targetId` and should display as a redirect
+// in the UI. `kind=RELATED` is just a soft link.
+model TicketLink {
+  id       String   @id @default(cuid())
+  sourceId String
+  targetId String
+  kind     String                                // MERGED | RELATED | BLOCKS | BLOCKED_BY | DUPLICATE_OF
+  notes    String?
+  createdById String?
+  createdAt DateTime @default(now())
+
+  source Ticket @relation("TicketLinkSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target Ticket @relation("TicketLinkTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, targetId, kind])
+  @@index([sourceId])
+  @@index([targetId])
+}
+
+// Approvals workflow — a ticket flagged as needing sign-off. Status flows
+// PENDING -> APPROVED | REJECTED. The ticket's own status stays whatever
+// it is; the approval sits alongside and gates "mark resolved".
+model TicketApproval {
+  id          String   @id @default(cuid())
+  ticketId    String
+  requesterId String                              // who asked for approval
+  approverId  String                              // who should sign off
+  status      String   @default("PENDING")        // PENDING | APPROVED | REJECTED | WITHDRAWN
+  reason      String?                             // approver's note on approve/reject
+  requestedAt DateTime @default(now())
+  decidedAt   DateTime?
+
+  ticket    Ticket @relation("TicketApprovals", fields: [ticketId], references: [id], onDelete: Cascade)
+  requester User   @relation("TicketApprovalRequester", fields: [requesterId], references: [id])
+  approver  User   @relation("TicketApprovalApprover",  fields: [approverId], references: [id])
+
+  @@index([ticketId])
+  @@index([approverId, status])
+}
+
+// Scheduled / recurring tickets. On the next due time the cron creates a
+// new real ticket from the template fields.
+model ScheduledTicket {
+  id              String   @id @default(cuid())
+  name            String                             // "Monthly backup verification"
+  subject         String
+  description     String
+  categoryId      String
+  priority        String   @default("P3")
+  storeId         String?                            // null = HQ
+  departmentId    String?
+  assignedToId    String?
+  cronExpression  String                             // standard 5-field cron, server-tz
+  nextRunAt       DateTime?                          // calc'd by cron
+  lastRunAt       DateTime?
+  lastTicketId    String?                            // for audit
+  isActive        Boolean  @default(true)
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  category   TicketCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([isActive, nextRunAt])
+}
+
+// Knowledge base articles. Searchable from the new-ticket form (deflection).
+model KbArticle {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  title         String
+  body          String                                // markdown
+  categoryId    String?                               // ties into ticket categories so deflection is targeted
+  tags          String?                               // comma-separated for simple search
+  isPublished   Boolean  @default(true)
+  views         Int      @default(0)
+  helpfulYes    Int      @default(0)
+  helpfulNo     Int      @default(0)
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  category   TicketCategory? @relation("KbCategoryArticles", fields: [categoryId], references: [id])
+
+  @@index([categoryId])
+  @@index([isPublished])
+}
+
+// Round-robin pointer. Which technician gets the NEXT auto-assigned ticket.
+// Advanced each time we pick one. One row (singleton).
+model RoundRobinState {
+  id              Int      @id @default(1)
+  lastAssignedId  String?
+  updatedAt       DateTime @updatedAt
+}
+
+// Technician "skills" — comma-separated tags on the User row via a join
+// table so routing can prefer "POS" tickets to techs tagged POS.
+model TechSkill {
+  id        String   @id @default(cuid())
+  userId    String
+  skill     String                                    // POS | NETWORK | PRINTER | ...
+  level     Int      @default(1)                      // 1..5 (optional preference)
+
+  user   User   @relation("TechSkills", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skill])
+  @@index([skill])
 }

@@ -3,6 +3,7 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
+import { TicketV3Panel } from '@/components/TicketV3Panel';
 import { useAuth } from '@/store/auth';
 import {
   AlertTriangle, ArrowLeft, Clock, Download, File as FileIcon, Image as ImageIcon,
@@ -333,6 +334,7 @@ export function HelpdeskDetail() {
 
         {/* --- RIGHT: actions + meta --- */}
         <div className="space-y-4">
+          <TicketV3Panel ticketId={t.id} />
           <section className="card p-4">
             <h3 className="mb-3 text-sm font-semibold text-slate-700">Actions</h3>
 

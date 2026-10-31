@@ -9,7 +9,17 @@ body {
   background-color: #ffffff;
   color: #0b0f1a;
   -webkit-font-smoothing: antialiased;
+  /* Avoid iOS zoom-on-focus (iOS zooms inputs smaller than 16px) */
+  -webkit-text-size-adjust: 100%;
 }
+
+/* iOS: prevent zoom when focusing form fields */
+@media (max-width: 768px) {
+  input, select, textarea { font-size: 16px !important; }
+}
+
+/* Native touch feedback on buttons + links */
+button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 
 /* Scrollbar polish (subtle grey on light bg) */
 *::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -20,9 +30,11 @@ body {
 @layer components {
   /* ---------- Buttons ---------- */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5
-           text-sm font-medium transition-all duration-150
-           focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40;
+    /* Min-height = 40px on mobile (touch target) and tightens on desktop. */
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2
+           text-sm font-medium transition-all duration-150 min-h-[40px]
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40
+           active:scale-[0.98] md:min-h-0 md:py-1.5;
   }
   .btn-primary {
     @apply btn bg-brand-500 text-white
@@ -62,9 +74,10 @@ body {
   /* ---------- Forms ---------- */
   .field {
     @apply block w-full rounded-md border border-ink-500
-           bg-white px-3 py-1.5 text-sm text-ink-50 placeholder-ink-400
+           bg-white px-3 py-2 text-base text-ink-50 placeholder-ink-400 min-h-[40px]
            transition-colors
-           focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20;
+           focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20
+           md:py-1.5 md:text-sm md:min-h-0;
   }
   select.field { color-scheme: light; }
   .label {
@@ -81,6 +94,41 @@ body {
   }
   table tbody tr        { border-color: #eef1f5; }
   table tbody tr:hover  { background-color: #fafbfc; }
+
+  /* Mobile — any table inside a .card gets a horizontal scroller so dense
+     tables stay usable on a phone without redesigning each one. Combined
+     with ResponsiveTable for the lists we want as cards, this covers 100%
+     of our data views. */
+  @media (max-width: 767px) {
+    .card > table,
+    .card > div > table {
+      display: block;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      max-width: 100%;
+    }
+    .card > table > thead,
+    .card > div > table > thead,
+    .card > table > tbody,
+    .card > div > table > tbody {
+      display: table;
+      width: max-content;
+      min-width: 100%;
+    }
+  }
+
+  /* Modals — on mobile, prefer bottom-sheet / full-height style for easier
+     reach. Any element with `.modal-shell` gets that treatment. */
+  .modal-shell {
+    @apply fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0
+           md:items-center md:p-4;
+  }
+  .modal-body {
+    @apply w-full max-w-xl rounded-t-xl bg-white p-4 shadow-xl
+           md:rounded-xl;
+    max-height: 92vh;
+    overflow-y: auto;
+  }
 
   /* ---------- Misc ---------- */
   .text-soft   { @apply text-ink-300; }

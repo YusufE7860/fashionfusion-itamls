@@ -54,6 +54,8 @@ import { HelpdeskNew } from './pages/HelpdeskNew';
 import { HelpdeskDetail } from './pages/HelpdeskDetail';
 import { HelpdeskReports } from './pages/HelpdeskReports';
 import { HelpdeskAdmin } from './pages/HelpdeskAdmin';
+import { HelpdeskBusinessHours } from './pages/HelpdeskBusinessHours';
+import { KnowledgeBase } from './pages/KnowledgeBase';
 import { useAuth } from './store/auth';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -130,6 +132,9 @@ export function App() {
         <Route path="helpdesk/tickets/:id"    element={<HelpdeskDetail />} />
         <Route path="helpdesk/reports"        element={<HelpdeskReports />} />
         <Route path="helpdesk/admin"          element={<HelpdeskAdmin />} />
+        <Route path="helpdesk/business-hours" element={<HelpdeskBusinessHours />} />
+        <Route path="helpdesk/kb"             element={<KnowledgeBase />} />
+        <Route path="helpdesk/kb/:slug"       element={<KnowledgeBase />} />
       </Route>
     </Routes>
   );

@@ -96,6 +96,13 @@ export const Permissions = {
   AgentsRemoteExec:   'agents:remote-exec',
   AgentsRemoteShell:  'agents:remote-shell',
   AgentsRemoteManage: 'agents:remote-manage',
+  TicketsApprove:          'tickets:approve',
+  TicketsMerge:            'tickets:merge',
+  TicketsManageSchedules:  'tickets:schedules:manage',
+  TicketsManageBusinessHours: 'tickets:business-hours:manage',
+  TicketsManageSkills:     'tickets:skills:manage',
+  KbRead:                  'kb:read',
+  KbWrite:                 'kb:write',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

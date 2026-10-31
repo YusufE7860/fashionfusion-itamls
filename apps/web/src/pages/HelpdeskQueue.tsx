@@ -5,6 +5,7 @@ import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
 import { AlertTriangle, Filter, Plus, RefreshCw, Search } from 'lucide-react';
+import { ResponsiveTable } from '@/components/ResponsiveTable';
 
 const STATUSES = ['NEW','ASSIGNED','IN_PROGRESS','WAITING_ON_USER','RESOLVED','CLOSED','REOPENED'] as const;
 const PRIORITIES = ['P1','P2','P3','P4'] as const;
@@ -150,55 +151,48 @@ export function HelpdeskQueue() {
         </div>
       </section>
 
-      {/* Table */}
-      <section className="card p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="th text-left">Code</th>
-                <th className="th text-left">Subject</th>
-                <th className="th text-left">Priority</th>
-                <th className="th text-left">Status</th>
-                <th className="th text-left">Category</th>
-                <th className="th text-left">Store</th>
-                <th className="th text-left">Assignee</th>
-                <th className="th text-left">Reporter</th>
-                <th className="th text-left">Opened</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tickets.data?.items?.map((t: any) => (
-                <tr key={t.id} className="border-b border-ink-500/10 hover:bg-slate-50">
-                  <td className="py-2 pl-3 font-mono text-xs">
-                    <Link className="text-brand-700 hover:underline" to={`/helpdesk/tickets/${t.id}`}>{t.code}</Link>
-                  </td>
-                  <td className="py-2 pr-3">
-                    <div className="flex items-center gap-2">
-                      <span className="max-w-[420px] truncate">{t.subject}</span>
-                      {(t.slaBreachedResponse || t.slaBreachedResolve) && (
-                        <span title="SLA breached"><AlertTriangle size={12} className="text-rose-500" /></span>
-                      )}
-                      {t._count?.comments > 0 && (
-                        <span className="text-[11px] text-ink-300">💬 {t._count.comments}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-2"><span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${PRIORITY_STYLES[t.priority]}`}>{t.priority}</span></td>
-                  <td className="py-2"><span className={`rounded px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLES[t.status]}`}>{t.status.replaceAll('_',' ')}</span></td>
-                  <td className="py-2 text-xs">{t.category?.name ?? '—'}</td>
-                  <td className="py-2 text-xs">{t.store ? `${t.store.code}` : '—'}</td>
-                  <td className="py-2 text-xs">{t.assignedTo?.fullName ?? <span className="italic text-ink-300">Unassigned</span>}</td>
-                  <td className="py-2 text-xs">{t.reporter?.fullName ?? '—'}</td>
-                  <td className="py-2 pr-3 text-xs text-ink-300">{new Date(t.createdAt).toLocaleString()}</td>
-                </tr>
-              ))}
-              {(!tickets.data?.items || tickets.data.items.length === 0) && (
-                <tr><td colSpan={9} className="py-6 text-center text-xs text-ink-300">No tickets match these filters.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* Table (desktop) + card list (mobile) */}
+      <section className="card p-0 md:p-0">
+        <ResponsiveTable
+          rows={tickets.data?.items ?? []}
+          keyFn={(t: any) => t.id}
+          emptyLabel="No tickets match these filters."
+          onRowClick={(t: any) => nav(`/helpdesk/tickets/${t.id}`)}
+          columns={[
+            {
+              label: 'Ticket', primary: true,
+              render: (t: any) => (
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-brand-700">{t.code}</span>
+                  <span className="truncate text-ink-50">{t.subject}</span>
+                  {(t.slaBreachedResponse || t.slaBreachedResolve) && (
+                    <AlertTriangle size={12} className="text-rose-500" />
+                  )}
+                  {t._count?.comments > 0 && <span className="text-[11px] text-ink-300">💬 {t._count.comments}</span>}
+                </div>
+              ),
+            },
+            {
+              label: 'Priority',
+              render: (t: any) => <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${PRIORITY_STYLES[t.priority]}`}>{t.priority}</span>,
+            },
+            {
+              label: 'Status',
+              render: (t: any) => <span className={`rounded px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLES[t.status]}`}>{t.status.replaceAll('_',' ')}</span>,
+            },
+            { label: 'Category', render: (t: any) => <span className="text-xs">{t.category?.name ?? '—'}</span> },
+            { label: 'Store',    render: (t: any) => <span className="text-xs">{t.store ? t.store.code : '—'}</span> },
+            {
+              label: 'Assignee',
+              render: (t: any) => t.assignedTo?.fullName ?? <span className="italic text-ink-300">Unassigned</span>,
+            },
+            { label: 'Reporter', hideOnMobile: true, render: (t: any) => <span className="text-xs">{t.reporter?.fullName ?? '—'}</span> },
+            {
+              label: 'Opened',
+              render: (t: any) => <span className="text-xs text-ink-300">{new Date(t.createdAt).toLocaleString()}</span>,
+            },
+          ]}
+        />
         {tickets.data && (
           <div className="border-t border-ink-500/20 px-3 py-2 text-[11px] text-ink-300">
             Showing {tickets.data.items.length} of {tickets.data.total}

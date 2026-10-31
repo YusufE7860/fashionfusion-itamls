@@ -98,6 +98,14 @@ export const Permissions = {
   AgentsRemoteExec:   'agents:remote-exec',    // run scoped actions (restart, apt-install, tail-log, upload-file, rotate, run-script)
   AgentsRemoteShell:  'agents:remote-shell',   // escape-hatch SHELL_EXEC — admin only, requires reason + confirmation
   AgentsRemoteManage: 'agents:remote-manage',  // freeze/unfreeze the whole fleet
+  // Helpdesk v3
+  TicketsApprove:          'tickets:approve',        // approve/reject tickets routed for sign-off
+  TicketsMerge:            'tickets:merge',          // merge or link tickets
+  TicketsManageSchedules:  'tickets:schedules:manage',
+  TicketsManageBusinessHours: 'tickets:business-hours:manage',
+  TicketsManageSkills:     'tickets:skills:manage',
+  KbRead:                  'kb:read',
+  KbWrite:                 'kb:write',
 } as const;
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
 

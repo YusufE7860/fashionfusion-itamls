@@ -40,6 +40,11 @@ const ROLE_PERMS: Record<string, string[]> = {
     // Remote exec: IT Manager can run scoped actions AND freeze fleet, but
     // SHELL_EXEC stays Administrator-only (set in the Administrator role).
     Permissions.AgentsRemoteExec, Permissions.AgentsRemoteManage,
+    // Helpdesk v3
+    Permissions.TicketsApprove, Permissions.TicketsMerge,
+    Permissions.TicketsManageSchedules, Permissions.TicketsManageBusinessHours,
+    Permissions.TicketsManageSkills,
+    Permissions.KbRead, Permissions.KbWrite,
   ],
   [Roles.Technician]: [
     Permissions.CatalogRead,
@@ -67,6 +72,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     // Technicians can run scoped actions on devices in their patch (scoping
     // enforced by the service, same as helpdesk).
     Permissions.AgentsRemoteExec,
+    Permissions.TicketsMerge, Permissions.KbRead, Permissions.KbWrite,
   ],
   [Roles.StoreManager]: [
     Permissions.AssetsRead, Permissions.StockRead, Permissions.StoresRead,
@@ -76,6 +82,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.TicketsRead, Permissions.TicketsWrite,  // log calls + see own store's queue
     // See the screens in their own store (device status + what's playing)
     Permissions.SignageDevicesRead,
+    Permissions.KbRead,
   ],
   [Roles.AreaManager]: [
     Permissions.AssetsRead, Permissions.StoresRead, Permissions.ReportsRead,
@@ -84,6 +91,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     Permissions.TicketsRead, Permissions.TicketsWrite, Permissions.TicketsReports,
     // See screens for every store they oversee
     Permissions.SignageDevicesRead,
+    Permissions.TicketsApprove, Permissions.KbRead,
   ],
   [Roles.Finance]: [
     Permissions.CatalogRead, Permissions.AssetsRead, Permissions.StockRead,

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="24" fill="#0f172a"/>
+  <text x="64" y="86" font-family="Inter, system-ui, sans-serif" font-size="56" font-weight="800" fill="#e2e8f0" text-anchor="middle">FF</text>
+  <circle cx="100" cy="30" r="10" fill="#ef4444"/>
+</svg>

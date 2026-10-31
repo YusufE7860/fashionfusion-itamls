@@ -104,6 +104,7 @@ export function HelpdeskNew() {
             <label className="label">2. What's the problem? *</label>
             <input className="field" placeholder="e.g. POS3 won't print receipts" maxLength={200}
               value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+            <DeflectionSuggestions subject={form.subject} categoryId={form.categoryId} />
           </div>
           <div>
             <label className="label">Priority *</label>
@@ -188,5 +189,38 @@ export function HelpdeskNew() {
         </div>
       </section>
     </>
+  );
+}
+
+/**
+ * KB deflection — shows up to 5 KB articles matching the typed subject.
+ * If one of them actually resolves the user's problem they can close the
+ * tab without logging a ticket.
+ */
+function DeflectionSuggestions({ subject, categoryId }: { subject: string; categoryId: string }) {
+  const q = useQuery({
+    queryKey: ['deflect', subject, categoryId],
+    queryFn: () => api.get('/helpdesk/kb/deflection/suggest', {
+      params: { subject, categoryId },
+    }).then((r) => r.data),
+    enabled: subject.trim().length >= 4,
+    staleTime: 10_000,
+  });
+  if (!q.data?.length) return null;
+  return (
+    <div className="mt-2 rounded border border-sky-200 bg-sky-50 p-2 text-[11px] text-sky-900">
+      <div className="font-semibold">May already be answered in the knowledge base:</div>
+      <ul className="mt-1 space-y-0.5">
+        {q.data.map((a: any) => (
+          <li key={a.id}>
+            → <a href={`/helpdesk/kb/${a.slug}`} target="_blank" rel="noreferrer" className="underline">
+                {a.title}
+              </a>
+            {' '}· <span className="text-sky-700">{a.helpfulYes}👍</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-1 text-sky-700">If none of these help, continue below.</div>
+    </div>
   );
 }
