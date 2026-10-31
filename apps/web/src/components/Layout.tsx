@@ -14,6 +14,8 @@ import { FusionMark } from './FusionMark';
 import { ForceChangePasswordModal } from './ForceChangePasswordModal';
 import { InactivityGuard } from './InactivityGuard';
 import { InstallPrompt } from './InstallPrompt';
+import { Download } from 'lucide-react';
+import { useInstall } from '@/hooks/useInstall';
 
 type SingleItem  = { kind: 'single'; id: string; label: string; icon: any; to: string; end?: boolean };
 type GroupItem   = { kind: 'group';  id: string; label: string; icon: any; items: { to: string; label: string; end?: boolean }[] };
@@ -127,6 +129,10 @@ export function Layout() {
   // tapping a nav link doesn't leave the drawer covering the content.
   const [drawerOpen, setDrawerOpen] = useState(false);
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
+
+  // Manual install trigger — surfaced in the user card below for anyone who
+  // dismissed the banner but later wants the installed app.
+  const install = useInstall();
 
   // Load per-user sidebar preferences (order + hide/show).
   const prefs = useQuery({
@@ -337,6 +343,14 @@ export function Layout() {
                 <div className="truncate text-[11px] uppercase tracking-wider text-brand-600">{user.role.replaceAll('_',' ')}</div>
               </div>
             </div>
+          )}
+          {install.canInstall && (
+            <button
+              onClick={() => install.promptInstall()}
+              className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-brand-500 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-100 transition-colors"
+              title="Add ITAMLS to your home screen (mobile) or Start menu / Dock (desktop)">
+              <Download size={13}/> Install app
+            </button>
           )}
           <button onClick={logout} className="flex w-full items-center justify-center gap-2 rounded-md border border-ink-500 bg-white px-3 py-1.5 text-xs font-medium text-ink-200 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 transition-colors">
             <LogOut size={13}/> Sign out

@@ -17,18 +17,46 @@ export default defineConfig({
       manifest: {
         name: 'Fashion Fusion ITAMLS',
         short_name: 'ITAMLS',
-        description: 'IT Asset Management, Helpdesk, Signage & RMM',
+        description: 'IT Asset Management, Helpdesk, Signage & RMM — install as a desktop/mobile app for faster access.',
+        // 'standalone' = own window, no browser chrome. Works identically on
+        // mobile (home-screen icon) and desktop (taskbar / Dock icon).
+        display: 'standalone',
+        // Fall back to 'minimal-ui' then 'browser' on older desktop browsers.
+        display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
         theme_color: '#0f172a',
         background_color: '#f8fafc',
-        display: 'standalone',
         orientation: 'any',
         start_url: '/',
         scope: '/',
+        id: '/',
+        lang: 'en-ZA',
+        dir: 'ltr',
+        // Categories hint helps desktop app menus (Windows Start, GNOME) group
+        // the app alongside other productivity tools.
+        categories: ['productivity', 'business', 'utilities'],
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
           { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
+        // Right-click shortcuts on the installed app's taskbar / dock icon.
+        // Chrome / Edge render these as a jumplist menu.
+        shortcuts: [
+          { name: 'Log a ticket',    short_name: 'Log',     url: '/helpdesk/new',       description: 'Open the New Ticket form' },
+          { name: 'Helpdesk queue',  short_name: 'Queue',   url: '/helpdesk',           description: 'See every open ticket' },
+          { name: 'Signage players', short_name: 'Signage', url: '/signage/devices',    description: 'TV / media player status' },
+          { name: 'Dashboard',       short_name: 'Home',    url: '/',                   description: 'Overview + alerts' },
+        ],
+        // When present, Chrome's desktop install dialog shows these as a
+        // preview carousel so the user knows what they're installing.
+        screenshots: [
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', form_factor: 'wide', label: 'Dashboard' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', form_factor: 'narrow', label: 'Dashboard (mobile)' },
+        ],
+        // Lets the user open ITAMLS as the default handler for URLs like
+        // https://it.ffgsa.co.za/... when the PWA is installed on desktop.
+        handle_links: 'preferred',
+        launch_handler: { client_mode: 'navigate-existing' },
       },
       workbox: {
         navigateFallback: '/index.html',
