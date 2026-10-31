@@ -943,6 +943,7 @@ model TicketCategory {
   tickets          Ticket[]
   cannedResponses  CannedResponse[]
   kbArticles       KbArticle[]      @relation("KbCategoryArticles")
+  scheduledTickets ScheduledTicket[]
 }
 
 // =========================================================================
