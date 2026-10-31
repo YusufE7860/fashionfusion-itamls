@@ -284,7 +284,17 @@ export function HelpdeskReports() {
                 </div>
                 <div className="space-y-1">
                   {[5,4,3,2,1].map((n) => {
-                    const count = r.satisfaction.buckets?.[n] ?? 0;
+                    // Server returns `buckets` as [{rating, count}, …] now;
+                    // older builds returned a dict {1: n, 2: n, …}. Handle
+                    // both so we never render an object directly (React #31).
+                    const b = r.satisfaction.buckets;
+                    let count = 0;
+                    if (Array.isArray(b)) {
+                      count = b.find((x: any) => x?.rating === n)?.count ?? 0;
+                    } else if (b && typeof b === 'object') {
+                      const v = b[n];
+                      count = typeof v === 'number' ? v : (v?.count ?? 0);
+                    }
                     const total = r.satisfaction.totalRatings || 1;
                     const pct = Math.round((count / total) * 100);
                     return (
