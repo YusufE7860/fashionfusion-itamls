@@ -34,26 +34,85 @@ export class LegacyImportService {
     await wb.xlsx.load(buffer);
     const ws = wb.worksheets[0];
     const rows: any[] = [];
-    let headerIdx = -1;
-    ws.eachRow({ includeEmpty: false }, (row, idx) => {
-      const vals = (row.values as any[]).map((v) => String(v ?? '').trim());
-      if (headerIdx < 0) {
-        if (vals.includes('Request ID') && vals.includes('Subject')) headerIdx = idx;
-        return;
+
+    // ME exports have 7 rows of header metadata before the real header. We
+    // search the first 30 rows for a row containing both "Request ID" and
+    // "Subject", then build a column-name → index map from THAT row so we
+    // tolerate any column order and any extra meta rows.
+    const cellText = (c: any): string => {
+      // Normalise every cell shape ExcelJS can return
+      if (c == null) return '';
+      if (c instanceof Date) return c.toISOString();
+      if (typeof c === 'object') {
+        // hyperlink { text, hyperlink }  OR  rich-text { richText: [...] }  OR  formula { result }
+        if ('text' in c)      return String(c.text ?? '').trim();
+        if ('result' in c)    return String(c.result ?? '').trim();
+        if ('richText' in c)  return (c.richText as any[]).map((r) => r.text).join('').trim();
+        return '';
       }
-      const [, requestId, subject, description, requester, technician, createdTime, status] = vals;
-      if (!requestId || !subject) return;
-      const parsed = Date.parse(createdTime);
+      return String(c).trim();
+    };
+
+    // Walk ALL rows (empty rows retained so idx matches the sheet) to find
+    // the header, then map the data rows after it.
+    let headerIdx = -1;
+    let colMap: Record<string, number> = {};
+
+    const totalRows = ws.rowCount;
+    for (let r = 1; r <= Math.min(totalRows, 30); r++) {
+      const row = ws.getRow(r);
+      const texts: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell, col) => {
+        texts[col] = cellText(cell.value);
+      });
+      if (texts.some((t) => t === 'Request ID') && texts.some((t) => t === 'Subject')) {
+        headerIdx = r;
+        texts.forEach((t, i) => { if (t) colMap[t] = i; });
+        break;
+      }
+    }
+
+    if (headerIdx < 0) {
+      throw new Error(
+        'Could not find a row containing "Request ID" + "Subject" in the first 30 rows. ' +
+        'Is this a ManageEngine Request Framework export?',
+      );
+    }
+
+    const colOf = (name: string): number => colMap[name] ?? -1;
+    const C_ID        = colOf('Request ID');
+    const C_SUBJECT   = colOf('Subject');
+    const C_DESC      = colOf('Description');
+    const C_REQUESTER = colOf('Requester');
+    const C_TECH      = colOf('Technician');
+    const C_CREATED   = colOf('Created Time');
+    const C_STATUS    = colOf('Request Status');
+
+    for (let r = headerIdx + 1; r <= totalRows; r++) {
+      const row = ws.getRow(r);
+      const requestId   = cellText(row.getCell(C_ID).value);
+      const subject     = cellText(row.getCell(C_SUBJECT).value);
+      if (!requestId || !subject) continue;
+      const description = cellText(row.getCell(C_DESC).value);
+      const requester   = cellText(row.getCell(C_REQUESTER).value);
+      const technician  = cellText(row.getCell(C_TECH).value);
+      const createdRaw  = row.getCell(C_CREATED).value;
+      const status      = cellText(row.getCell(C_STATUS).value);
+
+      let createdTime: Date;
+      if (createdRaw instanceof Date) createdTime = createdRaw;
+      else {
+        const parsed = Date.parse(cellText(createdRaw));
+        createdTime = Number.isNaN(parsed) ? new Date() : new Date(parsed);
+      }
+
       rows.push({
         requestId: String(requestId),
-        subject: String(subject).slice(0, 300),
+        subject: subject.slice(0, 300),
         description: this.stripHtml(description),
-        requester: String(requester ?? ''),
-        technician: String(technician ?? ''),
-        createdTime: Number.isNaN(parsed) ? new Date() : new Date(parsed),
-        status: String(status ?? ''),
+        requester, technician, createdTime, status,
       });
-    });
+    }
     return rows;
   }
 
