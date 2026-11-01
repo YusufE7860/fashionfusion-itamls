@@ -53,56 +53,62 @@ export class LegacyImportService {
       return String(c).trim();
     };
 
-    // Walk ALL rows (empty rows retained so idx matches the sheet) to find
-    // the header, then map the data rows after it.
+    // Single pass with eachRow — gives us a *distinct* row object per
+    // iteration. Earlier getRow(n).getCell(col) approach was returning
+    // stale/cached cell values from the first data row, so every subsequent
+    // iteration had the same requestId and `findUnique` hit.
     let headerIdx = -1;
-    let colMap: Record<string, number> = {};
+    const colMap: Record<string, number> = {};
 
-    const totalRows = ws.rowCount;
-    for (let r = 1; r <= Math.min(totalRows, 30); r++) {
-      const row = ws.getRow(r);
+    // Pre-scan to find the header + build colMap
+    ws.eachRow({ includeEmpty: false }, (row, idx) => {
+      if (headerIdx >= 0) return;
       const texts: string[] = [];
       row.eachCell({ includeEmpty: true }, (cell, col) => {
         texts[col] = cellText(cell.value);
       });
       if (texts.some((t) => t === 'Request ID') && texts.some((t) => t === 'Subject')) {
-        headerIdx = r;
+        headerIdx = idx;
         texts.forEach((t, i) => { if (t) colMap[t] = i; });
-        break;
       }
-    }
+    });
 
     if (headerIdx < 0) {
       throw new Error(
-        'Could not find a row containing "Request ID" + "Subject" in the first 30 rows. ' +
+        'Could not find a row containing "Request ID" + "Subject" in the sheet. ' +
         'Is this a ManageEngine Request Framework export?',
       );
     }
 
-    const colOf = (name: string): number => colMap[name] ?? -1;
-    const C_ID        = colOf('Request ID');
-    const C_SUBJECT   = colOf('Subject');
-    const C_DESC      = colOf('Description');
-    const C_REQUESTER = colOf('Requester');
-    const C_TECH      = colOf('Technician');
-    const C_CREATED   = colOf('Created Time');
-    const C_STATUS    = colOf('Request Status');
+    // Now iterate data rows and read cells INSIDE the eachRow callback so
+    // we use the row object the callback actually provides (not getRow(n)).
+    ws.eachRow({ includeEmpty: false }, (row, idx) => {
+      if (idx <= headerIdx) return;
 
-    for (let r = headerIdx + 1; r <= totalRows; r++) {
-      const row = ws.getRow(r);
-      const requestId   = cellText(row.getCell(C_ID).value);
-      const subject     = cellText(row.getCell(C_SUBJECT).value);
-      if (!requestId || !subject) continue;
-      const description = cellText(row.getCell(C_DESC).value);
-      const requester   = cellText(row.getCell(C_REQUESTER).value);
-      const technician  = cellText(row.getCell(C_TECH).value);
-      const createdRaw  = row.getCell(C_CREATED).value;
-      const status      = cellText(row.getCell(C_STATUS).value);
+      // Pull every cell by column number using row.eachCell — same mechanism
+      // we used to build colMap, so indices line up.
+      const cells: string[] = [];
+      const rawCells: any[]  = [];
+      row.eachCell({ includeEmpty: true }, (cell, col) => {
+        cells[col]    = cellText(cell.value);
+        rawCells[col] = cell.value;
+      });
+
+      const requestId   = cells[colMap['Request ID']]      ?? '';
+      const subject     = cells[colMap['Subject']]         ?? '';
+      if (!requestId || !subject) return;
+
+      const description = cells[colMap['Description']]     ?? '';
+      const requester   = cells[colMap['Requester']]       ?? '';
+      const technician  = cells[colMap['Technician']]      ?? '';
+      const createdRaw  = rawCells[colMap['Created Time']];
+      const status      = cells[colMap['Request Status']]  ?? '';
 
       let createdTime: Date;
       if (createdRaw instanceof Date) createdTime = createdRaw;
       else {
-        const parsed = Date.parse(cellText(createdRaw));
+        const s = typeof createdRaw === 'string' ? createdRaw : cellText(createdRaw);
+        const parsed = Date.parse(s);
         createdTime = Number.isNaN(parsed) ? new Date() : new Date(parsed);
       }
 
@@ -112,7 +118,7 @@ export class LegacyImportService {
         description: this.stripHtml(description),
         requester, technician, createdTime, status,
       });
-    }
+    });
     return rows;
   }
 
