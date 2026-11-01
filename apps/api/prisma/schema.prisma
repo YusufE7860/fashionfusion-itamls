@@ -1892,14 +1892,14 @@ model TechSkill {
   @@index([skill])
 }
 
-/**
- * Role-based dashboard defaults.
- *
- * The existing DashboardWidget rows are per-user. When a user has NO widgets
- * yet (fresh seed, or clicked "reset to role default"), we populate theirs
- * from RoleDashboardWidget rows for their role.code. Admins curate role
- * defaults in Admin → Dashboard defaults.
- */
+//
+// Role-based dashboard defaults.
+//
+// The existing DashboardWidget rows are per-user. When a user has NO widgets
+// yet (fresh seed, or clicked "reset to role default"), we populate theirs
+// from RoleDashboardWidget rows for their role.code. Admins curate role
+// defaults in Admin → Dashboard defaults.
+//
 model RoleDashboardWidget {
   id         String   @id @default(cuid())
   roleCode   String                                  // ADMINISTRATOR | IT_MANAGER | ...
@@ -1912,11 +1912,11 @@ model RoleDashboardWidget {
   @@index([roleCode])
 }
 
-/**
- * Public status page — operator-posted incidents visible unauthenticated at
- * /status (and via /api/v1/public/status). Separate from Alerts because
- * incidents are PR-facing: deliberate, worded for store staff & customers.
- */
+//
+// Public status page — operator-posted incidents visible unauthenticated at
+// /status (and via /api/v1/public/status). Separate from Alerts because
+// incidents are PR-facing: deliberate, worded for store staff & customers.
+//
 model Incident {
   id            String    @id @default(cuid())
   title         String                              // "Group-wide POS outage"
@@ -1951,10 +1951,10 @@ model IncidentUpdate {
   @@index([incidentId, postedAt])
 }
 
-/**
- * Scheduled recurring report. Cron fires it on the schedule, renders the
- * named report, exports as the chosen format, and emails it to recipients.
- */
+//
+// Scheduled recurring report. Cron fires it on the schedule, renders the
+// named report, exports as the chosen format, and emails it to recipients.
+//
 model ScheduledReport {
   id             String    @id @default(cuid())
   name           String                                   // "Weekly helpdesk digest"
