@@ -17,6 +17,10 @@ import { HelpdeskV3Service } from './helpdesk-v3.service';
 import { HelpdeskV3Controller } from './helpdesk-v3.controller';
 import { HelpdeskExportsService } from './exports.service';
 import { HelpdeskExportsController } from './exports.controller';
+import { LegacyImportService } from './legacy-import.service';
+import { LegacyImportController } from './legacy-import.controller';
+import { OnCallService } from './oncall.service';
+import { OnCallController } from './oncall.controller';
 import { DiscoveryModule } from '../discovery/discovery.module';
 
 @Module({
@@ -24,13 +28,13 @@ import { DiscoveryModule } from '../discovery/discovery.module';
   controllers: [
     TicketsController, HelpdeskExternalController, PublicHelpdeskController,
     HelpdeskWebhooksController, CannedResponsesController, HelpdeskV3Controller,
-    HelpdeskExportsController,
+    HelpdeskExportsController, LegacyImportController, OnCallController,
   ],
   providers: [
     TicketsService, HelpdeskAdminService, TicketsCron, HelpdeskService,
     EmailIngestService, HelpdeskRoutingService, HelpdeskWebhooksService,
     CannedResponsesService, BusinessHoursService, HelpdeskV3Service,
-    HelpdeskExportsService,
+    HelpdeskExportsService, LegacyImportService, OnCallService,
   ],
   exports: [TicketsService],
 })

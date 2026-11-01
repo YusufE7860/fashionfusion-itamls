@@ -116,6 +116,7 @@ model User {
   ticketApprovalsAsked  TicketApproval[] @relation("TicketApprovalRequester")
   ticketApprovalsOwed   TicketApproval[] @relation("TicketApprovalApprover")
   techSkills            TechSkill[]      @relation("TechSkills")
+  onCallShifts          OnCallShift[]    @relation("OnCallTechnician")
 }
 
 // ---------- Catalog / Master Data ----------
@@ -1971,4 +1972,34 @@ model ScheduledReport {
   updatedAt      DateTime  @updatedAt
 
   @@index([isActive, nextRunAt])
+}
+
+// ------------------------------------------------------------------
+// On-call rota — who's working weekends / public holidays / after-hours.
+//
+// One row = one shift for one technician. Overlapping shifts are allowed
+// (two techs on the same day covering different stores), as are multiple
+// shifts for the same tech in the same day (morning + evening split).
+// ------------------------------------------------------------------
+model OnCallShift {
+  id          String   @id @default(cuid())
+  technicianId String
+  startAt     DateTime                                 // local-time inclusive start
+  endAt       DateTime                                 // local-time exclusive end
+  // Scope — who this shift covers. 'ALL' = all stores + AMs. Otherwise CSV
+  // of either region codes or store codes (prefix with "R:" or "S:"), e.g.
+  // "R:KZN,R:GP" covers KZN + Gauteng regions.
+  scope       String   @default("ALL")
+  notes       String?                                  // "Emergency only — call cell"
+  // Was this shift's weekend broadcast already emailed? Prevents double
+  // sending when the admin tweaks a shift after Friday's broadcast cron.
+  broadcastAt DateTime?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  technician  User @relation("OnCallTechnician", fields: [technicianId], references: [id])
+
+  @@index([startAt, endAt])
+  @@index([technicianId])
 }

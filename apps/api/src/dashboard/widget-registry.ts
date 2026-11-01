@@ -549,6 +549,57 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
       } catch { return { items: [] }; }
     },
   },
+
+  // ---------- On-call rota (shown on store + AM dashboards) ----------
+  {
+    type: 'oncall.now',
+    title: 'IT on-call now',
+    description: 'Technician currently on-call outside business hours',
+    category: 'Helpdesk',
+    kind: 'list',
+    defaultWidth: 'M',
+    fetch: async ({ prisma }) => {
+      const now = new Date();
+      const items = await prisma.onCallShift.findMany({
+        where: { startAt: { lte: now }, endAt: { gte: now } },
+        orderBy: { startAt: 'asc' },
+        include: { technician: { select: { fullName: true, email: true } } },
+      }).catch(() => []);
+      return {
+        items: items.map((s: any) => ({
+          id: s.id,
+          name: s.technician.fullName,
+          sub: `Until ${new Date(s.endAt).toLocaleString('en-ZA', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}  ·  ${s.notes ? s.notes : s.scope}`,
+        })),
+        emptyLabel: 'No technician on call right now — contact IT in business hours.',
+      };
+    },
+  },
+  {
+    type: 'oncall.upcoming',
+    title: 'IT on-call this week',
+    description: 'Who covers which day/time over the next 7 days',
+    category: 'Helpdesk',
+    kind: 'list',
+    defaultWidth: 'L',
+    fetch: async ({ prisma }) => {
+      const now = new Date();
+      const in7 = new Date(now.getTime() + 7 * 24 * 3600_000);
+      const items = await prisma.onCallShift.findMany({
+        where: { endAt: { gte: now }, startAt: { lte: in7 } },
+        orderBy: { startAt: 'asc' },
+        include: { technician: { select: { fullName: true } } },
+      }).catch(() => []);
+      return {
+        items: items.map((s: any) => ({
+          id: s.id,
+          name: `${new Date(s.startAt).toLocaleDateString('en-ZA', { weekday: 'short', day: '2-digit', month: 'short' })}: ${s.technician.fullName}`,
+          sub: `${new Date(s.startAt).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })} – ${new Date(s.endAt).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}  ·  ${s.scope}${s.notes ? '  ·  ' + s.notes : ''}`,
+        })),
+        emptyLabel: 'No weekend/after-hours cover scheduled.',
+      };
+    },
+  },
 ];
 
 export function registryFor(permissions: string[]): WidgetDefinition[] {

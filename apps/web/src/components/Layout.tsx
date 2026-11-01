@@ -59,7 +59,9 @@ const NAV: NavEntry[] = [
     { to: '/helpdesk/analytics',      label: 'Analytics' },
     { to: '/helpdesk/exports',        label: 'Report templates' },
     { to: '/helpdesk/audit',          label: 'Audit log' },
+    { to: '/helpdesk/import',         label: 'Import legacy tickets' },
     { to: '/helpdesk/business-hours', label: 'Business hours' },
+    { to: '/helpdesk/oncall',         label: 'On-call rota' },
     { to: '/helpdesk/admin',          label: 'Configuration' },
   ] },
 
