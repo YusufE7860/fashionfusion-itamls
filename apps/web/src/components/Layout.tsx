@@ -57,6 +57,7 @@ const NAV: NavEntry[] = [
     { to: '/helpdesk/kb',             label: 'Knowledge base' },
     { to: '/helpdesk/reports',        label: 'Reports' },
     { to: '/helpdesk/analytics',      label: 'Analytics' },
+    { to: '/helpdesk/exports',        label: 'Report templates' },
     { to: '/helpdesk/audit',          label: 'Audit log' },
     { to: '/helpdesk/business-hours', label: 'Business hours' },
     { to: '/helpdesk/admin',          label: 'Configuration' },

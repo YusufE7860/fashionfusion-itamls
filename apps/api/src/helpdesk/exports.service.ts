@@ -24,20 +24,40 @@ export class HelpdeskExportsService {
     const since = opts.since ?? new Date(Date.now() - 30 * 24 * 3600_000);
     const until = opts.until ?? new Date();
     switch (reportKey) {
-      case 'tickets.summary': return this.renderTicketsSummary(since, until);
-      case 'tickets.sla-breaches': return this.renderSlaBreaches(since, until);
-      case 'tickets.open': return this.renderOpenTickets();
-      case 'tickets.cost': return this.renderCostReport(since, until);
+      // Operational
+      case 'tickets.summary':             return this.renderTicketsSummary(since, until);
+      case 'tickets.sla-breaches':        return this.renderSlaBreaches(since, until);
+      case 'tickets.open':                return this.renderOpenTickets();
+      case 'tickets.cost':                return this.renderCostReport(since, until);
+      // Analytical (new)
+      case 'tickets.by-store':            return this.renderByStore(since, until);
+      case 'tickets.by-category':         return this.renderByCategory(since, until);
+      case 'tickets.technician-productivity': return this.renderTechProductivity(since, until);
+      case 'tickets.monthly-trend':       return this.renderMonthlyTrend(since, until);
+      case 'tickets.repeat-offender-assets': return this.renderRepeatOffenderAssets(since, until);
+      case 'tickets.repeat-offender-stores': return this.renderRepeatOffenderStores(since, until);
+      case 'tickets.csat-fcr':            return this.renderCsatFcr(since, until);
+      case 'tickets.deflection-impact':   return this.renderDeflectionImpact(since, until);
       default: throw new BadRequestException(`unknown reportKey: ${reportKey}`);
     }
   }
 
   availableReports() {
     return [
-      { key: 'tickets.summary',      label: 'Tickets — summary (count by status/priority/category)' },
-      { key: 'tickets.sla-breaches', label: 'Tickets — SLA breaches' },
-      { key: 'tickets.open',         label: 'Tickets — currently open' },
-      { key: 'tickets.cost',         label: 'Tickets — cost per ticket' },
+      // Operational
+      { key: 'tickets.summary',             label: 'Tickets — summary (every ticket in range)', group: 'Operational' },
+      { key: 'tickets.sla-breaches',        label: 'Tickets — SLA breaches',                     group: 'Operational' },
+      { key: 'tickets.open',                label: 'Tickets — currently open',                   group: 'Operational' },
+      { key: 'tickets.cost',                label: 'Tickets — cost per ticket (line items)',     group: 'Operational' },
+      // Analytical
+      { key: 'tickets.by-store',            label: 'Analytics — volume by store',                group: 'Analytics' },
+      { key: 'tickets.by-category',         label: 'Analytics — volume by category',             group: 'Analytics' },
+      { key: 'tickets.technician-productivity', label: 'Analytics — technician productivity',    group: 'Analytics' },
+      { key: 'tickets.monthly-trend',       label: 'Analytics — monthly volume trend',           group: 'Analytics' },
+      { key: 'tickets.repeat-offender-assets', label: 'Analytics — repeat-offender assets',      group: 'Analytics' },
+      { key: 'tickets.repeat-offender-stores', label: 'Analytics — repeat-offender stores',      group: 'Analytics' },
+      { key: 'tickets.csat-fcr',            label: 'Analytics — CSAT + FCR by category',         group: 'Analytics' },
+      { key: 'tickets.deflection-impact',   label: 'Analytics — KB deflection impact',           group: 'Analytics' },
     ];
   }
 
@@ -179,6 +199,257 @@ export class HelpdeskExportsService {
           totalR: (totalCents / 100).toFixed(2),
         };
       }),
+    };
+  }
+
+  // ------- Analytical reports -------
+  private async renderByStore(since: Date, until: Date) {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(`
+      SELECT s.code, s.name, s.region, s.entity,
+             COUNT(t.id)::int                                                   AS total,
+             SUM(CASE WHEN t.status NOT IN ('RESOLVED','CLOSED') THEN 1 ELSE 0 END)::int AS open,
+             SUM(CASE WHEN t."slaBreachedResolve" THEN 1 ELSE 0 END)::int        AS breached,
+             SUM(CASE WHEN t.priority = 'P1' THEN 1 ELSE 0 END)::int             AS p1,
+             SUM(CASE WHEN t.priority = 'P2' THEN 1 ELSE 0 END)::int             AS p2,
+             AVG(EXTRACT(EPOCH FROM (COALESCE(t."resolvedAt", t."updatedAt") - t."createdAt")))::int AS avg_resolve_s
+      FROM "Store" s
+      LEFT JOIN "Ticket" t ON t."storeId" = s.id AND t."createdAt" BETWEEN $1 AND $2
+      GROUP BY s.id, s.code, s.name, s.region, s.entity
+      ORDER BY total DESC NULLS LAST`, since, until);
+    return {
+      title: `Analytics — volume by store ${since.toISOString().slice(0,10)} → ${until.toISOString().slice(0,10)}`,
+      columns: [
+        { key: 'code',       header: 'Store code',  width: 12 },
+        { key: 'name',       header: 'Store name',  width: 25 },
+        { key: 'region',     header: 'Region',      width: 12 },
+        { key: 'entity',     header: 'Brand',       width: 15 },
+        { key: 'total',      header: 'Tickets',     width: 10 },
+        { key: 'open',       header: 'Still open',  width: 10 },
+        { key: 'breached',   header: 'SLA breaches', width: 12 },
+        { key: 'p1',         header: 'P1',          width: 6 },
+        { key: 'p2',         header: 'P2',          width: 6 },
+        { key: 'avg_resolve_hrs', header: 'Avg resolve (hrs)', width: 15 },
+      ],
+      rows: rows.map((r) => ({
+        ...r,
+        avg_resolve_hrs: r.avg_resolve_s ? (r.avg_resolve_s / 3600).toFixed(1) : '—',
+      })),
+    };
+  }
+
+  private async renderByCategory(since: Date, until: Date) {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(`
+      SELECT c.code, c.name, c."defaultPriority",
+             COUNT(t.id)::int                                                  AS total,
+             SUM(CASE WHEN t.status NOT IN ('RESOLVED','CLOSED') THEN 1 ELSE 0 END)::int AS open,
+             SUM(CASE WHEN t."slaBreachedResolve" THEN 1 ELSE 0 END)::int      AS breached,
+             AVG(EXTRACT(EPOCH FROM (COALESCE(t."resolvedAt", t."updatedAt") - t."createdAt")))::int AS avg_resolve_s,
+             SUM(t."labourMinutes")::int                                       AS labour_min,
+             SUM(t."partsCostCents")::int                                      AS parts_cents
+      FROM "TicketCategory" c
+      LEFT JOIN "Ticket" t ON t."categoryId" = c.id AND t."createdAt" BETWEEN $1 AND $2
+      GROUP BY c.id, c.code, c.name, c."defaultPriority"
+      ORDER BY total DESC NULLS LAST`, since, until);
+    return {
+      title: `Analytics — volume by category ${since.toISOString().slice(0,10)} → ${until.toISOString().slice(0,10)}`,
+      columns: [
+        { key: 'code', header: 'Code', width: 20 },
+        { key: 'name', header: 'Category', width: 35 },
+        { key: 'defaultPriority', header: 'Default pri', width: 10 },
+        { key: 'total', header: 'Tickets', width: 10 },
+        { key: 'open', header: 'Open', width: 8 },
+        { key: 'breached', header: 'Breached', width: 10 },
+        { key: 'avg_resolve_hrs', header: 'Avg resolve (hrs)', width: 15 },
+        { key: 'labour_hrs', header: 'Total labour (hrs)', width: 15 },
+        { key: 'parts_r', header: 'Parts cost (R)', width: 12 },
+      ],
+      rows: rows.map((r) => ({
+        ...r,
+        avg_resolve_hrs: r.avg_resolve_s ? (r.avg_resolve_s / 3600).toFixed(1) : '—',
+        labour_hrs: r.labour_min ? (r.labour_min / 60).toFixed(1) : '0',
+        parts_r:    r.parts_cents ? (r.parts_cents / 100).toFixed(2) : '0.00',
+      })),
+    };
+  }
+
+  private async renderTechProductivity(since: Date, until: Date) {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(`
+      SELECT u.id, u."fullName", u.email, r.code AS role,
+             COUNT(t.id)::int                                                   AS assigned,
+             SUM(CASE WHEN t.status IN ('RESOLVED','CLOSED') THEN 1 ELSE 0 END)::int AS resolved,
+             SUM(CASE WHEN t."slaBreachedResolve" THEN 1 ELSE 0 END)::int        AS breached,
+             AVG(EXTRACT(EPOCH FROM (COALESCE(t."resolvedAt", t."updatedAt") - t."createdAt")))::int AS avg_resolve_s,
+             AVG(t."satisfactionRating")::numeric(3,2)                           AS avg_csat,
+             SUM(t."labourMinutes")::int                                         AS labour_min
+      FROM "User" u
+      JOIN "Role" r ON r.id = u."roleId"
+      LEFT JOIN "Ticket" t ON t."assignedToId" = u.id AND t."createdAt" BETWEEN $1 AND $2
+      WHERE r.code IN ('TECHNICIAN','IT_MANAGER','ADMINISTRATOR')
+      GROUP BY u.id, u."fullName", u.email, r.code
+      ORDER BY resolved DESC NULLS LAST`, since, until);
+    return {
+      title: `Analytics — technician productivity ${since.toISOString().slice(0,10)} → ${until.toISOString().slice(0,10)}`,
+      columns: [
+        { key: 'fullName', header: 'Technician', width: 25 },
+        { key: 'role',     header: 'Role',       width: 15 },
+        { key: 'assigned', header: 'Assigned',   width: 10 },
+        { key: 'resolved', header: 'Resolved',   width: 10 },
+        { key: 'breached', header: 'Breaches',   width: 10 },
+        { key: 'resolve_rate', header: 'Resolve %', width: 10 },
+        { key: 'avg_resolve_hrs', header: 'Avg resolve (hrs)', width: 15 },
+        { key: 'avg_csat', header: 'CSAT (/5)', width: 10 },
+        { key: 'labour_hrs', header: 'Logged labour (hrs)', width: 15 },
+      ],
+      rows: rows.map((r) => ({
+        ...r,
+        resolve_rate: r.assigned > 0 ? `${Math.round((r.resolved / r.assigned) * 100)}%` : '—',
+        avg_resolve_hrs: r.avg_resolve_s ? (r.avg_resolve_s / 3600).toFixed(1) : '—',
+        labour_hrs: r.labour_min ? (r.labour_min / 60).toFixed(1) : '0',
+      })),
+    };
+  }
+
+  private async renderMonthlyTrend(since: Date, until: Date) {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(`
+      SELECT TO_CHAR(DATE_TRUNC('month', t."createdAt"), 'YYYY-MM') AS month,
+             COUNT(*)::int                                                      AS created,
+             SUM(CASE WHEN t."resolvedAt" IS NOT NULL THEN 1 ELSE 0 END)::int   AS resolved,
+             SUM(CASE WHEN t."slaBreachedResolve" THEN 1 ELSE 0 END)::int       AS breached,
+             SUM(CASE WHEN t.priority = 'P1' THEN 1 ELSE 0 END)::int            AS p1_count
+      FROM "Ticket" t
+      WHERE t."createdAt" BETWEEN $1 AND $2
+      GROUP BY 1
+      ORDER BY 1 ASC`, since, until);
+    return {
+      title: `Analytics — monthly volume trend ${since.toISOString().slice(0,10)} → ${until.toISOString().slice(0,10)}`,
+      columns: [
+        { key: 'month',    header: 'Month',    width: 10 },
+        { key: 'created',  header: 'Created',  width: 10 },
+        { key: 'resolved', header: 'Resolved', width: 10 },
+        { key: 'breached', header: 'Breaches', width: 10 },
+        { key: 'p1_count', header: 'P1 count', width: 10 },
+      ],
+      rows,
+    };
+  }
+
+  private async renderRepeatOffenderAssets(since: Date, until: Date) {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(`
+      SELECT a."assetTag", a."serialNo", sk.name AS sku,
+             s.code AS store, COUNT(t.id)::int AS n
+      FROM "Ticket" t
+      JOIN "Asset" a ON a.id = t."assetId"
+      JOIN "Sku" sk ON sk.id = a."skuId"
+      LEFT JOIN "Store" s ON s.id = a."assignedStoreId"
+      WHERE t."assetId" IS NOT NULL AND t."createdAt" BETWEEN $1 AND $2
+      GROUP BY a.id, a."assetTag", a."serialNo", sk.name, s.code
+      HAVING COUNT(t.id) >= 3
+      ORDER BY n DESC
+      LIMIT 100`, since, until);
+    return {
+      title: `Analytics — repeat-offender assets (≥3 tickets in range)`,
+      columns: [
+        { key: 'assetTag', header: 'Asset tag', width: 15 },
+        { key: 'sku',      header: 'Model',     width: 30 },
+        { key: 'serialNo', header: 'Serial',    width: 20 },
+        { key: 'store',    header: 'Store',     width: 10 },
+        { key: 'n',        header: 'Tickets',   width: 10 },
+      ],
+      rows,
+    };
+  }
+
+  private async renderRepeatOffenderStores(since: Date, until: Date) {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(`
+      SELECT s.code, s.name, c.name AS top_category, COUNT(t.id)::int AS category_count,
+             (SELECT COUNT(*)::int FROM "Ticket" t2
+                WHERE t2."storeId" = s.id AND t2."createdAt" BETWEEN $1 AND $2) AS total
+      FROM "Store" s
+      JOIN "Ticket" t ON t."storeId" = s.id AND t."createdAt" BETWEEN $1 AND $2
+      JOIN "TicketCategory" c ON c.id = t."categoryId"
+      GROUP BY s.id, s.code, s.name, c.id, c.name
+      HAVING COUNT(t.id) >= 5
+      ORDER BY total DESC, category_count DESC
+      LIMIT 50`, since, until);
+    return {
+      title: `Analytics — top store/category pairs (≥5 tickets in range)`,
+      columns: [
+        { key: 'code',        header: 'Store',        width: 10 },
+        { key: 'name',        header: 'Store name',   width: 25 },
+        { key: 'top_category', header: 'Category',    width: 30 },
+        { key: 'category_count', header: 'In cat.',   width: 10 },
+        { key: 'total',       header: 'Store total',  width: 12 },
+      ],
+      rows,
+    };
+  }
+
+  private async renderCsatFcr(since: Date, until: Date) {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(`
+      SELECT c.name,
+             COUNT(t.id)::int AS total,
+             SUM(CASE WHEN t.status IN ('RESOLVED','CLOSED') THEN 1 ELSE 0 END)::int AS resolved,
+             SUM(CASE WHEN t."isFirstContactResolution" THEN 1 ELSE 0 END)::int   AS fcr_count,
+             COUNT(t."satisfactionRating")::int                                   AS csat_sample,
+             AVG(t."satisfactionRating")::numeric(3,2)                            AS csat_avg
+      FROM "TicketCategory" c
+      LEFT JOIN "Ticket" t ON t."categoryId" = c.id AND t."createdAt" BETWEEN $1 AND $2
+      GROUP BY c.id, c.name
+      ORDER BY total DESC NULLS LAST`, since, until);
+    return {
+      title: `Analytics — CSAT + FCR by category ${since.toISOString().slice(0,10)} → ${until.toISOString().slice(0,10)}`,
+      columns: [
+        { key: 'name',         header: 'Category', width: 35 },
+        { key: 'total',        header: 'Total',    width: 10 },
+        { key: 'resolved',     header: 'Resolved', width: 10 },
+        { key: 'fcr_count',    header: 'FCR hits', width: 10 },
+        { key: 'fcr_rate',     header: 'FCR %',    width: 10 },
+        { key: 'csat_sample',  header: 'CSAT N',   width: 10 },
+        { key: 'csat_avg',     header: 'CSAT avg', width: 10 },
+      ],
+      rows: rows.map((r) => ({
+        ...r,
+        fcr_rate: r.resolved > 0 ? `${Math.round((r.fcr_count / r.resolved) * 100)}%` : '—',
+      })),
+    };
+  }
+
+  private async renderDeflectionImpact(since: Date, until: Date) {
+    // How often KB articles got views; which categories have published articles;
+    // tickets logged in categories WITH an article vs WITHOUT.
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(`
+      SELECT c.name AS category,
+             COUNT(DISTINCT kb.id)::int AS articles,
+             COALESCE(SUM(kb.views), 0)::int AS views,
+             COALESCE(SUM(kb."helpfulYes"), 0)::int AS thumbs_up,
+             COALESCE(SUM(kb."helpfulNo"), 0)::int  AS thumbs_down,
+             (SELECT COUNT(*)::int FROM "Ticket" t
+                WHERE t."categoryId" = c.id AND t."createdAt" BETWEEN $1 AND $2) AS tickets_still_logged
+      FROM "TicketCategory" c
+      LEFT JOIN "KbArticle" kb ON kb."categoryId" = c.id
+      GROUP BY c.id, c.name
+      HAVING COUNT(DISTINCT kb.id) > 0 OR
+             (SELECT COUNT(*) FROM "Ticket" t WHERE t."categoryId" = c.id AND t."createdAt" BETWEEN $1 AND $2) > 0
+      ORDER BY views DESC NULLS LAST`, since, until);
+    return {
+      title: `Analytics — KB deflection impact`,
+      columns: [
+        { key: 'category',             header: 'Category',           width: 35 },
+        { key: 'articles',             header: 'KB articles',        width: 12 },
+        { key: 'views',                header: 'KB views',           width: 10 },
+        { key: 'thumbs_up',            header: '👍',                  width: 6 },
+        { key: 'thumbs_down',          header: '👎',                  width: 6 },
+        { key: 'tickets_still_logged', header: 'Tickets still logged', width: 18 },
+        { key: 'deflection_hint',      header: 'Deflection hint',    width: 25 },
+      ],
+      rows: rows.map((r) => ({
+        ...r,
+        deflection_hint:
+          r.articles === 0  ? 'Consider writing a KB article' :
+          r.views === 0     ? 'Published but zero views — bad discoverability' :
+          r.tickets_still_logged > r.views * 2 ? 'Tickets dominate views — article may not be solving it' :
+          'Good — tickets ≤ views',
+      })),
     };
   }
 

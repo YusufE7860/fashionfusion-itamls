@@ -57,6 +57,7 @@ import { HelpdeskAdmin } from './pages/HelpdeskAdmin';
 import { HelpdeskBusinessHours } from './pages/HelpdeskBusinessHours';
 import { HelpdeskAnalytics } from './pages/HelpdeskAnalytics';
 import { HelpdeskAudit } from './pages/HelpdeskAudit';
+import { HelpdeskExports } from './pages/HelpdeskExports';
 import { KnowledgeBase } from './pages/KnowledgeBase';
 import { PublicStatus } from './pages/PublicStatus';
 import { useAuth } from './store/auth';
@@ -139,6 +140,7 @@ export function App() {
         <Route path="helpdesk/business-hours" element={<HelpdeskBusinessHours />} />
         <Route path="helpdesk/analytics"      element={<HelpdeskAnalytics />} />
         <Route path="helpdesk/audit"          element={<HelpdeskAudit />} />
+        <Route path="helpdesk/exports"        element={<HelpdeskExports />} />
         <Route path="helpdesk/kb"             element={<KnowledgeBase />} />
         <Route path="helpdesk/kb/:slug"       element={<KnowledgeBase />} />
       </Route>
