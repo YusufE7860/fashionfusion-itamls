@@ -353,6 +353,10 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
                 </p>
               </div>
 
+              {['TECHNICIAN','IT_MANAGER'].includes(detail.data.role.code) && (
+                <TechSkillsEditor userId={detail.data.id} />
+              )}
+
               <div className="mb-3 flex items-center justify-between">
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-ink-200">Module access</h4>
                 <p className="text-[11px] text-ink-300">
@@ -632,6 +636,52 @@ function StoreAccessModal({ userId, userName, onClose }: { userId: string; userN
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * TechSkillsEditor — comma-separated tag editor for a technician's skills.
+ * Routing uses these when a TicketCategory has `preferredSkill` set: new
+ * tickets are round-robined among techs holding that skill. Keep them short
+ * and canonical: POS, NETWORK, PRINTER, CCTV, SIGNAGE, POS-NEDBANK, etc.
+ */
+function TechSkillsEditor({ userId }: { userId: string }) {
+  const qc = useQueryClient();
+  const skills = useQuery({
+    queryKey: ['tech-skills', userId],
+    queryFn: () => api.get(`/helpdesk/users/${userId}/skills`).then((r) => r.data as any[]).catch(() => []),
+  });
+  const save = useMutation({
+    mutationFn: (list: Array<{ skill: string }>) =>
+      api.post(`/helpdesk/users/${userId}/skills`, { skills: list }).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tech-skills', userId] }),
+  });
+  const [draft, setDraft] = useState('');
+  // Keep the input seeded with the server value so the user can edit in-place.
+  // Only overwrite on initial load (don't clobber what they're typing).
+  useEffect(() => {
+    if (skills.data && draft === '') {
+      setDraft(skills.data.map((s) => s.skill).join(', '));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skills.data]);
+  return (
+    <div className="mb-4 rounded border border-ink-500/20 bg-slate-50 p-3">
+      <label className="label">Skills (comma-separated — used for category-based routing)</label>
+      <div className="flex gap-2">
+        <input className="field flex-1" placeholder="POS, NETWORK, PRINTER"
+          value={draft} onChange={(e) => setDraft(e.target.value)} />
+        <button className="btn-primary"
+          disabled={save.isPending}
+          onClick={() => {
+            const list = draft.split(',').map((s) => s.trim()).filter(Boolean).map((skill) => ({ skill }));
+            save.mutate(list);
+          }}>Save</button>
+      </div>
+      <p className="mt-1 text-[11px] text-ink-300">
+        Tickets in a category whose <b>Preferred skill</b> matches here will prefer this tech via round-robin.
+      </p>
     </div>
   );
 }

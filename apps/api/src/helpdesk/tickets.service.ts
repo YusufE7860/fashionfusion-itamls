@@ -154,6 +154,19 @@ export class TicketsService {
   // ============================================================
   //  Access control helpers
   // ============================================================
+  /** Resolve the user's role.code for field-level visibility checks. */
+  private roleCodeCache = new Map<string, { code: string; at: number }>();
+  private async getUserRoleCode(userId: string): Promise<string | null> {
+    const hit = this.roleCodeCache.get(userId);
+    if (hit && Date.now() - hit.at < 60_000) return hit.code;
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId }, select: { role: { select: { code: true } } },
+    });
+    const code = u?.role?.code ?? null;
+    if (code) this.roleCodeCache.set(userId, { code, at: Date.now() });
+    return code;
+  }
+
   private async allowedStoreIds(ctx: UserCtx): Promise<string[] | null> {
     if (ctx.permissions.includes('tickets:read:all')) return null; // no filter
 
@@ -379,6 +392,27 @@ export class TicketsService {
         ...(where.OR ?? []),
         { storeId: { in: allowed } },
         { reporterId: ctx.userId },
+      ];
+    }
+
+    // Field-level visibility — Ticket.visibility is a CSV of role codes
+    // allowed to see the ticket. Empty = everyone (default). We AND this on
+    // top of the store scope so a store user doesn't see a ticket flagged
+    // "ADMINISTRATOR,IT_MANAGER" just because it's for their store.
+    const myRole = await this.getUserRoleCode(ctx.userId);
+    if (myRole && myRole !== 'ADMINISTRATOR') {
+      where.AND = [
+        ...(where.AND ?? []),
+        {
+          OR: [
+            { visibility: '' },
+            { visibility: null },
+            { visibility: { contains: myRole } },
+            // Reporter + assignee always see their own ticket regardless
+            { reporterId: ctx.userId },
+            { assignedToId: ctx.userId },
+          ],
+        },
       ];
     }
 

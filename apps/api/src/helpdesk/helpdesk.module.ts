@@ -15,6 +15,8 @@ import { HelpdeskWebhooksService } from './webhooks.service';
 import { BusinessHoursService } from './business-hours.service';
 import { HelpdeskV3Service } from './helpdesk-v3.service';
 import { HelpdeskV3Controller } from './helpdesk-v3.controller';
+import { HelpdeskExportsService } from './exports.service';
+import { HelpdeskExportsController } from './exports.controller';
 import { DiscoveryModule } from '../discovery/discovery.module';
 
 @Module({
@@ -22,11 +24,13 @@ import { DiscoveryModule } from '../discovery/discovery.module';
   controllers: [
     TicketsController, HelpdeskExternalController, PublicHelpdeskController,
     HelpdeskWebhooksController, CannedResponsesController, HelpdeskV3Controller,
+    HelpdeskExportsController,
   ],
   providers: [
     TicketsService, HelpdeskAdminService, TicketsCron, HelpdeskService,
     EmailIngestService, HelpdeskRoutingService, HelpdeskWebhooksService,
     CannedResponsesService, BusinessHoursService, HelpdeskV3Service,
+    HelpdeskExportsService,
   ],
   exports: [TicketsService],
 })

@@ -39,6 +39,12 @@ export class HelpdeskV3Controller {
   @RequirePermissions(Permissions.TicketsMerge)
   linkTickets(@Body() body: any, @Req() req: any) { return this.svc.linkTickets(body, ctx(req)); }
 
+  @Post('tickets/:id/split')
+  @RequirePermissions(Permissions.TicketsMerge)
+  splitTicket(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return this.svc.splitTicket(id, body, ctx(req));
+  }
+
   @Delete('tickets/links/:linkId')
   @RequirePermissions(Permissions.TicketsMerge)
   unlinkTickets(@Param('linkId') lid: string) { return this.svc.unlinkTickets(lid); }

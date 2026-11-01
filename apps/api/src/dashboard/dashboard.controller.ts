@@ -35,4 +35,17 @@ export class DashboardController {
 
   @Get('widgets/:id/data')
   data(@Param('id') id: string, @Req() req: any) { return this.svc.data(id, ctxFor(req)); }
+
+  @Post('widgets/reset')
+  reset(@Req() req: any) { return this.svc.resetToRoleDefault(ctxFor(req)); }
+
+  // Role-default admin — admins pick a dashboard for each role so a brand-new
+  // STORE_MANAGER user doesn't open a blank page on their first login.
+  @Get('role-defaults/:roleCode')
+  roleDefaults(@Param('roleCode') code: string) { return this.svc.listRoleDefaults(code); }
+
+  @Post('role-defaults/:roleCode')
+  setRoleDefaults(@Param('roleCode') code: string, @Body() body: { items: any[] }) {
+    return this.svc.setRoleDefaults(code, body.items ?? []);
+  }
 }

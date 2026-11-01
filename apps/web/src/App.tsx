@@ -55,7 +55,10 @@ import { HelpdeskDetail } from './pages/HelpdeskDetail';
 import { HelpdeskReports } from './pages/HelpdeskReports';
 import { HelpdeskAdmin } from './pages/HelpdeskAdmin';
 import { HelpdeskBusinessHours } from './pages/HelpdeskBusinessHours';
+import { HelpdeskAnalytics } from './pages/HelpdeskAnalytics';
+import { HelpdeskAudit } from './pages/HelpdeskAudit';
 import { KnowledgeBase } from './pages/KnowledgeBase';
+import { PublicStatus } from './pages/PublicStatus';
 import { useAuth } from './store/auth';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -68,6 +71,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/status" element={<PublicStatus />} />
       <Route
         path="/"
         element={
@@ -133,6 +137,8 @@ export function App() {
         <Route path="helpdesk/reports"        element={<HelpdeskReports />} />
         <Route path="helpdesk/admin"          element={<HelpdeskAdmin />} />
         <Route path="helpdesk/business-hours" element={<HelpdeskBusinessHours />} />
+        <Route path="helpdesk/analytics"      element={<HelpdeskAnalytics />} />
+        <Route path="helpdesk/audit"          element={<HelpdeskAudit />} />
         <Route path="helpdesk/kb"             element={<KnowledgeBase />} />
         <Route path="helpdesk/kb/:slug"       element={<KnowledgeBase />} />
       </Route>

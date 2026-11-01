@@ -44,6 +44,30 @@ export class MailerService {
     }
   }
 
+  /** Send with file attachments (scheduled reports etc.) */
+  async sendWithAttachment(
+    to: string | string[], subject: string, html: string,
+    attachments: Array<{ filename: string; content: Buffer; contentType?: string }>,
+    text?: string,
+  ) {
+    const recipients = Array.isArray(to) ? to : [to];
+    if (recipients.length === 0) return;
+    if (!this.enabled || !this.transporter) {
+      this.logger.log(`[email-dry-run] to=${recipients.join(',')} subject="${subject}" attachments=${attachments.length}`);
+      return;
+    }
+    try {
+      const info = await this.transporter.sendMail({
+        from: this.from, to: recipients.join(','), subject, html,
+        text: text ?? stripHtml(html),
+        attachments,
+      });
+      this.logger.log(`Mail+attach sent: ${info.messageId} → ${recipients.join(',')}`);
+    } catch (e: any) {
+      this.logger.error(`Mail+attach send failed: ${e.message}`);
+    }
+  }
+
   /** Branded HTML template wrap. */
   wrap(title: string, bodyHtml: string) {
     return `

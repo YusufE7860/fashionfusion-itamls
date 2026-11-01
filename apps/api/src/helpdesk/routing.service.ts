@@ -55,10 +55,30 @@ export class HelpdeskRoutingService {
       }
     }
 
-    // 3. Fallback: category default
+    // 3. Fallback: category default assignee, or skill-based round-robin
+    // if the category has a preferredSkill. Skill routing picks the least-
+    // loaded tech holding that skill; if no tech holds it we drop back to
+    // the plain category default so tickets never get stuck.
     const cat = await this.prisma.ticketCategory.findUnique({
-      where: { id: categoryId }, select: { defaultAssigneeId: true },
+      where: { id: categoryId },
+      select: { defaultAssigneeId: true, preferredSkill: true },
     });
+    if (cat?.preferredSkill) {
+      const techs = await this.prisma.techSkill.findMany({
+        where: {
+          skill: cat.preferredSkill.toUpperCase(),
+          user: {
+            isActive: true,
+            role: { code: { in: ['TECHNICIAN', 'IT_MANAGER'] } },
+          },
+        },
+        select: { userId: true },
+      });
+      if (techs.length) {
+        const assignee = await this.leastLoadedOf(techs.map((t) => t.userId));
+        if (assignee) return { assigneeId: assignee, areaManagerId: null };
+      }
+    }
     return { assigneeId: cat?.defaultAssigneeId ?? null, areaManagerId: null };
   }
 

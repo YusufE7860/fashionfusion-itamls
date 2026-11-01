@@ -169,6 +169,76 @@ export class HelpdeskV3Service {
     return this.prisma.ticketLink.delete({ where: { id: linkId } });
   }
 
+  /**
+   * Split a ticket into a new child ticket. The child inherits the same
+   * category/store/priority as the parent but gets a fresh code + status NEW,
+   * optionally picking up a subset of the parent's comment IDs that then get
+   * moved (not copied — moving avoids duplicate conversations).
+   *
+   * The parent gets a RELATED link to the child via a `SPLIT_FROM` kind so
+   * both show up in each other's Related panel.
+   */
+  async splitTicket(parentId: string, dto: {
+    subject?: string;
+    description?: string;
+    priority?: string;
+    commentIds?: string[];
+  }, ctx: Ctx) {
+    if (!ctx.permissions.includes('tickets:merge')) {
+      throw new ForbiddenException('tickets:merge required to split tickets');
+    }
+    const parent = await this.prisma.ticket.findUnique({
+      where: { id: parentId },
+      include: { comments: { select: { id: true, authorId: true, body: true, isInternal: true, createdAt: true } } },
+    });
+    if (!parent) throw new NotFoundException();
+    const moveIds = new Set(dto.commentIds ?? []);
+    const code = await this.generateCode();
+    return this.prisma.$transaction(async (tx) => {
+      const child = await tx.ticket.create({
+        data: {
+          code,
+          subject:     dto.subject?.trim()     || `Split from ${parent.code}: ${parent.subject}`,
+          description: dto.description?.trim() || `Split off from ${parent.code}.`,
+          categoryId:  parent.categoryId,
+          priority:    dto.priority ?? parent.priority,
+          storeId:     parent.storeId,
+          departmentId: parent.departmentId,
+          reporterId:  parent.reporterId,
+          status:      'NEW',
+          source:      'APP',
+        },
+      });
+      // Move picked comments onto the child
+      if (moveIds.size) {
+        await tx.ticketComment.updateMany({
+          where: { id: { in: [...moveIds] }, ticketId: parentId },
+          data: { ticketId: child.id },
+        });
+      }
+      // Link the two tickets both ways
+      await tx.ticketLink.create({
+        data: { sourceId: child.id,  targetId: parentId, kind: 'DUPLICATE_OF',
+                notes: 'Split from parent', createdById: ctx.userId },
+      });
+      await tx.ticketLink.create({
+        data: { sourceId: parentId,  targetId: child.id, kind: 'RELATED',
+                notes: 'Split child', createdById: ctx.userId },
+      });
+      // Audit note on parent
+      await tx.ticketComment.create({
+        data: {
+          ticketId: parentId, authorId: ctx.userId, isInternal: true,
+          body: `Split into ${child.code} — ${child.subject}${moveIds.size ? ` (moved ${moveIds.size} comment(s))` : ''}`,
+        },
+      });
+      await tx.ticketEvent.create({
+        data: { ticketId: parentId, actorId: ctx.userId, eventType: 'CREATED', notes: `Split: created ${child.code}` },
+      });
+      return child;
+    });
+  }
+
   listLinks(ticketId: string) {
     return this.prisma.ticketLink.findMany({
       where: { OR: [{ sourceId: ticketId }, { targetId: ticketId }] },

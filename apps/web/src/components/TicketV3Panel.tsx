@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { useAuth } from '@/store/auth';
-import { Eye, Link as LinkIcon, Check, X, UserPlus, Trash2, TrendingUp } from 'lucide-react';
+import { Eye, Link as LinkIcon, Check, X, UserPlus, Trash2, TrendingUp, GitBranch } from 'lucide-react';
 
 /**
  * Right-side panel that groups all Helpdesk v3 widgets for a single ticket:
@@ -132,20 +132,35 @@ export function TicketV3Panel({ ticketId }: { ticketId: string }) {
           })}
         </ul>
         {canMerge && (
-          <button className="btn-ghost text-xs"
-            onClick={() => {
-              const code = prompt('Target ticket code (e.g. FF-2610-0042):');
-              if (!code?.trim()) return;
-              const kind = prompt('Kind: MERGED | RELATED | DUPLICATE_OF | BLOCKS | BLOCKED_BY', 'RELATED')?.toUpperCase();
-              if (!kind) return;
-              api.get(`/helpdesk/tickets?code=${encodeURIComponent(code.trim())}`).then((r) => {
-                const target = (r.data?.rows ?? r.data ?? []).find((t: any) => t.code === code.trim().toUpperCase());
-                if (!target) return alert(`No ticket found with code ${code}`);
-                addLink.mutate({ sourceId: ticketId, targetId: target.id, kind });
-              });
-            }}>
-            <LinkIcon size={11}/>Link to another ticket
-          </button>
+          <div className="flex flex-wrap gap-1">
+            <button className="btn-ghost text-xs"
+              onClick={() => {
+                const code = prompt('Target ticket code (e.g. FF-2610-0042):');
+                if (!code?.trim()) return;
+                const kind = prompt('Kind: MERGED | RELATED | DUPLICATE_OF | BLOCKS | BLOCKED_BY', 'RELATED')?.toUpperCase();
+                if (!kind) return;
+                api.get(`/helpdesk/tickets?code=${encodeURIComponent(code.trim())}`).then((r) => {
+                  const target = (r.data?.rows ?? r.data ?? []).find((t: any) => t.code === code.trim().toUpperCase());
+                  if (!target) return alert(`No ticket found with code ${code}`);
+                  addLink.mutate({ sourceId: ticketId, targetId: target.id, kind });
+                });
+              }}>
+              <LinkIcon size={11}/>Link
+            </button>
+            <button className="btn-ghost text-xs"
+              onClick={() => {
+                const subject = prompt('Subject for the new child ticket:');
+                if (!subject?.trim()) return;
+                api.post(`/helpdesk/tickets/${ticketId}/split`, { subject: subject.trim() })
+                  .then((r) => {
+                    alert(`Split created: ${r.data.code}. Open the Related panel to see it.`);
+                    qc.invalidateQueries({ queryKey: ['t-links', ticketId] });
+                  })
+                  .catch((e: any) => alert(e?.response?.data?.message ?? 'Split failed'));
+              }}>
+              <GitBranch size={11}/>Split
+            </button>
+          </div>
         )}
       </section>
 

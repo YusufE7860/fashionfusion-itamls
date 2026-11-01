@@ -123,6 +123,34 @@ export class DashboardService {
   async seedDefaultsIfEmpty(ctx: UserCtx) {
     const count = await this.prisma.dashboardWidget.count({ where: { userId: ctx.userId } });
     if (count > 0) return { seeded: false };
+
+    // 1. Try role-based defaults first (admins can curate per-role dashboards).
+    const user = await this.prisma.user.findUnique({
+      where: { id: ctx.userId }, select: { role: { select: { code: true } } },
+    });
+    if (user?.role?.code) {
+      const roleDefaults = await this.prisma.roleDashboardWidget.findMany({
+        where: { roleCode: user.role.code }, orderBy: { sortOrder: 'asc' },
+      });
+      const applicable = roleDefaults
+        .map((r) => ({ r, def: definitionOf(r.widgetKey) }))
+        .filter(({ def }) => !!def)
+        .filter(({ def }) => !def!.requires || def!.requires.every((p) => ctx.permissions.includes(p)));
+      if (applicable.length) {
+        await this.prisma.$transaction(applicable.map(({ r, def }, i) =>
+          this.prisma.dashboardWidget.create({
+            data: {
+              userId: ctx.userId, type: def!.type,
+              width: r.width ?? def!.defaultWidth ?? 'M',
+              position: i,
+            },
+          }),
+        ));
+        return { seeded: applicable.length, source: 'role' };
+      }
+    }
+
+    // 2. Fallback: hard-coded safe default
     const picks = ['tickets.mineOpen','tickets.mineList','tickets.slaBreaches','tickets.recent']
       .map((t) => definitionOf(t))
       .filter((d): d is NonNullable<typeof d> => !!d)
@@ -130,6 +158,32 @@ export class DashboardService {
     await this.prisma.$transaction(picks.map((d, i) => this.prisma.dashboardWidget.create({
       data: { userId: ctx.userId, type: d.type, width: d.defaultWidth ?? 'M', position: i },
     })));
-    return { seeded: picks.length };
+    return { seeded: picks.length, source: 'fallback' };
+  }
+
+  /** Nuke the user's widgets and re-seed from role defaults. */
+  async resetToRoleDefault(ctx: UserCtx) {
+    await this.prisma.dashboardWidget.deleteMany({ where: { userId: ctx.userId } });
+    return this.seedDefaultsIfEmpty(ctx);
+  }
+
+  // ---------- Role-default admin ----------
+  listRoleDefaults(roleCode: string) {
+    return this.prisma.roleDashboardWidget.findMany({
+      where: { roleCode }, orderBy: { sortOrder: 'asc' },
+    });
+  }
+  async setRoleDefaults(roleCode: string, items: Array<{ widgetKey: string; width?: string }>) {
+    await this.prisma.roleDashboardWidget.deleteMany({ where: { roleCode } });
+    if (items.length) {
+      await this.prisma.roleDashboardWidget.createMany({
+        data: items.map((it, i) => ({
+          roleCode, widgetKey: it.widgetKey,
+          width: it.width ?? 'M', sortOrder: i,
+        })),
+        skipDuplicates: true,
+      });
+    }
+    return this.listRoleDefaults(roleCode);
   }
 }
