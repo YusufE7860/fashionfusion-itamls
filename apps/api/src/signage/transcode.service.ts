@@ -111,16 +111,25 @@ export class SignageTranscodeService {
         return;
       }
 
-      // 3. Transcode each applicable variant. SD always, HD if source >= 480p,
-      //    FHD if source >= 720p — no point upscaling.
+      // 3. Transcode each applicable variant. Dimensions swap for portrait
+      //    sources so a 1080x1920 vertical ad doesn't get crammed into a
+      //    854x480 landscape box with huge letterbox bars — the result would
+      //    look like a stamp in the middle of the TV. Portrait → portrait,
+      //    landscape → landscape, each at its native orientation.
+      const isPortrait = probe.height > probe.width;
+      const shortSide  = Math.min(probe.width, probe.height);
       for (const variant of VARIANTS) {
-        if (variant.h > probe.height) {
-          this.log.log(`Skipping ${variant.quality} — source only ${probe.height}p`);
+        const targetShort = Math.min(variant.w, variant.h);  // SD=480, HD=720, FHD=1080
+        if (targetShort > shortSide) {
+          this.log.log(`Skipping ${variant.quality} — source short-side ${shortSide}px < ${targetShort}px`);
           continue;
         }
+        // Swap target width/height for portrait sources.
+        const outW = isPortrait ? Math.min(variant.w, variant.h) : variant.w;
+        const outH = isPortrait ? Math.max(variant.w, variant.h) : variant.h;
         const outPath = path.join(workDir, `${variant.quality}.mp4`);
-        this.log.log(`Transcoding ${videoId} → ${variant.quality} (${variant.w}x${variant.h} @ ${variant.bitrate})`);
-        await this.runFfmpeg(localSrc, outPath, variant);
+        this.log.log(`Transcoding ${videoId} → ${variant.quality} (${outW}x${outH} @ ${variant.bitrate}, ${isPortrait ? 'portrait' : 'landscape'})`);
+        await this.runFfmpeg(localSrc, outPath, { ...variant, w: outW, h: outH });
 
         const stat = await fs.stat(outPath);
         const checksum = await this.md5(outPath);
@@ -131,14 +140,14 @@ export class SignageTranscodeService {
           where: { videoId_quality: { videoId, quality: variant.quality } },
           update: {
             storageKey, sizeBytes: BigInt(stat.size),
-            width: variant.w, height: variant.h,
+            width: outW, height: outH,
             bitrateKbps: parseInt(variant.bitrate, 10),
             codec: 'h264', checksum,
           },
           create: {
             videoId, quality: variant.quality, storageKey,
             sizeBytes: BigInt(stat.size),
-            width: variant.w, height: variant.h,
+            width: outW, height: outH,
             bitrateKbps: parseInt(variant.bitrate, 10),
             codec: 'h264', checksum,
           },
