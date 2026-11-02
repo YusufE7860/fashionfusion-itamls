@@ -133,7 +133,40 @@ export const PREDEFINED_SCRIPTS: Record<string, { description: string; cmd: stri
 
 @Injectable()
 export class RemoteExecService {
+  // One-off migration window: when hmacBypassUntil is in the future, the
+  // config endpoint omits the hmac field from command payloads so devices
+  // whose agents are on the pre-HMAC-canonicalization-fix code can still
+  // accept RUN_PREDEFINED (e.g. signage-reinstall). The agent's _verify
+  // treats a missing hmac field as "accept non-SHELL_EXEC commands".
+  //
+  // In-memory on purpose — the whole point is a short safety-release window
+  // for a fleet reinstall, not a persistent policy. A container restart
+  // immediately drops the bypass.
+  private static hmacBypassUntil: Date | null = null;
+
   constructor(private prisma: PrismaService) {}
+
+  static isHmacBypassActive(): boolean {
+    return !!RemoteExecService.hmacBypassUntil
+      && RemoteExecService.hmacBypassUntil.getTime() > Date.now();
+  }
+
+  getHmacBypassUntil(): Date | null {
+    return RemoteExecService.isHmacBypassActive() ? RemoteExecService.hmacBypassUntil : null;
+  }
+
+  async setHmacBypass(minutes: number, ctx: Ctx): Promise<{ until: Date | null }> {
+    if (!ctx.permissions.includes('agents:remote-manage')) {
+      throw new ForbiddenException('agents:remote-manage required');
+    }
+    if (!minutes || minutes <= 0) {
+      RemoteExecService.hmacBypassUntil = null;
+      return { until: null };
+    }
+    const cap = Math.min(minutes, 60);  // never more than 60 min
+    RemoteExecService.hmacBypassUntil = new Date(Date.now() + cap * 60_000);
+    return { until: RemoteExecService.hmacBypassUntil };
+  }
 
   // ---------- Fleet-wide freeze (kill switch) ----------
 

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException, UnauthorizedExcepti
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { RemoteExecService } from './remote-exec.service';
 
 const OFFLINE_THRESHOLD_MS = 3 * 60 * 1000;
 const KEY_PREFIX = 'signage/';
@@ -308,7 +309,17 @@ export class SignageService {
       mpvExtraArgs,
       perfProfile: resolvedProfile,
       pendingAction,
-      pendingCommands: pendingCommands.map((c) => ({ id: c.id, kind: c.kind, payload: c.payload, hmac: c.hmac })),
+      pendingCommands: pendingCommands.map((c) => {
+        // Omit hmac during the recovery bypass window so agents on an older
+        // canonicalizer accept the command (the agent treats a missing hmac
+        // field as "accept non-SHELL_EXEC commands"). SHELL_EXEC still has
+        // its hmac baked in — the one-off bypass is for RUN_PREDEFINED only.
+        const bypass = (RemoteExecService as any).isHmacBypassActive?.() ?? false;
+        if (bypass && c.kind !== 'SHELL_EXEC') {
+          return { id: c.id, kind: c.kind, payload: c.payload };
+        }
+        return { id: c.id, kind: c.kind, payload: c.payload, hmac: c.hmac };
+      }),
       // Agent compares this; when it changes, it purges cache and re-downloads.
       resyncToken: device.forceResyncAt ? device.forceResyncAt.toISOString() : null,
     };

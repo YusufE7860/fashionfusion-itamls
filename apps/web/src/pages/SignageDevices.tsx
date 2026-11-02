@@ -45,32 +45,81 @@ export function SignageDevices() {
     onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not toggle freeze'),
   });
 
+  // One-off HMAC bypass used to recover a fleet whose agents are on an older
+  // canonicalizer. See RemoteExecService — poll freshly every 20s so the
+  // "active" banner clears automatically when the window expires.
+  const hmacBypass = useQuery({
+    queryKey: ['hmac-bypass'],
+    queryFn: () => api.get('/signage/exec/hmac-bypass').then((r) => r.data).catch(() => null),
+    refetchInterval: 20_000,
+  });
+  const setHmacBypass = useMutation({
+    mutationFn: (minutes: number) =>
+      api.post('/signage/exec/hmac-bypass', { minutes }).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hmac-bypass'] }),
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not toggle HMAC bypass'),
+  });
+  const bypassActive = !!hmacBypass.data?.until && new Date(hmacBypass.data.until).getTime() > Date.now();
+  const bypassMinsLeft = bypassActive
+    ? Math.max(0, Math.ceil((new Date(hmacBypass.data.until).getTime() - Date.now()) / 60_000))
+    : 0;
+
   return (
     <>
       <PageHeader
         title="Signage — Media players"
         subtitle={`${online} of ${total} players online`}
         actions={canManage && (
-          freeze.data?.frozen ? (
-            <button className="btn-ghost text-emerald-700"
-              onClick={() => {
-                if (!confirm('Unfreeze the fleet? Queued commands will start executing.')) return;
-                toggleFreeze.mutate({ frozen: false });
-              }}>
-              <Shield size={13}/>Unfreeze fleet
-            </button>
-          ) : (
-            <button className="btn-ghost text-rose-600"
-              onClick={() => {
-                const reason = prompt('Reason for freezing (audited):');
-                if (!reason?.trim()) return;
-                toggleFreeze.mutate({ frozen: true, reason });
-              }}>
-              <ShieldAlert size={13}/>Freeze fleet
-            </button>
-          )
+          <>
+            {bypassActive ? (
+              <button className="btn-ghost text-amber-700"
+                onClick={() => {
+                  if (!confirm('End the HMAC bypass window early?')) return;
+                  setHmacBypass.mutate(0);
+                }}>
+                Bypass active · {bypassMinsLeft}m — end now
+              </button>
+            ) : (
+              <button className="btn-ghost text-amber-700"
+                onClick={() => {
+                  if (!confirm(
+                    'Enable a 15-minute window where RUN_PREDEFINED commands are sent WITHOUT HMAC.\n\n' +
+                    'Use ONLY to recover devices whose agents can\'t verify HMAC yet. ' +
+                    'After rolling out signage-reinstall across the fleet, end the window or let it expire.',
+                  )) return;
+                  setHmacBypass.mutate(15);
+                }}>
+                Enable HMAC bypass (15m)
+              </button>
+            )}
+            {freeze.data?.frozen ? (
+              <button className="btn-ghost text-emerald-700"
+                onClick={() => {
+                  if (!confirm('Unfreeze the fleet? Queued commands will start executing.')) return;
+                  toggleFreeze.mutate({ frozen: false });
+                }}>
+                <Shield size={13}/>Unfreeze fleet
+              </button>
+            ) : (
+              <button className="btn-ghost text-rose-600"
+                onClick={() => {
+                  const reason = prompt('Reason for freezing (audited):');
+                  if (!reason?.trim()) return;
+                  toggleFreeze.mutate({ frozen: true, reason });
+                }}>
+                <ShieldAlert size={13}/>Freeze fleet
+              </button>
+            )}
+          </>
         )}
       />
+      {bypassActive && (
+        <div className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+          <b>HMAC bypass active for the next {bypassMinsLeft} minute(s).</b> New RUN_PREDEFINED commands are
+          dispatched without a signature so pre-fix agents can accept them. Roll out <code>signage-reinstall</code>
+          to every device while this window is open; the setting auto-expires.
+        </div>
+      )}
       {freeze.data?.frozen && (
         <div className="mb-3 rounded border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
           <b>Fleet is FROZEN.</b> No commands are being dispatched to any device.

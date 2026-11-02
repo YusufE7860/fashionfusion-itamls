@@ -35,6 +35,18 @@ export class RemoteExecController {
     return this.svc.setFreeze(!!body.frozen, body.reason ?? null, ctxFor(req));
   }
 
+  /** HMAC bypass window — one-off recovery for a fleet whose agents are on
+   *  an older command-canonicalizer. See RemoteExecService for the long story. */
+  @Get('hmac-bypass')
+  @RequirePermissions(Permissions.SignageDevicesRead)
+  getHmacBypass() { return { until: this.svc.getHmacBypassUntil() }; }
+
+  @Post('hmac-bypass')
+  @RequirePermissions(Permissions.AgentsRemoteManage)
+  setHmacBypass(@Body() body: { minutes: number }, @Req() req: any) {
+    return this.svc.setHmacBypass(Number(body.minutes || 0), ctxFor(req));
+  }
+
   /** Queue a command for one device. Scoped + validated + signed. */
   @Post('devices/:id/queue')
   @RequirePermissions(Permissions.AgentsRemoteExec)

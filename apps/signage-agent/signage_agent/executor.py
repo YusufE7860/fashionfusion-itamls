@@ -53,9 +53,18 @@ class CommandExecutor:
     # ---- Signature ----
 
     def _canonical(self, cmd_id: str, kind: str, payload: Any) -> bytes:
+        # MUST match the server exactly. The server uses JavaScript's
+        # JSON.stringify({ id, kind, payload: payload ?? null }), which:
+        #   - preserves insertion order of top-level keys (id, kind, payload)
+        #   - does NOT sort nested keys
+        #   - uses default separators ("," and ":" with no space)
+        #   - encodes null, not "null"
+        # Python's json.dumps(...) with the dict literal below produces the
+        # same byte string as JavaScript on the server. Do NOT add sort_keys
+        # here — that silently diverges the two canonicals.
         return json.dumps(
             {"id": cmd_id, "kind": kind, "payload": payload if payload is not None else None},
-            separators=(",", ":"), sort_keys=True,
+            separators=(",", ":"), ensure_ascii=False,
         ).encode()
 
     def _verify(self, cmd: dict) -> bool:
