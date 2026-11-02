@@ -119,6 +119,7 @@ export function SignageVideos() {
               <th className="th text-left">Brand</th>
               <th className="th text-left">Orientation</th>
               <th className="th text-right">Size</th>
+              <th className="th text-left">Variants</th>
               <th className="th text-left">Uploaded</th>
               <th className="th text-left">By</th>
               <th className="th text-right">Actions</th>
@@ -126,7 +127,7 @@ export function SignageVideos() {
           </thead>
           <tbody>
             {items.data?.filter((v: any) => filterEntity === 'ALL' || (v.entity ?? 'BOTH') === filterEntity).length === 0 && (
-              <tr><td colSpan={7} className="py-6 text-center text-xs text-ink-300">No videos for this filter.</td></tr>
+              <tr><td colSpan={8} className="py-6 text-center text-xs text-ink-300">No videos for this filter.</td></tr>
             )}
             {items.data?.filter((v: any) => filterEntity === 'ALL' || (v.entity ?? 'BOTH') === filterEntity).map((v: any) => (
               <tr key={v.id} className="border-b border-ink-500/10">
@@ -154,6 +155,9 @@ export function SignageVideos() {
                 <td className="py-2 text-right text-xs">
                   {v.sizeBytes ? `${(Number(v.sizeBytes) / (1024*1024)).toFixed(1)} MB` : '—'}
                 </td>
+                <td className="py-2 text-xs">
+                  <TranscodeCell v={v} canWrite={canWrite} />
+                </td>
                 <td className="py-2 text-xs text-ink-300">{new Date(v.createdAt).toLocaleString()}</td>
                 <td className="py-2 text-xs">{v.uploadedBy?.fullName ?? '—'}</td>
                 <td className="py-2 text-right">
@@ -170,5 +174,53 @@ export function SignageVideos() {
         </table>
       </section>
     </>
+  );
+}
+
+/**
+ * Shows transcode status + variant chips (SD/HD/FHD) + a "re-transcode"
+ * button so admins can retry a failed job or re-encode after replacing the
+ * source. Status colours:
+ *   SKIPPED  = original was already H.264 ≤1080p, no transcode needed
+ *   PENDING  = queued, waiting for cron
+ *   RUNNING  = ffmpeg currently chewing on it
+ *   DONE     = all variants in MinIO
+ *   FAILED   = see the tooltip for ffmpeg stderr
+ */
+function TranscodeCell({ v, canWrite }: { v: any; canWrite: boolean }) {
+  const qc = useQueryClient();
+  const retry = useMutation({
+    mutationFn: () => api.post(`/signage/videos/${v.id}/transcode`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['signage-videos'] }),
+  });
+  const status = v.transcodeStatus ?? 'PENDING';
+  const colour =
+    status === 'DONE'    ? 'bg-emerald-100 text-emerald-700' :
+    status === 'SKIPPED' ? 'bg-slate-100 text-slate-500' :
+    status === 'RUNNING' ? 'bg-sky-100 text-sky-700 animate-pulse' :
+    status === 'FAILED'  ? 'bg-rose-100 text-rose-700' :
+                           'bg-amber-100 text-amber-700';
+  const variants: Array<{ quality: string; width?: number; height?: number }> = v.variants ?? [];
+  return (
+    <div className="flex items-center gap-1">
+      <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${colour}`}
+            title={v.transcodeError ?? ''}>
+        {status}
+      </span>
+      {variants.map((va) => (
+        <span key={va.quality}
+              className="rounded border border-emerald-300 bg-emerald-50 px-1 py-0.5 font-mono text-[10px] text-emerald-700"
+              title={va.width && va.height ? `${va.width}x${va.height}` : va.quality}>
+          {va.quality}
+        </span>
+      ))}
+      {canWrite && (status === 'FAILED' || status === 'DONE' || status === 'SKIPPED') && (
+        <button className="ml-1 text-[10px] text-brand-600 hover:underline"
+                onClick={() => retry.mutate()}
+                disabled={retry.isPending}>
+          retry
+        </button>
+      )}
+    </div>
   );
 }

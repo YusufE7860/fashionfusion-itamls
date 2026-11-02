@@ -29,8 +29,9 @@ RUN mkdir -p /app/apps/api/public/signage \
 
 # ---------- runtime ----------
 FROM node:20-alpine
-# openssl for prisma, git+docker-cli for the in-app self-updater
-RUN apk add --no-cache openssl tini git docker-cli
+# openssl for prisma, git+docker-cli for the in-app self-updater,
+# ffmpeg for signage video transcoding (SD/HD/FHD variants per device).
+RUN apk add --no-cache openssl tini git docker-cli ffmpeg
 # Install pnpm so we can run migrations / seed at runtime
 RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
 # Trust the mounted repo for the in-app self-updater (host UID != container UID)

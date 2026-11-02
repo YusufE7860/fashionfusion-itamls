@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from '@nestjs/common';
 import { SignageService } from './signage.service';
+import { SignageTranscodeService } from './transcode.service';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Permissions } from '../shared';
 
@@ -7,7 +8,13 @@ const ctxFor = (req: any) => ({ userId: req.user?.sub, permissions: req.user?.pe
 
 @Controller('signage')
 export class SignageAdminController {
-  constructor(private svc: SignageService) {}
+  constructor(private svc: SignageService, private transcode: SignageTranscodeService) {}
+
+  // Admin — re-queue a video's transcode (useful when the first attempt failed
+  // or marketing uploaded a replacement with the same ID).
+  @Post('videos/:id/transcode')
+  @RequirePermissions(Permissions.SignageVideosWrite)
+  retranscode(@Param('id') id: string) { return this.transcode.retranscode(id); }
 
   // ---------- Devices ----------
   // Read: visible to IT (devices:read) and store/AM users (same perm — the

@@ -105,4 +105,10 @@ export class StorageService implements OnModuleInit {
     await this.client.putObject(this.bucket, key, stream, size, { 'Content-Type': contentType });
     return key;
   }
+
+  /** Convenience — upload a local file by path. Used by signage transcoding. */
+  async putFile(key: string, localPath: string, contentType: string) {
+    await this.client.fPutObject(this.bucket, key, localPath, { 'Content-Type': contentType });
+    return key;
+  }
 }

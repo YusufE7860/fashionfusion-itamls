@@ -5,6 +5,7 @@ import { SignageAdminController } from './signage-admin.controller';
 import { SignageInstallerController } from './signage-installer.controller';
 import { RemoteExecService } from './remote-exec.service';
 import { RemoteExecController } from './remote-exec.controller';
+import { SignageTranscodeService } from './transcode.service';
 
 /**
  * Signage module.
@@ -18,7 +19,7 @@ import { RemoteExecController } from './remote-exec.controller';
     SignageAgentController, SignageAdminController, SignageInstallerController,
     RemoteExecController,
   ],
-  providers: [SignageService, RemoteExecService],
+  providers: [SignageService, RemoteExecService, SignageTranscodeService],
   exports: [SignageService],
 })
 export class SignageModule {}

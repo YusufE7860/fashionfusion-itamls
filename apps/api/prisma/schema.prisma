@@ -1008,7 +1008,7 @@ model SignageDevice {
 model SignageVideo {
   id              String   @id @default(cuid())
   filename        String
-  storageKey      String   @unique                // key inside the MinIO bucket
+  storageKey      String   @unique                // key inside the MinIO bucket (original upload)
   sizeBytes       BigInt?
   durationSeconds Int?
   checksum        String?
@@ -1018,8 +1018,14 @@ model SignageVideo {
   uploadedById    String?
   createdAt       DateTime @default(now())
 
+  // Transcode state — ffmpeg worker produces 480/720/1080 variants after upload
+  transcodeStatus String   @default("PENDING")    // PENDING | RUNNING | DONE | FAILED | SKIPPED
+  transcodeError  String?
+  transcodeAt     DateTime?
+
   uploadedBy     User?                 @relation("SignageVideoUploader", fields: [uploadedById], references: [id])
   playlistItems  SignagePlaylistItem[]
+  variants       SignageVideoVariant[]
 }
 
 model SignagePlaylist {
@@ -2002,4 +2008,30 @@ model OnCallShift {
 
   @@index([startAt, endAt])
   @@index([technicianId])
+}
+
+// ------------------------------------------------------------------
+// SignageVideoVariant — per-rendition copies produced by the ffmpeg
+// transcode worker. Each uploaded video gets up to three variants
+// (SD/HD/FHD) encoded as universally-decodable H.264 baseline so even
+// a Pi 3 can play them without hiccups. The config endpoint picks the
+// variant best matched to the device's perfProfile.
+// ------------------------------------------------------------------
+model SignageVideoVariant {
+  id         String   @id @default(cuid())
+  videoId    String
+  quality    String                                  // SD | HD | FHD
+  storageKey String                                  // MinIO key
+  sizeBytes  BigInt?
+  width      Int?
+  height     Int?
+  bitrateKbps Int?
+  codec      String?                                 // h264 | hevc | …
+  checksum   String?                                 // sha256
+  createdAt  DateTime @default(now())
+
+  video SignageVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, quality])
+  @@index([videoId])
 }

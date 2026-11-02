@@ -37,48 +37,75 @@ function pickProfile(d: { hwCpuModel?: string | null; hwArch?: string | null;
  * each box gets the right decoder + output path + cache sizing.
  */
 function flagsForProfile(profile: string): string[] {
+  // Shared smoothness flags — large read-ahead cache, prefetch the next
+  // playlist item during the final second of the current one, and tell mpv
+  // we're playing a loop (so it doesn't fight the user's expectation of a
+  // crossfade). `--profile=low-latency` is intentionally NOT used — signage
+  // isn't live, we want buffering to be aggressive, not minimal.
+  const SMOOTH_COMMON = [
+    '--demuxer-max-bytes=200MiB',       // allow pre-decoded data to sit in RAM
+    '--demuxer-max-back-bytes=50MiB',   // enough to seek backwards cleanly
+    '--prefetch-playlist=yes',          // open NEXT file as current nears end
+    '--audio-channels=stereo',
+  ];
   switch (profile) {
     case 'PI3':
       return [
         '--hwdec=v4l2m2m-copy',       // VideoCore IV HW decode via V4L2
         '--vo=gpu',
         '--gpu-context=drm',          // Console/kiosk default; mpv ignores on X
-        '--cache=yes', '--cache-secs=5',
+        '--cache=yes', '--cache-secs=20',
         '--vd-lavc-threads=4',
+        ...SMOOTH_COMMON,
       ];
     case 'PI4':
       return [
         '--hwdec=v4l2m2m-copy',
         '--vo=gpu',
         '--gpu-context=drm',
-        '--cache=yes', '--cache-secs=10',
+        '--cache=yes', '--cache-secs=30',
+        '--video-sync=display-resample',   // nudge video rate to match display
+        ...SMOOTH_COMMON,
       ];
     case 'PI5':
       return [
         '--hwdec=drm',                // Pi 5 has first-class DRM/KMS decode
         '--vo=gpu-next',
         '--gpu-context=drm',
-        '--cache=yes', '--cache-secs=15',
+        '--cache=yes', '--cache-secs=30',
+        '--video-sync=display-resample',
+        '--interpolation=yes',             // frame interpolation — looks silky
+        '--tscale=oversample',
+        ...SMOOTH_COMMON,
       ];
     case 'X86_VAAPI':
       return [
         '--hwdec=vaapi',
         '--vo=gpu-next',
-        '--cache=yes', '--cache-secs=15',
+        '--cache=yes', '--cache-secs=30',
+        '--video-sync=display-resample',
+        '--interpolation=yes',
+        '--tscale=oversample',
+        ...SMOOTH_COMMON,
       ];
     case 'X86_SW':
       return [
         '--hwdec=no',
         '--vo=gpu',
-        '--cache=yes', '--cache-secs=10',
+        '--cache=yes', '--cache-secs=20',
+        '--vd-lavc-threads=0',             // auto (uses all CPU cores)
+        '--video-sync=display-resample',
+        ...SMOOTH_COMMON,
       ];
     case 'LOW_END':
       return [
         '--hwdec=no',
         '--vo=gpu',
-        '--cache=yes', '--cache-secs=3',
-        '--demuxer-max-bytes=10M',
-        '--vf=scale=-2:720',           // Downscale anything above 720p
+        '--cache=yes', '--cache-secs=10',
+        '--demuxer-max-bytes=50MiB',
+        '--vf=scale=-2:720',               // Downscale anything above 720p
+        '--framedrop=vo',                  // Drop frames at display stage
+        '--prefetch-playlist=yes',
       ];
     case 'CUSTOM':
       // Nothing added — the agent config file provides its own mpv args
@@ -181,20 +208,62 @@ export class SignageService {
           || it.video.orientation === device.orientation),
     );
 
-    const resolvedItems = await Promise.all(items.map(async (it) => ({
-      videoId: it.videoId,
-      filename: it.video.filename,
-      checksum: it.video.checksum,
-      sizeBytes: it.video.sizeBytes ? Number(it.video.sizeBytes) : null,
-      durationSeconds: it.durationOverrideSeconds ?? it.video.durationSeconds,
-      orientation: it.video.orientation ?? 'ANY',
-      // Short-lived download URL — the agent uses this to pull the file
-      downloadUrl: await this.storage.presignedGet(it.video.storageKey, 3600).catch(() => null),
-    })));
-
     // Build mpv flags based on the device's performance profile. AUTO picks
     // one from the hardware the agent reported; explicit profiles override.
     const resolvedProfile = device.perfProfile === 'AUTO' ? pickProfile(device) : device.perfProfile;
+
+    // Pick the right transcode variant for this device's profile.
+    //   LOW_END / PI3           → SD   (480p)
+    //   PI4 / X86_SW            → HD   (720p)
+    //   PI5 / X86_VAAPI / else  → FHD  (1080p)
+    // If no variant exists yet (upload in flight, transcode not done),
+    // fall back to the original storageKey.
+    const preferredQuality: 'SD' | 'HD' | 'FHD' =
+      ['LOW_END', 'PI3'].includes(resolvedProfile) ? 'SD' :
+      ['PI4', 'X86_SW'].includes(resolvedProfile)  ? 'HD' :
+                                                     'FHD';
+    const fallbackChain: Array<'FHD' | 'HD' | 'SD'> = preferredQuality === 'FHD'
+      ? ['FHD', 'HD', 'SD']
+      : preferredQuality === 'HD'
+      ? ['HD', 'SD', 'FHD']
+      : ['SD', 'HD', 'FHD'];
+
+    const videoIds = items.map((it) => it.videoId);
+    const allVariants = videoIds.length ? await this.prisma.signageVideoVariant.findMany({
+      where: { videoId: { in: videoIds } },
+    }) : [];
+    const variantsByVideo = new Map<string, Record<string, typeof allVariants[number]>>();
+    for (const v of allVariants) {
+      const byQ = variantsByVideo.get(v.videoId) ?? {};
+      byQ[v.quality] = v;
+      variantsByVideo.set(v.videoId, byQ);
+    }
+
+    const resolvedItems = await Promise.all(items.map(async (it) => {
+      const byQ = variantsByVideo.get(it.videoId) ?? {};
+      let chosen = null as (typeof allVariants[number] | null);
+      let chosenKey = it.video.storageKey;
+      let chosenChecksum = it.video.checksum;
+      let chosenSize = it.video.sizeBytes ? Number(it.video.sizeBytes) : null;
+      for (const q of fallbackChain) {
+        if (byQ[q]) { chosen = byQ[q]; break; }
+      }
+      if (chosen) {
+        chosenKey = chosen.storageKey;
+        chosenChecksum = chosen.checksum ?? it.video.checksum;
+        chosenSize = chosen.sizeBytes ? Number(chosen.sizeBytes) : chosenSize;
+      }
+      return {
+        videoId: it.videoId,
+        filename: it.video.filename,
+        checksum: chosenChecksum,
+        sizeBytes: chosenSize,
+        durationSeconds: it.durationOverrideSeconds ?? it.video.durationSeconds,
+        orientation: it.video.orientation ?? 'ANY',
+        quality: chosen?.quality ?? 'ORIGINAL',
+        downloadUrl: await this.storage.presignedGet(chosenKey, 3600).catch(() => null),
+      };
+    }));
 
     // Software rotation. HDMI panels report their native resolution no matter
     // how the TV is physically mounted, so we rotate the video in software to
@@ -699,7 +768,10 @@ export class SignageService {
   listVideos() {
     return this.prisma.signageVideo.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { uploadedBy: { select: { fullName: true } } },
+      include: {
+        uploadedBy: { select: { fullName: true } },
+        variants:   { select: { quality: true, width: true, height: true, bitrateKbps: true, sizeBytes: true } },
+      },
     });
   }
 
