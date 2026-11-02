@@ -31,7 +31,10 @@ export function SignageDeviceDetail() {
   });
   const snap = useQuery({
     queryKey: ['signage-snapshot', id],
-    queryFn: () => api.get(`/signage/devices/${id}/snapshot`).then((r) => r.data),
+    // `_t` query-param busts the service-worker cache so each poll goes to
+    // the network. Without this a snapshot captured 10 min ago can be served
+    // forever from the SW's NetworkFirst cache.
+    queryFn: () => api.get(`/signage/devices/${id}/snapshot?_t=${Date.now()}`).then((r) => r.data),
     refetchInterval: 3_000,
     enabled: tab === 'overview',
   });
@@ -147,7 +150,11 @@ function OverviewTab({ d, latest, snap, requestSnap }: any) {
         </div>
         <div className="aspect-video bg-black">
           {snap?.url ? (
-            <img src={snap.url} alt="snapshot" className="h-full w-full object-contain"/>
+            // key= on <img> forces React to remount the element when the
+            // underlying snapshotAt changes, bypassing any browser-side
+            // image cache that might reuse the pixels of the previous shot.
+            <img key={snap.snapshotAt ?? snap.url} src={snap.url}
+                 alt="snapshot" className="h-full w-full object-contain"/>
           ) : (
             <div className="flex h-full items-center justify-center text-xs text-ink-300">
               {snap?.pending ? 'Capturing…' : 'No snapshot yet'}

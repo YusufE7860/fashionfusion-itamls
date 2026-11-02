@@ -25,53 +25,78 @@ log = logging.getLogger("signage.snapshot")
 DEFAULT_MPV_SOCK = "/run/signage-agent/mpv.sock"
 
 
-def capture_frame(dest_path: str, mpv_sock: str = DEFAULT_MPV_SOCK, timeout: float = 3.0) -> bool:
+def capture_frame(dest_path: str, mpv_sock: str = DEFAULT_MPV_SOCK, timeout: float = 5.0) -> bool:
     """Ask mpv (over Unix socket) to write a JPEG of the current frame.
 
-    Returns True when the file exists and is non-empty, False otherwise.
+    Reliability notes:
+      - Delete any pre-existing file at dest_path first so we can prove the
+        capture actually produced a new one.
+      - Tag the IPC request with a unique request_id and filter replies by
+        it, so events emitted mid-flight (playback-restart, audio-reconfig,
+        file-loaded) can't impersonate a success response.
+      - After sending, poll the filesystem for the file to appear + stop
+        growing. mpv writes asynchronously; trusting the IPC round-trip gave
+        false positives.
     """
     if not os.path.exists(mpv_sock):
         log.warning("mpv IPC socket missing at %s — is mpv running?", mpv_sock)
         return False
+
+    try: os.remove(dest_path)
+    except FileNotFoundError: pass
+
+    req_id = int(time.time() * 1000) & 0x7FFFFFFF
+    cmd = {"command": ["screenshot-to-file", dest_path, "video"], "request_id": req_id}
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(timeout)
+            s.settimeout(2.0)
             s.connect(mpv_sock)
-            # "video" scope = only video frame, no OSD overlays. If the agent
-            # ever renders overlays (status text, etc.), switch to "window" to
-            # include them.
-            cmd = {"command": ["screenshot-to-file", dest_path, "video"]}
             s.sendall((json.dumps(cmd) + "\n").encode())
-            # mpv replies with a JSON line like {"error":"success","request_id":0}.
-            # We don't strictly need to parse it, but doing so catches silent
-            # failures (e.g. "no video available").
             buf = b""
-            end = time.time() + timeout
+            end = time.time() + 2.0
+            saw_error = None
             while time.time() < end:
                 try:
-                    chunk = s.recv(4096)
+                    chunk = s.recv(16384)
                     if not chunk:
                         break
                     buf += chunk
-                    if b"\n" in buf:
-                        break
                 except socket.timeout:
                     break
-            for line in buf.split(b"\n"):
-                if not line.strip():
-                    continue
-                try:
-                    msg = json.loads(line.decode())
-                except Exception:
-                    continue
-                if msg.get("error") and msg["error"] != "success":
-                    log.warning("mpv screenshot replied: %s", msg)
-                    return False
+                lines = buf.split(b"\n")
+                buf = lines[-1]
+                for line in lines[:-1]:
+                    if not line.strip():
+                        continue
+                    try:
+                        msg = json.loads(line.decode())
+                    except Exception:
+                        continue
+                    if msg.get("request_id") == req_id:
+                        if msg.get("error") != "success":
+                            saw_error = msg.get("error")
+                        end = 0  # exit outer loop
+                        break
+            if saw_error:
+                log.warning("mpv screenshot replied error=%s", saw_error)
+                return False
     except Exception as e:
-        log.warning("mpv IPC screenshot failed: %s", e)
+        log.warning("mpv IPC screenshot send failed: %s", e)
         return False
 
-    ok = os.path.exists(dest_path) and os.path.getsize(dest_path) > 0
+    # Poll filesystem — file appears + stops growing = done.
+    deadline = time.time() + timeout
+    last_size = -1
+    while time.time() < deadline:
+        try:
+            size = os.path.getsize(dest_path)
+            if size > 1024 and size == last_size:
+                return True
+            last_size = size
+        except FileNotFoundError:
+            pass
+        time.sleep(0.15)
+    ok = os.path.exists(dest_path) and os.path.getsize(dest_path) > 1024
     if not ok:
         log.warning("screenshot file missing or empty: %s", dest_path)
     return ok

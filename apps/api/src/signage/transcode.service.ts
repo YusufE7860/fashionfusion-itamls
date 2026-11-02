@@ -171,7 +171,11 @@ export class SignageTranscodeService {
   }
 
   // ----- ffmpeg + ffprobe wrappers -----
-  private async runFfmpeg(input: string, output: string, v: typeof VARIANTS[number]): Promise<void> {
+  private async runFfmpeg(input: string, output: string, v: {
+    quality: string; w: number; h: number;
+    bitrate: string; maxrate: string; bufsize: string;
+    profile: string; level: string;
+  }): Promise<void> {
     const args = [
       '-hide_banner', '-loglevel', 'error',
       '-y',
