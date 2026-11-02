@@ -85,11 +85,37 @@ export const PREDEFINED_SCRIPTS: Record<string, { description: string; cmd: stri
     cmd: 'apt-get update -y && apt-get upgrade -y',
   },
   'signage-reinstall': {
-    description: 'Re-download the signage agent tarball and reinstall',
+    description: 'Pull the latest signage agent code and restart the service',
     // ${ITAMLS_URL} is substituted server-side at queue time (see validate()
     // in this file). We can't rely on an env var on the device because the
-    // installer sets one in /etc/signage-agent/config.json, not in the shell.
-    cmd: 'cd /tmp && rm -rf agent-reinstall && mkdir agent-reinstall && cd agent-reinstall && curl -fsSL "${ITAMLS_URL}/signage/agent.tar.gz" -o agent.tar.gz && tar xzf agent.tar.gz && bash install.sh && systemctl restart signage-agent',
+    // installer puts the server URL in /etc/signage-agent/config.json, not
+    // in the shell env.
+    //
+    // Why NOT bash install.sh:
+    //   - install.sh does `apt-get install` which hits Pi OS mirror issues
+    //     on reinstall and sometimes hangs on locks.
+    //   - install.sh ends with `systemctl restart signage-agent`, but we
+    //     are running INSIDE that service — the restart kills us before we
+    //     can report command completion, so the UI sees a stuck job.
+    //
+    // Instead we just:
+    //   1. Download + untar the fresh agent tarball
+    //   2. Use the EXISTING venv's pip to update the Python package (fast,
+    //      no apt, no system package touching)
+    //   3. `systemctl --no-block restart` so our subprocess returns and
+    //      reports DONE before systemd kills signage-agent.
+    cmd: [
+      'set -e',
+      'cd /tmp',
+      'rm -rf agent-reinstall',
+      'mkdir agent-reinstall',
+      'cd agent-reinstall',
+      'curl -fsSL "${ITAMLS_URL}/signage/agent.tar.gz" -o agent.tar.gz',
+      'tar xzf agent.tar.gz',
+      '/opt/signage-agent/venv/bin/pip install --quiet --upgrade --force-reinstall --no-deps .',
+      'systemctl --no-block restart signage-agent',
+      'echo "Reinstall complete — agent restarting."',
+    ].join(' && '),
   },
   'drain-cache': {
     description: 'Delete the local signage video cache (forces re-download)',
