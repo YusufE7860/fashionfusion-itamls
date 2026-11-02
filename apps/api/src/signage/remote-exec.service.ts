@@ -86,7 +86,10 @@ export const PREDEFINED_SCRIPTS: Record<string, { description: string; cmd: stri
   },
   'signage-reinstall': {
     description: 'Re-download the signage agent tarball and reinstall',
-    cmd: 'cd /tmp && rm -rf agent-reinstall && mkdir agent-reinstall && cd agent-reinstall && curl -fsSL "$ITAMLS_URL/signage/agent.tar.gz" -o agent.tar.gz && tar xzf agent.tar.gz && bash install.sh && systemctl restart signage-agent',
+    // ${ITAMLS_URL} is substituted server-side at queue time (see validate()
+    // in this file). We can't rely on an env var on the device because the
+    // installer sets one in /etc/signage-agent/config.json, not in the shell.
+    cmd: 'cd /tmp && rm -rf agent-reinstall && mkdir agent-reinstall && cd agent-reinstall && curl -fsSL "${ITAMLS_URL}/signage/agent.tar.gz" -o agent.tar.gz && tar xzf agent.tar.gz && bash install.sh && systemctl restart signage-agent',
   },
   'drain-cache': {
     description: 'Delete the local signage video cache (forces re-download)',
@@ -208,7 +211,12 @@ export class RemoteExecService {
       case 'RUN_PREDEFINED': {
         const key = String(payload?.key ?? '').trim();
         if (!PREDEFINED_SCRIPTS[key]) throw new BadRequestException(`unknown script: ${key}`);
-        return { key, cmd: PREDEFINED_SCRIPTS[key].cmd };
+        // Resolve ${ITAMLS_URL} to the configured public API base URL so
+        // predefined scripts that fetch from the server work on the device
+        // without the operator needing to export shell env vars.
+        const publicUrl = (process.env.PUBLIC_API_URL ?? '').replace(/\/$/, '');
+        const resolved = PREDEFINED_SCRIPTS[key].cmd.replace(/\$\{ITAMLS_URL\}/g, publicUrl);
+        return { key, cmd: resolved };
       }
       case 'ROTATE_SCREEN': {
         const deg = Number(payload?.rotation ?? 0);
