@@ -71,6 +71,7 @@ class SignageApiClient:
         disk_free_pct: Optional[int] = None,
         uptime_seconds: Optional[int] = None,
         currently_playing_id: Optional[str] = None,
+        extras: Optional[dict] = None,
     ) -> None:
         payload: dict[str, Any] = {"agentVersion": agent_version}
         if disk_free_pct is not None:
@@ -79,6 +80,13 @@ class SignageApiClient:
             payload["uptimeSeconds"] = uptime_seconds
         if currently_playing_id:
             payload["currentlyPlayingId"] = currently_playing_id
+        if extras:
+            # Hardware (hwCpuModel, hwCpuCores, hwMemMB, hwGpuDrm, hwArch,
+            # hwOsName, hwDisplayWidth, hwDisplayHeight) + mpv diagnostics
+            # (mpvCodec, mpvDecoder, mpvResolution, mpvDroppedFrames,
+            # mpvAudioSink, mpvVersion, mpvFps). Server stores the hw* fields
+            # on SignageDevice and the mpv* ones on the last heartbeat row.
+            payload.update(extras)
         r = self.session.post(
             f"{self.base}/signage/devices/{device_id}/heartbeat",
             headers={"x-device-token": token},

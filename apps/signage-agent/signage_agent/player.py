@@ -109,13 +109,42 @@ class MpvPlayer:
 
     def current_path(self) -> Optional[str]:
         """Ask mpv (over IPC) for the path of the file currently on screen."""
+        return self._ipc_get("path")
+
+    def diagnostics(self) -> dict:
+        """Query mpv for live playback diagnostics: codec, decoder, resolution,
+        dropped frames, audio sink, mpv version. Sent in the heartbeat so the
+        admin UI's Diagnostics panel has real data.
+
+        Fails soft — any field we can't read is simply omitted. Never raises."""
+        out: dict = {}
+        if not self.is_alive() or not os.path.exists(self.ipc_path):
+            return out
+        # Keys here match the server's heartbeat DTO exactly.
+        probes = {
+            "screenWidth":   "video-params/w",
+            "screenHeight":  "video-params/h",
+            "decoder":       "hwdec-current",       # "no" | "v4l2m2m-copy" | "vaapi" | ...
+            "audioSink":     "current-ao",
+            "droppedFrames": "frame-drop-count",
+            "mpvVersion":    "mpv-version",
+        }
+        for key, prop in probes.items():
+            val = self._ipc_get(prop)
+            if val is not None:
+                out[key] = val
+        out["playerAlive"] = True
+        return out
+
+    def _ipc_get(self, prop: str):
+        """Single-shot IPC: send get_property, parse the first reply."""
         if not self.is_alive() or not os.path.exists(self.ipc_path):
             return None
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
                 s.settimeout(2)
                 s.connect(self.ipc_path)
-                s.sendall(json.dumps({"command": ["get_property", "path"]}).encode() + b"\n")
+                s.sendall(json.dumps({"command": ["get_property", prop]}).encode() + b"\n")
                 buf = b""
                 while b"\n" not in buf:
                     chunk = s.recv(4096)

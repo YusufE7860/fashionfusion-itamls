@@ -19,6 +19,7 @@ from .cache import CacheManager
 from .config import AgentConfig, save_config
 from .executor import CommandExecutor
 from .snapshot import run_snapshot, DEFAULT_MPV_SOCK
+from .hw import collect_hw, collect_display
 
 log = logging.getLogger("signage.agent")
 
@@ -167,6 +168,19 @@ class Agent:
         try:
             self.player.ensure_alive()
             playing = video_id_from_path(self.player.current_path())
+            # Gather hardware specs + mpv diagnostics each tick. Both are
+            # cheap (filesystem reads + one Unix-socket round-trip) and keep
+            # the admin UI's Diagnostics panel current.
+            extras: dict = {}
+            try: extras.update(collect_hw())
+            except Exception: pass
+            try: extras.update(collect_display())
+            except Exception: pass
+            try:
+                diag = getattr(self.player, "diagnostics", None)
+                if callable(diag): extras.update(diag())
+            except Exception: pass
+
             self.api.heartbeat(
                 device_id=self.cfg.device_id,
                 token=self.cfg.device_token,
@@ -174,6 +188,7 @@ class Agent:
                 disk_free_pct=self.cache.disk_free_pct(),
                 uptime_seconds=read_uptime_seconds(self._started),
                 currently_playing_id=playing,
+                extras=extras,
             )
         except ApiError as e:
             log.warning("Heartbeat failed (offline?): %s", e)
