@@ -48,6 +48,7 @@ class Agent:
         self.cache = cache
         self.player = player
         self.last_resync_token: Optional[str] = None
+        self.last_rotation: Optional[int] = None
         self._started = time.time()
 
     # ---- enrolment ----
@@ -146,11 +147,29 @@ class Agent:
             self.cache.prune(keep_video_ids=[])
             return
 
+        # Device rotation drives cache-time pre-rotation. We ask the cache for
+        # the already-rotated sibling file so mpv plays with no runtime
+        # rotation (which would peg the GPU on these parts). If rotation
+        # changed since last tick, drop stale pre-rotated siblings so disk
+        # doesn't grow forever.
+        rotation = int(cfg.get("rotation") or 0)
+        if rotation not in (0, 90, 180, 270):
+            rotation = 0
+        if self.last_rotation is not None and self.last_rotation != rotation:
+            try:
+                dropped = self.cache.prune_stale_rotations(rotation)
+                if dropped:
+                    log.info("Rotation changed %d → %d; pruned %d stale rotation(s)",
+                             self.last_rotation, rotation, dropped)
+            except Exception as e:
+                log.warning("prune_stale_rotations failed: %s", e)
+        self.last_rotation = rotation
+
         items = sorted(items, key=lambda i: i.get("order", 0))
         paths: list[str] = []
         for item in items:
             try:
-                local = self.cache.ensure(item)
+                local = self.cache.ensure(item, rotation=rotation)
                 paths.append(str(local))
             except Exception as e:  # one bad item shouldn't blank the whole screen
                 log.error("Skipping '%s': %s", item.get("filename"), e)

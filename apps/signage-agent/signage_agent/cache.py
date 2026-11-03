@@ -9,15 +9,37 @@ whatever is already cached and valid stays playable.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
 import requests
 
+log = logging.getLogger("signage.cache")
+
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+# How a device's `rotation` field maps to an ffmpeg transpose chain. We do
+# the work in VAAPI space so the Video/VideoEnhance engines carry the load
+# instead of CPU — on Gemini Lake these engines idle while the Render/3D
+# engine (used by mpv's shader rotation) sits at 100%, so this is where
+# we want the rotation to live.
+_VAAPI_TRANSPOSE = {
+    90:  "transpose_vaapi=dir=clock",
+    180: "transpose_vaapi=dir=reversal",
+    270: "transpose_vaapi=dir=cclock",
+}
+# Software fallback (used if VAAPI probe fails) — one or two CPU-side
+# transpose passes, encoded with libx264. Slower but zero-dependency.
+_SW_TRANSPOSE = {
+    90:  "transpose=1",
+    180: "transpose=2,transpose=2",
+    270: "transpose=2",
+}
 
 
 def _safe_name(filename: str) -> str:
@@ -96,11 +118,85 @@ class CacheManager:
         os.replace(tmp, dest)
         return dest
 
-    def ensure(self, item: dict[str, Any]) -> Path:
-        """Return the local path for an item, downloading it if not already valid."""
-        if self.is_valid(item):
-            return self.local_path(item)
-        return self.download(item)
+    def ensure(self, item: dict[str, Any], rotation: int = 0) -> Path:
+        """Return the local path for an item, downloading if not already valid.
+        If ``rotation`` is non-zero (90/180/270), additionally ensure a
+        pre-rotated sibling exists and return THAT path — playback then uses
+        no runtime rotation at all."""
+        if not self.is_valid(item):
+            self.download(item)
+        base = self.local_path(item)
+        if rotation in (90, 180, 270):
+            return self._ensure_rotated(base, rotation)
+        return base
+
+    # ---- pre-rotation ---------------------------------------------------
+    #
+    # Runtime --video-rotate goes through mpv's shader stack, which pegs the
+    # tiny iGPUs on the thin-client media players we deploy to. So when the
+    # device's physical mount angle requires rotation we do it ONCE, at cache
+    # time, into a sibling file. Playback is then zero-overhead.
+    #
+    # The sibling file is named `<original>.rot<deg>.mp4`; it's recreated if
+    # the original changes (size check) and pruned together with the original.
+
+    def rotated_path(self, base: Path, rotation: int) -> Path:
+        return base.with_name(f"{base.name}.rot{rotation}.mp4")
+
+    def _ensure_rotated(self, base: Path, rotation: int) -> Path:
+        rot_path = self.rotated_path(base, rotation)
+        # Re-rotate if missing or stale (base was re-downloaded after last rotate).
+        if rot_path.exists() and rot_path.stat().st_mtime >= base.stat().st_mtime:
+            return rot_path
+        try:
+            self._run_transpose(base, rot_path, rotation)
+            return rot_path
+        except Exception as e:
+            log.warning("Pre-rotate failed for %s (rotation=%d): %s — falling back to original",
+                        base.name, rotation, e)
+            # Playback will go sideways, but better than a blank screen.
+            return base
+
+    def _run_transpose(self, src: Path, dst: Path, rotation: int) -> None:
+        """Produce ``dst`` as the ``rotation`` version of ``src``. Tries
+        VAAPI first (fast, uses idle video engines); falls back to CPU."""
+        tmp = dst.with_suffix(dst.suffix + ".part")
+        tmp.unlink(missing_ok=True)
+
+        vaapi_filter = _VAAPI_TRANSPOSE[rotation]
+        vaapi_cmd = [
+            "ffmpeg", "-y", "-nostdin", "-hide_banner", "-loglevel", "error",
+            "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128",
+            "-hwaccel_output_format", "vaapi",
+            "-i", str(src),
+            "-vf", f"{vaapi_filter},scale_vaapi=format=nv12",
+            "-c:v", "h264_vaapi", "-qp", "23",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            str(tmp),
+        ]
+        try:
+            log.info("Pre-rotating %s → rot%d via VAAPI", src.name, rotation)
+            subprocess.run(vaapi_cmd, check=True, capture_output=True, timeout=600)
+            os.replace(tmp, dst)
+            return
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+            stderr = getattr(e, "stderr", b"") or b""
+            log.warning("VAAPI transpose failed (%s); falling back to CPU", stderr.decode(errors="replace")[:300].strip())
+            tmp.unlink(missing_ok=True)
+
+        sw_cmd = [
+            "ffmpeg", "-y", "-nostdin", "-hide_banner", "-loglevel", "error",
+            "-i", str(src),
+            "-vf", _SW_TRANSPOSE[rotation],
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            str(tmp),
+        ]
+        log.info("Pre-rotating %s → rot%d via libx264", src.name, rotation)
+        subprocess.run(sw_cmd, check=True, timeout=1800)
+        os.replace(tmp, dst)
 
     # ---- housekeeping ----
 
@@ -113,10 +209,27 @@ class CacheManager:
             if f.name.endswith(".part"):
                 f.unlink(missing_ok=True)
                 continue
+            # Both `<id>__name.mp4` and `<id>__name.mp4.rot270.mp4` start with
+            # the same id prefix — splitting on `__` handles both.
             vid = f.name.split("__", 1)[0]
             if vid not in keep:
                 f.unlink(missing_ok=True)
                 removed.append(f.name)
+        return removed
+
+    def prune_stale_rotations(self, current_rotation: int) -> int:
+        """Drop pre-rotated siblings for rotations other than the current one.
+        Called when the server tells us the device rotation has changed, so
+        we don't waste disk on orientations we no longer need."""
+        wanted_suffix = f".rot{current_rotation}.mp4" if current_rotation else None
+        removed = 0
+        for f in self.videos_dir.iterdir():
+            if ".rot" not in f.name:
+                continue
+            if wanted_suffix and f.name.endswith(wanted_suffix):
+                continue
+            f.unlink(missing_ok=True)
+            removed += 1
         return removed
 
     def purge(self) -> None:

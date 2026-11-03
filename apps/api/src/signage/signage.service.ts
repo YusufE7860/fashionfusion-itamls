@@ -91,29 +91,24 @@ function flagsForProfile(profile: string): string[] {
       // device profile to 'PI5' which keeps interpolation and gpu-next on.
       // Signage output path for Gemini Lake / Apollo Lake / Skylake iGPUs.
       //
-      //   --vo=gpu-next     — modern mpv VO. Handles vaapi-copy chroma
-      //                       correctly (fixes the grayscale we saw with
-      //                       --vo=gpu) AND does --video-rotate on the GPU
-      //                       so a portrait-on-landscape mount costs
-      //                       nothing. The earlier GPU pegging was caused
-      //                       by --interpolation and --tscale shaders, NOT
-      //                       by gpu-next itself — with those two removed
-      //                       gpu-next is lighter than --vo=gpu on this
-      //                       iGPU.
+      //   --vo=drm           — direct-to-KMS scanout, no compositor, no GPU
+      //                        shader stack. This is the only VO on these
+      //                        parts that stays smooth under load: --vo=gpu
+      //                        output in grayscale (chroma shader bug);
+      //                        --vo=gpu-next pegs Render/3D at 100% any time
+      //                        rotation is involved.
       //   --hwdec=vaapi-copy — GPU decodes, mpv copies frames back for its
-      //                       own color/scale pipeline. Zero-copy
-      //                       (`vaapi`) is faster but currently broken on
-      //                       Mesa + iHD for these parts.
-      //   --gpu-api=opengl   — force OpenGL. Vulkan under gpu-next on
-      //                       Gemini Lake has intermittent compile stalls
-      //                       on first frame.
+      //                        own color pipeline. Zero-copy (`vaapi`) can't
+      //                        feed the drm vo.
       //
-      // Deliberately NO --interpolation / --tscale — those peg the Render
-      // engine at 100% while the Video engine idles. See earlier note.
+      // CRITICAL: do NOT add --video-rotate here. Runtime rotation forces
+      // mpv back into a shader path, which this GPU can't sustain. Instead
+      // the agent pre-rotates the cached file at download time using VAAPI
+      // transpose on the idle Video/VideoEnhance engines, and plays with
+      // zero rotation. See CacheManager.ensure() and getConfig(.rotation).
       return [
         '--hwdec=vaapi-copy',
-        '--vo=gpu-next',
-        '--gpu-api=opengl',
+        '--vo=drm',
         '--cache=yes', '--cache-secs=30',
         ...SMOOTH_COMMON,
       ];
@@ -294,19 +289,23 @@ export class SignageService {
       };
     }));
 
-    // Software rotation. HDMI panels report their native resolution no matter
-    // how the TV is physically mounted, so we rotate the video in software to
-    // match. The `rotation` field drives this directly (0 / 90 / 180 / 270).
-    // Legacy fallback: if rotation is 0 but someone set forceRotate90, honour
-    // it. If rotation is 0 but orientation=PORTRAIT and no explicit rotation
-    // was set, assume 90° so existing portrait devices keep working.
+    // Physical mount rotation. HDMI panels report their native resolution no
+    // matter how the TV is physically mounted, so we rotate the video to
+    // match. The `rotation` field drives this (0 / 90 / 180 / 270). Legacy
+    // fallback: forceRotate90 → 90, PORTRAIT orientation → 90 if unset.
+    //
+    // We DO NOT ship --video-rotate here. The lightweight iGPUs we target
+    // can't sustain runtime shader-based rotation. The agent instead pre-
+    // rotates the cached file at download time (VAAPI transpose on the
+    // Video/VideoEnhance engines, which otherwise idle), and plays the
+    // already-correctly-oriented file at zero rotation cost. The agent
+    // reads `rotation` directly from the config response below.
     let rot = Number((device as any).rotation ?? 0);
     if (![0, 90, 180, 270].includes(rot)) rot = 0;
     if (rot === 0 && device.forceRotate90) rot = 90;
     if (rot === 0 && device.orientation === 'PORTRAIT') rot = 90;
     const mpvExtraArgs = [
       ...flagsForProfile(resolvedProfile),
-      ...(rot !== 0 ? [`--video-rotate=${rot}`] : []),
     ];
 
     // Pending agent action — right now only SNAPSHOT. Agent screenshots mpv,
@@ -336,6 +335,8 @@ export class SignageService {
       items: resolvedItems,
       mpvExtraArgs,
       perfProfile: resolvedProfile,
+      // Agent reads this to decide whether to pre-rotate at cache time.
+      rotation: rot,
       pendingAction,
       pendingCommands: pendingCommands.map((c) => {
         // Omit hmac during the recovery bypass window so agents on an older
