@@ -80,13 +80,19 @@ function flagsForProfile(profile: string): string[] {
         ...SMOOTH_COMMON,
       ];
     case 'X86_VAAPI':
+      // Deliberately lightweight: no interpolation, no tscale, no gpu-next.
+      // On older Intel iGPUs (Gemini Lake UHD 600, Apollo Lake, Skylake HD
+      // 500-series) those features peg the Render/3D engine at 100% while
+      // the Video decode engine idles at 1% — the result is visibly worse
+      // than no profile at all, especially when combined with live
+      // --video-rotate rotation.
+      //
+      // If you have a modern iGPU (Iris Xe / UHD 770 etc.) manually set the
+      // device profile to 'PI5' which keeps interpolation and gpu-next on.
       return [
         '--hwdec=vaapi',
-        '--vo=gpu-next',
+        '--vo=gpu',
         '--cache=yes', '--cache-secs=30',
-        '--video-sync=display-resample',
-        '--interpolation=yes',
-        '--tscale=oversample',
         ...SMOOTH_COMMON,
       ];
     case 'X86_SW':
