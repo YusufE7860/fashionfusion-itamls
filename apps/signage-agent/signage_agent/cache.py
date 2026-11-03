@@ -164,6 +164,8 @@ class CacheManager:
         tmp.unlink(missing_ok=True)
 
         vaapi_filter = _VAAPI_TRANSPOSE[rotation]
+        # -f mp4 is required because our temp file ends in ".part", which
+        # ffmpeg can't map to a container format on its own.
         vaapi_cmd = [
             "ffmpeg", "-y", "-nostdin", "-hide_banner", "-loglevel", "error",
             "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128",
@@ -173,6 +175,7 @@ class CacheManager:
             "-c:v", "h264_vaapi", "-qp", "23",
             "-c:a", "copy",
             "-movflags", "+faststart",
+            "-f", "mp4",
             str(tmp),
         ]
         try:
@@ -192,6 +195,7 @@ class CacheManager:
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
             "-c:a", "copy",
             "-movflags", "+faststart",
+            "-f", "mp4",
             str(tmp),
         ]
         log.info("Pre-rotating %s → rot%d via libx264", src.name, rotation)
