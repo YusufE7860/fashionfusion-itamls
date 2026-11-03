@@ -248,14 +248,23 @@ def _h_rotate_screen(ex: CommandExecutor, cid: str, p: dict) -> None:
 
 
 def _h_sync_play_at(ex: CommandExecutor, cid: str, p: dict) -> None:
-    """Schedule a background mpv kill at the given epoch-ms so every TV in
-    the same store restarts playback at the same instant. The agent's main
-    loop re-launches mpv a moment later as part of its normal 'playlist
-    stopped' handling, so the first video item plays simultaneously on all
-    devices.
+    """Jump mpv's playlist back to item 0 at the given epoch-ms, so every TV
+    in the store starts the loop at the same wall-clock instant.
 
-    Safety: refuse scheduled times more than 10 minutes out, and never
-    sleep more than 10 minutes in a background process.
+    The old implementation killed mpv at the sync instant and let systemd /
+    the agent loop re-launch it — but mpv startup varies a lot across
+    devices (~2–6s depending on CPU/decoder warmup), so TVs that went
+    "off at the same time" came back "on at different times". Using mpv's
+    JSON-IPC socket instead keeps mpv running the whole time and only
+    issues ``playlist-play-index 0`` at the scheduled instant: latency is
+    bounded by the IPC round-trip (< 50ms) and the scheduler's clock
+    accuracy, both essentially identical across devices.
+
+    We fork a detached worker that:
+      1. sleeps until ~0.2s before the target
+      2. busy-waits the last fraction with time.monotonic() for precision
+      3. writes the IPC command to the mpv socket
+    so the main agent can report DONE immediately.
     """
     at_ms = int(p.get("atEpochMs", 0))
     if not at_ms:
@@ -265,14 +274,32 @@ def _h_sync_play_at(ex: CommandExecutor, cid: str, p: dict) -> None:
         delay = 0
     if delay > 600:
         return ex._report(cid, "FAILED", f"atEpochMs {delay:.0f}s out — refusing (max 600)", exit_code=2)
-    # Fork a background shell that waits + pkills mpv. We detach it so this
-    # command can report DONE immediately — the actual sync happens later.
+
+    # Python snippet executed in a detached process. Kept inline so we don't
+    # have to ship an extra helper script with the agent tarball.
+    worker = (
+        "import os,socket,time,json,sys\n"
+        f"target={at_ms/1000.0}\n"
+        "coarse=target-time.time()-0.25\n"
+        "if coarse>0: time.sleep(coarse)\n"
+        "while time.time()<target: time.sleep(0.005)\n"
+        "s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)\n"
+        "try:\n"
+        "  s.connect('/run/signage-agent/mpv.sock')\n"
+        "  for cmd in (['playlist-play-index',0],['set_property','pause',False],['seek',0,'absolute']):\n"
+        "    s.sendall((json.dumps({'command':cmd})+'\\n').encode())\n"
+        "  s.close()\n"
+        "except Exception as e:\n"
+        "  sys.stderr.write(f'sync ipc failed: {e}\\n')\n"
+        "  os.system('pkill -f mpv')\n"   # last-ditch fallback if IPC is dead
+    )
     import subprocess
     subprocess.Popen(
-        ["sh", "-c", f"sleep {delay:.2f} && pkill -f mpv ; true"],
+        ["python3", "-c", worker],
         start_new_session=True,
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
-    ex._report(cid, "DONE", f"mpv kill scheduled in {delay:.1f}s", exit_code=0)
+    ex._report(cid, "DONE", f"IPC sync scheduled in {delay:.1f}s", exit_code=0)
 
 
 HANDLERS = {

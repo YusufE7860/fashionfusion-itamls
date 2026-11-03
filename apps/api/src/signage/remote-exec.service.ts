@@ -117,8 +117,15 @@ export const PREDEFINED_SCRIPTS: Record<string, { description: string; cmd: stri
       'curl -fsSL "${ITAMLS_URL}/signage/agent.tar.gz" -o agent.tar.gz',
       'tar xzf agent.tar.gz',
       '/opt/signage-agent/venv/bin/pip install --quiet --upgrade --force-reinstall --no-deps .',
-      'systemctl --no-block restart signage-agent',
-      'echo "Reinstall complete — agent restarting."',
+      // CRITICAL: the restart MUST happen in a detached background shell
+      // after a few seconds. `systemctl --no-block restart` still begins
+      // tearing down the current unit synchronously, which kills the agent
+      // before it can report DONE to the server for THIS command — the
+      // server keeps it PENDING and re-dispatches it next tick → restart
+      // loop. `setsid` + `sleep 5` detaches the restart from the agent's
+      // process group and gives the agent time to report completion.
+      'setsid sh -c "sleep 5 && systemctl restart signage-agent" </dev/null >/dev/null 2>&1 &',
+      'echo "Reinstall complete — restart queued in 5s."',
     ].join(' && '),
   },
   'drain-cache': {
