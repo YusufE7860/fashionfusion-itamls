@@ -89,16 +89,28 @@ function flagsForProfile(profile: string): string[] {
       //
       // If you have a modern iGPU (Iris Xe / UHD 770 etc.) manually set the
       // device profile to 'PI5' which keeps interpolation and gpu-next on.
-      // IMPORTANT: use vaapi-copy, not vaapi. Zero-copy VAAPI on Gemini Lake
-      // + iHD + --vo=gpu outputs luma only (grayscale) because the shader
-      // stack can't read chroma planes directly from the VAAPI surface. With
-      // -copy the GPU still decodes, but mpv copies the frames back through
-      // its normal color pipeline before upload — tiny CPU hit, correct
-      // color. Switching back to zero-copy only works with --vo=gpu-next,
-      // which overloads this GPU (see note above).
+      // Signage output path for Gemini Lake / Apollo Lake / Skylake iGPUs:
+      //
+      //   --vo=drm       — paint straight into a KMS plane, no compositor,
+      //                    no GPU shader stack. Zero overhead and avoids the
+      //                    Mesa Gallium chroma bug that leaves --vo=gpu
+      //                    output in grayscale on these iGPUs (verified on
+      //                    Gemini Lake UHD 605 with the iHD VAAPI driver —
+      //                    --vo=gpu + hwdec=vaapi-copy still produced
+      //                    luma-only output; --vo=drm renders in full color).
+      //   --hwdec=vaapi-copy — GPU decodes, mpv copies frames back for its
+      //                    own color/scale pipeline. Required because the
+      //                    drm vo can't consume zero-copy VAAPI surfaces.
+      //   --drm-mode=preferred — honour the panel's preferred EDID mode so
+      //                    we don't drop to 640x480 if the kernel picks an
+      //                    odd fallback.
+      //
+      // No interpolation / tscale / gpu-next — those features need the GPU
+      // shader stack and this iGPU can't keep up (see earlier note).
       return [
         '--hwdec=vaapi-copy',
-        '--vo=gpu',
+        '--vo=drm',
+        '--drm-mode=preferred',
         '--cache=yes', '--cache-secs=30',
         ...SMOOTH_COMMON,
       ];
