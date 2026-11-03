@@ -89,28 +89,31 @@ function flagsForProfile(profile: string): string[] {
       //
       // If you have a modern iGPU (Iris Xe / UHD 770 etc.) manually set the
       // device profile to 'PI5' which keeps interpolation and gpu-next on.
-      // Signage output path for Gemini Lake / Apollo Lake / Skylake iGPUs:
+      // Signage output path for Gemini Lake / Apollo Lake / Skylake iGPUs.
       //
-      //   --vo=drm       — paint straight into a KMS plane, no compositor,
-      //                    no GPU shader stack. Zero overhead and avoids the
-      //                    Mesa Gallium chroma bug that leaves --vo=gpu
-      //                    output in grayscale on these iGPUs (verified on
-      //                    Gemini Lake UHD 605 with the iHD VAAPI driver —
-      //                    --vo=gpu + hwdec=vaapi-copy still produced
-      //                    luma-only output; --vo=drm renders in full color).
+      //   --vo=gpu-next     — modern mpv VO. Handles vaapi-copy chroma
+      //                       correctly (fixes the grayscale we saw with
+      //                       --vo=gpu) AND does --video-rotate on the GPU
+      //                       so a portrait-on-landscape mount costs
+      //                       nothing. The earlier GPU pegging was caused
+      //                       by --interpolation and --tscale shaders, NOT
+      //                       by gpu-next itself — with those two removed
+      //                       gpu-next is lighter than --vo=gpu on this
+      //                       iGPU.
       //   --hwdec=vaapi-copy — GPU decodes, mpv copies frames back for its
-      //                    own color/scale pipeline. Required because the
-      //                    drm vo can't consume zero-copy VAAPI surfaces.
-      //   --drm-mode=preferred — honour the panel's preferred EDID mode so
-      //                    we don't drop to 640x480 if the kernel picks an
-      //                    odd fallback.
+      //                       own color/scale pipeline. Zero-copy
+      //                       (`vaapi`) is faster but currently broken on
+      //                       Mesa + iHD for these parts.
+      //   --gpu-api=opengl   — force OpenGL. Vulkan under gpu-next on
+      //                       Gemini Lake has intermittent compile stalls
+      //                       on first frame.
       //
-      // No interpolation / tscale / gpu-next — those features need the GPU
-      // shader stack and this iGPU can't keep up (see earlier note).
+      // Deliberately NO --interpolation / --tscale — those peg the Render
+      // engine at 100% while the Video engine idles. See earlier note.
       return [
         '--hwdec=vaapi-copy',
-        '--vo=drm',
-        '--drm-mode=preferred',
+        '--vo=gpu-next',
+        '--gpu-api=opengl',
         '--cache=yes', '--cache-secs=30',
         ...SMOOTH_COMMON,
       ];
