@@ -261,6 +261,7 @@ export function SignageDevices() {
                             className="flex items-center gap-1"
                             onSubmit={(e) => {
                               e.preventDefault();
+                              if (!renaming) return;
                               const name = renaming.draft.trim();
                               if (name && name !== d.name) update.mutate({ id: d.id, body: { name } });
                               setRenaming(null);
@@ -268,7 +269,7 @@ export function SignageDevices() {
                             <input
                               autoFocus
                               className="field !py-0.5 !px-1 text-xs"
-                              value={renaming.draft}
+                              value={renaming?.draft ?? ''}
                               onChange={(e) => setRenaming({ id: d.id, draft: e.target.value })}
                               onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }}
                             />
