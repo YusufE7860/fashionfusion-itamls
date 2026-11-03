@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
-import { Monitor, RefreshCw, RotateCw, Eye, X, ShieldAlert, Shield, Play } from 'lucide-react';
+import { Monitor, RefreshCw, RotateCw, Eye, X, ShieldAlert, Shield, Play, Download, Pencil, Trash2, Terminal, Check } from 'lucide-react';
 import clsx from 'clsx';
 
 export function SignageDevices() {
@@ -12,6 +12,9 @@ export function SignageDevices() {
   const hasPerm = useAuth((s) => s.hasPermission);
   const canWrite = hasPerm('stores:write');
   const [viewing, setViewing] = useState<any | null>(null);
+  const [showInstaller, setShowInstaller] = useState(false);
+  // Which row is currently in rename mode + its draft value.
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
 
   const devices = useQuery({
     queryKey: ['signage-devices'],
@@ -29,6 +32,12 @@ export function SignageDevices() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['signage-devices'] }),
   });
 
+  const removeDevice = useMutation({
+    mutationFn: (id: string) => api.delete(`/signage/devices/${id}`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['signage-devices'] }),
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Delete failed'),
+  });
+
   // Sync all players in a store so every TV restarts playback at the same
   // wall-clock instant. The server schedules a SYNC_PLAY_AT command on each
   // device with a lead window (default 75s) long enough for every agent to
@@ -41,6 +50,16 @@ export function SignageDevices() {
       alert(`Queued sync on ${data?.queued ?? 0} player(s). They will all restart at ${when}.`);
     },
     onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not queue sync'),
+  });
+
+  // Queue signage-reinstall on every device in a store. One-click fleet
+  // upgrade when the agent tarball has moved forward.
+  const reinstallStore = useMutation({
+    mutationFn: (storeId: string) =>
+      api.post(`/signage/exec/reinstall-store/${storeId}`, {}).then((r) => r.data),
+    onSuccess: (data: any) =>
+      alert(`Reinstall queued on ${data?.queued ?? 0} player(s). Each will pull the latest agent build and restart on its next poll (~60s).`),
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not queue reinstall'),
   });
 
   const online = devices.data?.filter((d: any) => d.online).length ?? 0;
@@ -103,6 +122,10 @@ export function SignageDevices() {
         subtitle={`${online} of ${total} players online`}
         actions={canManage && (
           <>
+            <button className="btn-ghost" title="Show the one-line installer command"
+              onClick={() => setShowInstaller(true)}>
+              <Terminal size={13}/>Installer
+            </button>
             {bypassActive ? (
               <button className="btn-ghost text-amber-700"
                 onClick={() => {
@@ -176,19 +199,34 @@ export function SignageDevices() {
                 </div>
               </div>
               {group.storeId && canManage && (
-                <button
-                  className="btn-primary text-xs"
-                  disabled={syncStore.isPending || onlineInGroup < 2}
-                  title={onlineInGroup < 2
-                    ? 'Need at least two online players in this store to sync'
-                    : 'All players in this store restart playback at the same instant'}
-                  onClick={() => {
-                    if (!confirm(`Sync all ${group.devices.length} player(s) in "${group.label}" — every TV will restart its playlist at the same instant (~75s from now). Proceed?`)) return;
-                    syncStore.mutate(group.storeId!);
-                  }}
-                >
-                  <Play size={12}/>Sync store
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="btn-ghost text-xs"
+                    disabled={reinstallStore.isPending || onlineInGroup === 0}
+                    title={onlineInGroup === 0
+                      ? 'No online players in this store'
+                      : 'Pull the latest signage agent build onto every player in this store'}
+                    onClick={() => {
+                      if (!confirm(`Queue a signage-reinstall on all ${group.devices.length} player(s) in "${group.label}"? Each will download the current agent build and restart.`)) return;
+                      reinstallStore.mutate(group.storeId!);
+                    }}
+                  >
+                    <Download size={12}/>Reinstall all
+                  </button>
+                  <button
+                    className="btn-primary text-xs"
+                    disabled={syncStore.isPending || onlineInGroup < 2}
+                    title={onlineInGroup < 2
+                      ? 'Need at least two online players in this store to sync'
+                      : 'All players in this store restart playback at the same instant'}
+                    onClick={() => {
+                      if (!confirm(`Sync all ${group.devices.length} player(s) in "${group.label}" — every TV will restart its playlist at the same instant (~75s from now). Proceed?`)) return;
+                      syncStore.mutate(group.storeId!);
+                    }}
+                  >
+                    <Play size={12}/>Sync store
+                  </button>
+                </div>
               )}
             </header>
 
@@ -218,9 +256,43 @@ export function SignageDevices() {
                       <div className="flex items-center gap-2">
                         <span className={clsx('h-2 w-2 rounded-full', d.online ? 'bg-emerald-500' : 'bg-slate-300')} />
                         <Monitor size={14} className="text-ink-300"/>
-                        <Link to={`/signage/devices/${d.id}`} className="font-medium text-brand-700 hover:underline">
-                          {d.name}
-                        </Link>
+                        {renaming?.id === d.id ? (
+                          <form
+                            className="flex items-center gap-1"
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              const name = renaming.draft.trim();
+                              if (name && name !== d.name) update.mutate({ id: d.id, body: { name } });
+                              setRenaming(null);
+                            }}>
+                            <input
+                              autoFocus
+                              className="field !py-0.5 !px-1 text-xs"
+                              value={renaming.draft}
+                              onChange={(e) => setRenaming({ id: d.id, draft: e.target.value })}
+                              onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }}
+                            />
+                            <button type="submit" className="btn-ghost text-emerald-600" title="Save">
+                              <Check size={12}/>
+                            </button>
+                            <button type="button" className="btn-ghost" onClick={() => setRenaming(null)} title="Cancel">
+                              <X size={12}/>
+                            </button>
+                          </form>
+                        ) : (
+                          <>
+                            <Link to={`/signage/devices/${d.id}`} className="font-medium text-brand-700 hover:underline">
+                              {d.name}
+                            </Link>
+                            {canWrite && (
+                              <button className="btn-ghost text-ink-300 hover:text-ink-100"
+                                onClick={() => setRenaming({ id: d.id, draft: d.name })}
+                                title="Rename">
+                                <Pencil size={11}/>
+                              </button>
+                            )}
+                          </>
+                        )}
                       </div>
                     </td>
                     <td className="py-2 text-xs">
@@ -301,6 +373,21 @@ export function SignageDevices() {
                             <RefreshCw size={12}/>
                           </button>
                         )}
+                        {canWrite && (
+                          <button className="btn-ghost text-rose-600 hover:text-rose-700"
+                            title="Delete this device from the fleet (irreversible)"
+                            onClick={() => {
+                              if (!confirm(
+                                `Delete "${d.name}" from the fleet?\n\n` +
+                                `This removes the device record and its command history. ` +
+                                `If the physical box is still powered on and online, ` +
+                                `it will re-enrol itself on its next heartbeat.`,
+                              )) return;
+                              removeDevice.mutate(d.id);
+                            }}>
+                            <Trash2 size={12}/>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -313,7 +400,107 @@ export function SignageDevices() {
       })}
 
       {viewing && <PeekModal device={viewing} onClose={() => setViewing(null)} />}
+      {showInstaller && <InstallerModal onClose={() => setShowInstaller(false)} stores={stores.data ?? []} />}
     </>
+  );
+}
+
+// =========================================================================
+//  InstallerModal — generates the one-line curl|bash the technician runs
+//  on a freshly-imaged signage box. Everything the installer needs lives in
+//  the URL query string (platform / entity / store code / display name), so
+//  copy-paste is all the technician has to do.
+// =========================================================================
+function InstallerModal({ onClose, stores }: { onClose: () => void; stores: any[] }) {
+  const [platform, setPlatform] = useState<'ubuntu-console' | 'ubuntu-desktop' | 'pi'>('ubuntu-console');
+  const [entity, setEntity] = useState<'FASHION_FUSION' | 'EVLV'>('FASHION_FUSION');
+  const [name, setName] = useState('');
+  const [storeCode, setStoreCode] = useState('');
+
+  // The API base the web app was built against. The installer needs an
+  // absolute URL so the installer script knows where to phone home — fall
+  // back to window.location.origin + /api/v1 for self-hosted deployments.
+  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined)
+    ?? `${window.location.origin}/api/v1`;
+
+  const params = new URLSearchParams({ platform, entity });
+  if (name.trim())      params.set('name', name.trim());
+  if (storeCode.trim()) params.set('storeCode', storeCode.trim());
+  const url = `${base}/signage/installer.sh?${params.toString()}`;
+  const oneLiner = `curl -fsSL "${url}" | sudo bash`;
+
+  const copy = () => {
+    navigator.clipboard?.writeText(oneLiner).then(
+      () => alert('Copied to clipboard — paste into the device terminal'),
+      () => alert('Copy failed — select the text and copy manually'),
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="w-full max-w-2xl rounded-lg bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}>
+        <header className="flex items-center justify-between border-b border-ink-500/10 p-4">
+          <h3 className="text-sm font-semibold">Install signage agent on a new device</h3>
+          <button className="btn-ghost" onClick={onClose}><X size={14}/></button>
+        </header>
+        <div className="space-y-3 p-4 text-sm">
+          <p className="text-xs text-ink-300">
+            Fill the fields that apply, SSH into the freshly-imaged box, then paste the command below.
+            The installer handles apt packages, agent code, systemd unit, and auto-enrols the device.
+            Blank fields default to sensible values; the display name defaults to the machine's hostname.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-medium">Platform</span>
+              <select className="field mt-1 w-full" value={platform}
+                onChange={(e) => setPlatform(e.target.value as any)}>
+                <option value="ubuntu-console">Ubuntu Server (console) — mpv on DRM/KMS</option>
+                <option value="ubuntu-desktop">Ubuntu Desktop — mpv on X11</option>
+                <option value="pi">Raspberry Pi OS</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium">Brand</span>
+              <select className="field mt-1 w-full" value={entity}
+                onChange={(e) => setEntity(e.target.value as any)}>
+                <option value="FASHION_FUSION">Fashion Fusion</option>
+                <option value="EVLV">Evolve</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium">Display name <span className="text-ink-300">(optional)</span></span>
+              <input className="field mt-1 w-full" value={name} onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Atterbury - Window TV"/>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium">Store code <span className="text-ink-300">(optional)</span></span>
+              <select className="field mt-1 w-full" value={storeCode}
+                onChange={(e) => setStoreCode(e.target.value)}>
+                <option value="">— assign later —</option>
+                {stores.map((s: any) => <option key={s.id} value={s.code}>{s.code} — {s.name}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-xs font-medium">Run this on the new device:</span>
+              <button className="btn-ghost text-xs" onClick={copy}>
+                <Download size={12}/>Copy
+              </button>
+            </div>
+            <pre className="overflow-x-auto rounded bg-slate-900 p-3 text-[11px] leading-5 text-emerald-300">
+{oneLiner}
+            </pre>
+            <p className="mt-2 text-[11px] text-ink-300">
+              First run takes 3–5 minutes (apt packages, VAAPI driver, venv). When it finishes the device
+              auto-enrols in <b>PENDING</b> status — approve it from this page.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

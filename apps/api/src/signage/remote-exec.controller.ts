@@ -58,6 +58,13 @@ export class RemoteExecController {
     return this.svc.syncStore(storeId, ctxFor(req), { leadSeconds: body.leadSeconds });
   }
 
+  /** Queue signage-reinstall on every device in a store (one-click upgrade). */
+  @Post('reinstall-store/:storeId')
+  @RequirePermissions(Permissions.AgentsRemoteManage)
+  reinstallStore(@Param('storeId') storeId: string, @Req() req: any) {
+    return this.svc.reinstallStore(storeId, ctxFor(req));
+  }
+
   /** Queue a command for one device. Scoped + validated + signed. */
   @Post('devices/:id/queue')
   @RequirePermissions(Permissions.AgentsRemoteExec)

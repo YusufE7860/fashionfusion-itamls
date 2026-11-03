@@ -422,6 +422,44 @@ export class RemoteExecService {
   }
 
   /**
+   * Queue the `signage-reinstall` predefined script on every device in a
+   * store. Lets an admin ship an agent upgrade across one store in one
+   * click. Each device gets its own RUN_PREDEFINED row so results come
+   * back independently in the device-commands history.
+   */
+  async reinstallStore(storeId: string, ctx: Ctx) {
+    if (!ctx.permissions.includes('agents:remote-manage')) {
+      throw new ForbiddenException('agents:remote-manage required');
+    }
+    const devices = await this.prisma.signageDevice.findMany({
+      where: { storeId, status: { not: 'DISABLED' } },
+      select: { id: true, name: true },
+    });
+    if (devices.length === 0) {
+      throw new BadRequestException('No signage devices assigned to this store');
+    }
+    const results: Array<{ deviceId: string; ok: boolean; error?: string }> = [];
+    for (const d of devices) {
+      try {
+        await this.queue(d.id,
+          { kind: 'RUN_PREDEFINED', payload: { key: 'signage-reinstall' }, reason: 'Store reinstall' },
+          ctx,
+        );
+        results.push({ deviceId: d.id, ok: true });
+      } catch (e: any) {
+        results.push({ deviceId: d.id, ok: false, error: e?.message ?? String(e) });
+      }
+    }
+    return {
+      storeId,
+      total: devices.length,
+      queued: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      devices: devices.map((d, i) => ({ ...d, ...(results[i] ?? {}) })),
+    };
+  }
+
+  /**
    * Fleet-wide queue. Admin picks "all devices", "all FF stores", or
    * "all Evolve stores"; service enumerates, confirmation phrase must match
    * exactly, and we rate-limit to one bulk op every 30s per issuer so a stuck
