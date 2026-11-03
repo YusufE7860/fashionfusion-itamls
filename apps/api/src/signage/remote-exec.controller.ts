@@ -47,6 +47,17 @@ export class RemoteExecController {
     return this.svc.setHmacBypass(Number(body.minutes || 0), ctxFor(req));
   }
 
+  /** Sync every device in a store — all restart mpv at the same clock time. */
+  @Post('sync-store/:storeId')
+  @RequirePermissions(Permissions.AgentsRemoteExec)
+  syncStore(
+    @Param('storeId') storeId: string,
+    @Body() body: { leadSeconds?: number } = {},
+    @Req() req: any,
+  ) {
+    return this.svc.syncStore(storeId, ctxFor(req), { leadSeconds: body.leadSeconds });
+  }
+
   /** Queue a command for one device. Scoped + validated + signed. */
   @Post('devices/:id/queue')
   @RequirePermissions(Permissions.AgentsRemoteExec)

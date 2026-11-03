@@ -44,6 +44,10 @@ export const COMMAND_KINDS = [
   'TEST_AUDIO',
   'PLAY_NOW',
   'SHELL_EXEC',
+  // "Restart mpv AT this exact clock time" — used to sync all TVs in a
+  // store so they loop in lock-step. Agent waits (sleep) until the given
+  // epoch-ms, then kills mpv so systemd / the main loop restarts playback.
+  'SYNC_PLAY_AT',
 ] as const;
 export type CommandKind = (typeof COMMAND_KINDS)[number];
 
@@ -287,6 +291,14 @@ export class RemoteExecService {
         if (!videoId) throw new BadRequestException('videoId required');
         return { videoId };
       }
+      case 'SYNC_PLAY_AT': {
+        const at = Number(payload?.atEpochMs ?? 0);
+        if (!at) throw new BadRequestException('atEpochMs required');
+        const now = Date.now();
+        if (at < now) throw new BadRequestException('atEpochMs must be in the future');
+        if (at > now + 10 * 60_000) throw new BadRequestException('atEpochMs more than 10 minutes out — refusing');
+        return { atEpochMs: at };
+      }
       case 'SHELL_EXEC': {
         const cmd = String(payload?.cmd ?? '').trim();
         if (!cmd) throw new BadRequestException('cmd required');
@@ -361,6 +373,52 @@ export class RemoteExecService {
     return this.prisma.signagePlayerCommand.update({
       where: { id: cmd.id }, data: { hmac },
     });
+  }
+
+  /**
+   * Store-sync — tell every signage device assigned to the same store to
+   * restart mpv at the same clock time (now + a configurable lead window,
+   * default 75s). Lead must be > the longest agent poll interval so every
+   * device sees the SYNC_PLAY_AT command before its scheduled moment.
+   *
+   * All devices restart simultaneously → first playlist item starts on
+   * every TV at the same wall-clock instant → they stay roughly in sync
+   * for the duration of the loop (any drift is bounded by individual mpv
+   * decode speed, which is small for the same playlist).
+   */
+  async syncStore(storeId: string, ctx: Ctx, opts: { leadSeconds?: number } = {}) {
+    if (!ctx.permissions.includes('agents:remote-exec')) {
+      throw new ForbiddenException('agents:remote-exec required');
+    }
+    const devices = await this.prisma.signageDevice.findMany({
+      where: { storeId, status: { not: 'DISABLED' } },
+      select: { id: true, name: true },
+    });
+    if (devices.length === 0) {
+      throw new BadRequestException('No signage devices assigned to this store');
+    }
+    const lead = Math.max(60, Math.min(opts.leadSeconds ?? 75, 300));
+    const atEpochMs = Date.now() + lead * 1000;
+    const results: Array<{ deviceId: string; ok: boolean; error?: string }> = [];
+    for (const d of devices) {
+      try {
+        await this.queue(d.id,
+          { kind: 'SYNC_PLAY_AT', payload: { atEpochMs }, reason: `Store sync (lead ${lead}s)` },
+          ctx,
+        );
+        results.push({ deviceId: d.id, ok: true });
+      } catch (e: any) {
+        results.push({ deviceId: d.id, ok: false, error: e?.message ?? String(e) });
+      }
+    }
+    return {
+      storeId, atEpochMs, atIso: new Date(atEpochMs).toISOString(),
+      leadSeconds: lead,
+      total: devices.length,
+      queued: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      devices: devices.map((d, i) => ({ ...d, ...(results[i] ?? {}) })),
+    };
   }
 
   /**

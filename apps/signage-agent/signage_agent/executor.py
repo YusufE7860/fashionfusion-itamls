@@ -247,6 +247,34 @@ def _h_rotate_screen(ex: CommandExecutor, cid: str, p: dict) -> None:
     ex._report(cid, "DONE", f"rotation set — mpv will reload on next poll ({deg}°)", exit_code=0)
 
 
+def _h_sync_play_at(ex: CommandExecutor, cid: str, p: dict) -> None:
+    """Schedule a background mpv kill at the given epoch-ms so every TV in
+    the same store restarts playback at the same instant. The agent's main
+    loop re-launches mpv a moment later as part of its normal 'playlist
+    stopped' handling, so the first video item plays simultaneously on all
+    devices.
+
+    Safety: refuse scheduled times more than 10 minutes out, and never
+    sleep more than 10 minutes in a background process.
+    """
+    at_ms = int(p.get("atEpochMs", 0))
+    if not at_ms:
+        return ex._report(cid, "FAILED", "atEpochMs required", exit_code=2)
+    delay = at_ms / 1000.0 - time.time()
+    if delay < 0:
+        delay = 0
+    if delay > 600:
+        return ex._report(cid, "FAILED", f"atEpochMs {delay:.0f}s out — refusing (max 600)", exit_code=2)
+    # Fork a background shell that waits + pkills mpv. We detach it so this
+    # command can report DONE immediately — the actual sync happens later.
+    import subprocess
+    subprocess.Popen(
+        ["sh", "-c", f"sleep {delay:.2f} && pkill -f mpv ; true"],
+        start_new_session=True,
+    )
+    ex._report(cid, "DONE", f"mpv kill scheduled in {delay:.1f}s", exit_code=0)
+
+
 HANDLERS = {
     "RESTART_SERVICE": _h_restart_service,
     "RESTART_AGENT":   _h_restart_agent,
@@ -258,6 +286,7 @@ HANDLERS = {
     "RUN_PREDEFINED":  _h_run_predefined,
     "SHELL_EXEC":      _h_shell_exec,
     "ROTATE_SCREEN":   _h_rotate_screen,
+    "SYNC_PLAY_AT":    _h_sync_play_at,
     # UPLOAD_LOGS, TEST_PATTERN, TEST_AUDIO, PLAY_NOW were already handled by
     # earlier code; we leave them unregistered here so their original paths
     # still run.

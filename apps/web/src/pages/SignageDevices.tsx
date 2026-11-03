@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/store/auth';
-import { Monitor, RefreshCw, RotateCw, Eye, X, ShieldAlert, Shield } from 'lucide-react';
+import { Monitor, RefreshCw, RotateCw, Eye, X, ShieldAlert, Shield, Play } from 'lucide-react';
 import clsx from 'clsx';
 
 export function SignageDevices() {
@@ -27,6 +27,20 @@ export function SignageDevices() {
   const resync = useMutation({
     mutationFn: (id: string) => api.post(`/signage/devices/${id}/resync`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['signage-devices'] }),
+  });
+
+  // Sync all players in a store so every TV restarts playback at the same
+  // wall-clock instant. The server schedules a SYNC_PLAY_AT command on each
+  // device with a lead window (default 75s) long enough for every agent to
+  // poll before firing.
+  const syncStore = useMutation({
+    mutationFn: (storeId: string) =>
+      api.post(`/signage/exec/sync-store/${storeId}`, {}).then((r) => r.data),
+    onSuccess: (data: any) => {
+      const when = data?.atIso ? new Date(data.atIso).toLocaleTimeString() : '(soon)';
+      alert(`Queued sync on ${data?.queued ?? 0} player(s). They will all restart at ${when}.`);
+    },
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not queue sync'),
   });
 
   const online = devices.data?.filter((d: any) => d.online).length ?? 0;
@@ -63,6 +77,24 @@ export function SignageDevices() {
   const bypassMinsLeft = bypassActive
     ? Math.max(0, Math.ceil((new Date(hmacBypass.data.until).getTime() - Date.now()) / 60_000))
     : 0;
+
+  // Group devices by store so each store becomes its own section with a
+  // "Sync store" button. Devices with no store assigned fall into an
+  // "Unassigned" group pinned to the bottom.
+  const grouped = useMemo(() => {
+    const bucket = new Map<string, { key: string; storeId: string | null; label: string; devices: any[] }>();
+    for (const d of (devices.data ?? [])) {
+      const key = d.storeId ?? '__none__';
+      const label = d.store ? `${d.store.code} — ${d.store.name}` : 'No store assigned';
+      if (!bucket.has(key)) bucket.set(key, { key, storeId: d.storeId ?? null, label, devices: [] });
+      bucket.get(key)!.devices.push(d);
+    }
+    return [...bucket.values()].sort((a, b) => {
+      if (!a.storeId) return 1;
+      if (!b.storeId) return -1;
+      return a.label.localeCompare(b.label);
+    });
+  }, [devices.data]);
 
   return (
     <>
@@ -126,131 +158,159 @@ export function SignageDevices() {
           Reason: <i>{freeze.data.reason ?? '—'}</i>. Unfreeze from the top-right button.
         </div>
       )}
-      <section className="card p-2 md:p-4">
-        {/* Mobile hint — dense editable table doesn't collapse cleanly to
-            cards, so we let the user swipe. */}
-        <div className="mb-2 text-[11px] text-ink-300 md:hidden">
-          ← swipe to see all columns →
-        </div>
-        <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="th text-left">Name</th>
-              <th className="th text-left">Brand</th>
-              <th className="th text-left">Store</th>
-              <th className="th text-left">Orientation</th>
-              <th className="th text-left">Rotation</th>
-              <th className="th text-left">Status</th>
-              <th className="th text-left">Last seen</th>
-              <th className="th text-left">Agent</th>
-              <th className="th text-right">Disk free</th>
-              <th className="th text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {devices.data?.length === 0 && (
-              <tr><td colSpan={10} className="py-6 text-center text-xs text-ink-300">
-                No signage devices yet. The agent on a media player enrols itself the first time it connects.
-              </td></tr>
-            )}
-            {devices.data?.map((d: any) => (
-              <tr key={d.id} className="border-b border-ink-500/10">
-                <td className="py-2">
-                  <div className="flex items-center gap-2">
-                    <span className={clsx('h-2 w-2 rounded-full', d.online ? 'bg-emerald-500' : 'bg-slate-300')} />
-                    <Monitor size={14} className="text-ink-300"/>
-                    <Link to={`/signage/devices/${d.id}`} className="font-medium text-brand-700 hover:underline">
-                      {d.name}
-                    </Link>
-                  </div>
-                </td>
-                <td className="py-2 text-xs">
-                  {canWrite ? (
-                    <select className="field !py-1 text-xs" value={d.entity ?? 'FASHION_FUSION'}
-                      onChange={(e) => update.mutate({ id: d.id, body: { entity: e.target.value } })}>
-                      <option value="FASHION_FUSION">Fashion Fusion</option>
-                      <option value="EVLV">Evolve</option>
-                    </select>
-                  ) : <EntityBadge entity={d.entity}/>}
-                </td>
-                <td className="py-2 text-xs">
-                  {canWrite ? (
-                    <select className="field !py-1 text-xs" value={d.storeId ?? ''}
-                      onChange={(e) => update.mutate({ id: d.id, body: { storeId: e.target.value || null } })}>
-                      <option value="">— no store —</option>
-                      {stores.data?.map((s: any) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
-                    </select>
-                  ) : (d.store ? `${d.store.code} — ${d.store.name}` : '—')}
-                </td>
-                <td className="py-2 text-xs">
-                  {canWrite ? (
-                    <select className="field !py-1 text-xs" value={d.orientation ?? 'LANDSCAPE'}
-                      onChange={(e) => update.mutate({ id: d.id, body: { orientation: e.target.value } })}
-                      title="Content filter — portrait devices only receive portrait videos (plus BOTH)">
-                      <option value="LANDSCAPE">Landscape</option>
-                      <option value="PORTRAIT">Portrait</option>
-                    </select>
-                  ) : (
-                    <span>{d.orientation}</span>
-                  )}
-                </td>
-                <td className="py-2 text-xs">
-                  {canWrite ? (
-                    <select
-                      className="field !py-1 text-xs"
-                      value={String(d.rotation ?? 0)}
-                      onChange={(e) => update.mutate({ id: d.id, body: { rotation: Number(e.target.value) } })}
-                      title="Screen rotation in degrees — changes take effect on the next device poll (~60s). Matches physical mount angle, clockwise.">
-                      <option value="0">0° (normal)</option>
-                      <option value="90">90° CW</option>
-                      <option value="180">180° (upside-down)</option>
-                      <option value="270">270° CW</option>
-                    </select>
-                  ) : (
-                    <span className="font-mono">{Number(d.rotation ?? 0)}°</span>
-                  )}
-                </td>
-                <td className="py-2 text-xs">
-                  <span className={clsx(
-                    'rounded px-1.5 py-0.5 font-mono text-[10px]',
-                    d.status === 'ACTIVE'   && 'bg-emerald-100 text-emerald-700',
-                    d.status === 'PENDING'  && 'bg-amber-100 text-amber-700',
-                    d.status === 'DISABLED' && 'bg-slate-100 text-slate-500',
-                  )}>{d.status}</span>
-                </td>
-                <td className="py-2 text-xs text-ink-300">
-                  {d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : 'never'}
-                </td>
-                <td className="py-2 text-xs">{d.agentVersion ?? '—'}</td>
-                <td className="py-2 text-right text-xs">
-                  {d.diskFreePct != null ? `${d.diskFreePct}%` : '—'}
-                </td>
-                <td className="py-2 text-right">
-                  <div className="flex justify-end gap-1">
-                    {canWrite && d.status === 'PENDING' && (
-                      <button className="btn-ghost text-emerald-600" onClick={() => update.mutate({ id: d.id, body: { status: 'ACTIVE' } })}>
-                        Approve
-                      </button>
-                    )}
-                    <button className="btn-ghost" title="See what's playing now"
-                      onClick={() => setViewing(d)}>
-                      <Eye size={12}/>View
-                    </button>
-                    {canWrite && (
-                      <button className="btn-ghost" title="Force the agent to purge its cache and re-download"
-                        onClick={() => { if (confirm('Force resync?')) resync.mutate(d.id); }}>
-                        <RefreshCw size={12}/>
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-      </section>
+      {devices.data?.length === 0 && (
+        <section className="card p-6 text-center text-xs text-ink-300">
+          No signage devices yet. The agent on a media player enrols itself the first time it connects.
+        </section>
+      )}
+
+      {grouped.map((group) => {
+        const onlineInGroup = group.devices.filter((d: any) => d.online).length;
+        return (
+          <section key={group.key} className="card mb-4 p-2 md:p-4">
+            <header className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-ink-500/10 pb-2">
+              <div>
+                <h3 className="text-sm font-semibold">{group.label}</h3>
+                <div className="text-[11px] text-ink-300">
+                  {onlineInGroup} of {group.devices.length} online
+                </div>
+              </div>
+              {group.storeId && canManage && (
+                <button
+                  className="btn-primary text-xs"
+                  disabled={syncStore.isPending || onlineInGroup < 2}
+                  title={onlineInGroup < 2
+                    ? 'Need at least two online players in this store to sync'
+                    : 'All players in this store restart playback at the same instant'}
+                  onClick={() => {
+                    if (!confirm(`Sync all ${group.devices.length} player(s) in "${group.label}" — every TV will restart its playlist at the same instant (~75s from now). Proceed?`)) return;
+                    syncStore.mutate(group.storeId!);
+                  }}
+                >
+                  <Play size={12}/>Sync store
+                </button>
+              )}
+            </header>
+
+            <div className="mb-2 text-[11px] text-ink-300 md:hidden">
+              ← swipe to see all columns →
+            </div>
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="th text-left">Name</th>
+                  <th className="th text-left">Brand</th>
+                  <th className="th text-left">Store</th>
+                  <th className="th text-left">Orientation</th>
+                  <th className="th text-left">Rotation</th>
+                  <th className="th text-left">Status</th>
+                  <th className="th text-left">Last seen</th>
+                  <th className="th text-left">Agent</th>
+                  <th className="th text-right">Disk free</th>
+                  <th className="th text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.devices.map((d: any) => (
+                  <tr key={d.id} className="border-b border-ink-500/10">
+                    <td className="py-2">
+                      <div className="flex items-center gap-2">
+                        <span className={clsx('h-2 w-2 rounded-full', d.online ? 'bg-emerald-500' : 'bg-slate-300')} />
+                        <Monitor size={14} className="text-ink-300"/>
+                        <Link to={`/signage/devices/${d.id}`} className="font-medium text-brand-700 hover:underline">
+                          {d.name}
+                        </Link>
+                      </div>
+                    </td>
+                    <td className="py-2 text-xs">
+                      {canWrite ? (
+                        <select className="field !py-1 text-xs" value={d.entity ?? 'FASHION_FUSION'}
+                          onChange={(e) => update.mutate({ id: d.id, body: { entity: e.target.value } })}>
+                          <option value="FASHION_FUSION">Fashion Fusion</option>
+                          <option value="EVLV">Evolve</option>
+                        </select>
+                      ) : <EntityBadge entity={d.entity}/>}
+                    </td>
+                    <td className="py-2 text-xs">
+                      {canWrite ? (
+                        <select className="field !py-1 text-xs" value={d.storeId ?? ''}
+                          onChange={(e) => update.mutate({ id: d.id, body: { storeId: e.target.value || null } })}>
+                          <option value="">— no store —</option>
+                          {stores.data?.map((s: any) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
+                        </select>
+                      ) : (d.store ? `${d.store.code} — ${d.store.name}` : '—')}
+                    </td>
+                    <td className="py-2 text-xs">
+                      {canWrite ? (
+                        <select className="field !py-1 text-xs" value={d.orientation ?? 'LANDSCAPE'}
+                          onChange={(e) => update.mutate({ id: d.id, body: { orientation: e.target.value } })}
+                          title="Content filter — portrait devices only receive portrait videos (plus BOTH)">
+                          <option value="LANDSCAPE">Landscape</option>
+                          <option value="PORTRAIT">Portrait</option>
+                        </select>
+                      ) : (
+                        <span>{d.orientation}</span>
+                      )}
+                    </td>
+                    <td className="py-2 text-xs">
+                      {canWrite ? (
+                        <select
+                          className="field !py-1 text-xs"
+                          value={String(d.rotation ?? 0)}
+                          onChange={(e) => update.mutate({ id: d.id, body: { rotation: Number(e.target.value) } })}
+                          title="Screen rotation in degrees — changes take effect on the next device poll (~60s). Matches physical mount angle, clockwise.">
+                          <option value="0">0° (normal)</option>
+                          <option value="90">90° CW</option>
+                          <option value="180">180° (upside-down)</option>
+                          <option value="270">270° CW</option>
+                        </select>
+                      ) : (
+                        <span className="font-mono">{Number(d.rotation ?? 0)}°</span>
+                      )}
+                    </td>
+                    <td className="py-2 text-xs">
+                      <span className={clsx(
+                        'rounded px-1.5 py-0.5 font-mono text-[10px]',
+                        d.status === 'ACTIVE'   && 'bg-emerald-100 text-emerald-700',
+                        d.status === 'PENDING'  && 'bg-amber-100 text-amber-700',
+                        d.status === 'DISABLED' && 'bg-slate-100 text-slate-500',
+                      )}>{d.status}</span>
+                    </td>
+                    <td className="py-2 text-xs text-ink-300">
+                      {d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : 'never'}
+                    </td>
+                    <td className="py-2 text-xs">{d.agentVersion ?? '—'}</td>
+                    <td className="py-2 text-right text-xs">
+                      {d.diskFreePct != null ? `${d.diskFreePct}%` : '—'}
+                    </td>
+                    <td className="py-2 text-right">
+                      <div className="flex justify-end gap-1">
+                        {canWrite && d.status === 'PENDING' && (
+                          <button className="btn-ghost text-emerald-600" onClick={() => update.mutate({ id: d.id, body: { status: 'ACTIVE' } })}>
+                            Approve
+                          </button>
+                        )}
+                        <button className="btn-ghost" title="See what's playing now"
+                          onClick={() => setViewing(d)}>
+                          <Eye size={12}/>View
+                        </button>
+                        {canWrite && (
+                          <button className="btn-ghost" title="Force the agent to purge its cache and re-download"
+                            onClick={() => { if (confirm('Force resync?')) resync.mutate(d.id); }}>
+                            <RefreshCw size={12}/>
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+          </section>
+        );
+      })}
 
       {viewing && <PeekModal device={viewing} onClose={() => setViewing(null)} />}
     </>
