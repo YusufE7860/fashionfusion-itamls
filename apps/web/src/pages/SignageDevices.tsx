@@ -256,6 +256,10 @@ export function SignageDevices() {
                       <div className="flex items-center gap-2">
                         <span className={clsx('h-2 w-2 rounded-full', d.online ? 'bg-emerald-500' : 'bg-slate-300')} />
                         <Monitor size={14} className="text-ink-300"/>
+                        {/* Always-visible brand chip so a technician can see at a
+                            glance which TVs in a mixed-brand store are FF vs
+                            Evolve without opening the Brand dropdown. */}
+                        <EntityBadge entity={d.entity}/>
                         {renaming?.id === d.id ? (
                           <form
                             className="flex items-center gap-1"

@@ -122,6 +122,7 @@ function OverviewTab({ d, latest, snap, requestSnap }: any) {
           <Stat icon={<Film size={13}/>}  label="GPU"        value={d.hwGpuDrm ? 'DRM (hardware)' : d.hwGpuDrm === false ? 'software only' : '—'} />
           <Stat icon={<Cpu size={13}/>}   label="Arch"       value={d.hwArch ?? '—'} />
           <Stat icon={<Monitor size={13}/>} label="OS"       value={d.hwOsName ?? '—'} />
+          <Stat icon={<Monitor size={13}/>} label="Local IP" value={d.localIp ?? '—'} />
         </div>
         <div className="mt-4">
           <label className="label">Performance profile</label>

@@ -425,6 +425,7 @@ export class SignageService {
     hwGpuDrm?: boolean;
     hwArch?: string;
     hwOsName?: string;
+    localIp?: string;
   }) {
     const device = await this.authDevice(deviceId, token);
     const now = new Date();
@@ -444,6 +445,7 @@ export class SignageService {
           hwGpuDrm:   dto.hwGpuDrm   ?? device.hwGpuDrm,
           hwArch:     dto.hwArch     ?? device.hwArch,
           hwOsName:   dto.hwOsName   ?? device.hwOsName,
+          localIp:    dto.localIp    ?? device.localIp,
           // Clear offline-alert flag so next outage will trigger a fresh alert
           offlineAlertedAt: null,
         },
@@ -928,16 +930,47 @@ export class SignageService {
     const pl = await this.prisma.signagePlaylist.findUnique({ where: { id: dto.playlistId } });
     if (!pl) throw new BadRequestException('playlist not found');
 
-    const where = dto.entity === 'ALL' ? {} : { entity: dto.entity };
+    // A store qualifies if its own Store.entity matches OR it physically
+    // hosts at least one signage device of that entity (mixed-brand stores,
+    // where FF and Evolve TVs share a location). This way an "assign to
+    // Evolve" bulk op still covers an FF-labelled store that has 2 Evolve
+    // TVs in its window — otherwise those TVs would be left with no
+    // playlist.
+    const where =
+      dto.entity === 'ALL'
+        ? {}
+        : {
+            OR: [
+              { entity: dto.entity },
+              { signageDevices: { some: { entity: dto.entity } } },
+            ],
+          };
     const stores = await this.prisma.store.findMany({ where, select: { id: true } });
     if (stores.length === 0) return { ok: true, count: 0, assigned: [] };
 
-    // Replace-all: nuke each store's existing per-store assignment, then
-    // create a fresh row pointing at this playlist. Done in one transaction
-    // so partial failures don't leave the fleet half-assigned.
+    // Replace scoped by entity. A store may hold BOTH an FF playlist and an
+    // EVLV playlist at once (mixed-brand stores) — assigning one must NOT
+    // wipe the other. We delete only assignments whose playlist's entity
+    // overlaps with the one we're about to assign:
+    //   - Assigning to FASHION_FUSION / EVLV: delete existing per-store
+    //     assignments whose playlist is that entity OR 'BOTH' (shared-content
+    //     slot), leave the opposite entity alone.
+    //   - Assigning to ALL: delete every existing per-store assignment,
+    //     because the new playlist covers both brands.
+    const entitiesToReplace =
+      dto.entity === 'ALL'
+        ? ['FASHION_FUSION', 'EVLV', 'BOTH']
+        : [dto.entity, 'BOTH'];
+    const existingToDrop = await this.prisma.signageAssignment.findMany({
+      where: {
+        storeId: { in: stores.map((s) => s.id) },
+        playlist: { entity: { in: entitiesToReplace } },
+      },
+      select: { id: true },
+    });
     const ops = [
       this.prisma.signageAssignment.deleteMany({
-        where: { storeId: { in: stores.map((s) => s.id) } },
+        where: { id: { in: existingToDrop.map((a) => a.id) } },
       }),
       this.prisma.signageAssignment.createMany({
         data: stores.map((s) => ({ playlistId: dto.playlistId, storeId: s.id })),

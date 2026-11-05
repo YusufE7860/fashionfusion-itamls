@@ -66,6 +66,46 @@ def collect_hw() -> dict[str, Any]:
             out["hwMemMB"] = int(int(m.group(1)) / 1024)
     except Exception:
         pass
+    # Local IPv4 address(es). We pick the IP each non-loopback interface
+    # would use to reach the LAN gateway — opening a UDP socket toward a
+    # routable address works even when no DNS is up and without actually
+    # sending any packet. Multiple interfaces (wired + wi-fi) are joined
+    # so the admin UI shows both.
+    try:
+        import socket
+        ips: list[str] = []
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(0.3)
+            s.connect(("1.1.1.1", 80))      # no packet actually sent
+            ips.append(s.getsockname()[0])
+            s.close()
+        except Exception:
+            pass
+        # Second pass — enumerate every interface in case the primary
+        # route didn't catch wi-fi / secondary NICs.
+        try:
+            import fcntl, struct, array
+            names = array.array("B", b"\0" * 4096)
+            fd = socket.socket(socket.AF_INET, socket.SOCK_DGRAM).fileno()
+            outbytes = struct.unpack(
+                "iL",
+                fcntl.ioctl(fd, 0x8912, struct.pack("iL", 4096, names.buffer_info()[0])),
+            )[0]
+            raw = names.tobytes()[:outbytes]
+            for i in range(0, outbytes, 40):
+                ifname = raw[i:i + 16].split(b"\0", 1)[0].decode(errors="replace")
+                if ifname == "lo" or not ifname:
+                    continue
+                ip = socket.inet_ntoa(raw[i + 20:i + 24])
+                if ip and ip not in ips and not ip.startswith("127."):
+                    ips.append(ip)
+        except Exception:
+            pass
+        if ips:
+            out["localIp"] = ",".join(ips)[:120]
+    except Exception:
+        pass
     return out
 
 

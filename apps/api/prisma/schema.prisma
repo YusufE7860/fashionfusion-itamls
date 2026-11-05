@@ -992,6 +992,10 @@ model SignageDevice {
   hwGpuDrm           Boolean?                       // has /dev/dri/renderD128?
   hwArch             String?                        // x86_64 | aarch64 | armv7l
   hwOsName           String?
+  // Local IPv4 of the device as seen on its LAN. Updated every heartbeat.
+  // Comma-separated when there are multiple non-loopback interfaces so a
+  // technician can tell wired vs wi-fi at a glance.
+  localIp            String?
   notes              String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
