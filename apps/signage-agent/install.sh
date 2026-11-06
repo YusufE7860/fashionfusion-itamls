@@ -45,6 +45,10 @@ python3 -m venv "$VENV"
 "$VENV/bin/pip" install "$SRC_DIR"
 ln -sf "$VENV/bin/signage-agent" "$BIN"
 
+# Small SSH helper so an on-site tech can run `sudo signage-whoami` and
+# instantly see which entry this physical box is in the admin app.
+install -m 0755 "$SRC_DIR/signage-whoami.sh" /usr/local/bin/signage-whoami
+
 echo ">> Creating directories…"
 mkdir -p "$CONFIG_DIR" "$CACHE_DIR"
 chown -R "$PLAYER_USER" "$CONFIG_DIR" /var/lib/signage-agent

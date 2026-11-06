@@ -220,7 +220,14 @@ export class SignageService {
 
   // Agent polls this to find out what to play. We resolve device > store > region.
   async getConfig(deviceId: string, token: string) {
-    const device = await this.authDevice(deviceId, token);
+    const auth = await this.authDevice(deviceId, token);
+    // Re-fetch with the store relation so the config response can echo the
+    // store code/name back to the agent (used by signage-whoami to match
+    // the physical box to its UI entry).
+    const device = await this.prisma.signageDevice.findUnique({
+      where: { id: auth.id }, include: { store: true },
+    });
+    if (!device) throw new NotFoundException();
     const assignment = await this.resolveAssignment(
       { id: device.id, storeId: device.storeId, entity: (device as any).entity },
     );
@@ -346,6 +353,13 @@ export class SignageService {
     return {
       deviceStatus: device.status,
       deviceOrientation: device.orientation,
+      // Display name + brand + store code help an on-site tech match the
+      // physical box to its UI entry without digging through the admin app.
+      // Used by `signage-whoami` on the device (see README).
+      deviceName: device.name,
+      deviceEntity: (device as any).entity,
+      storeCode: (device as any).store?.code ?? null,
+      storeName: (device as any).store?.name ?? null,
       playlist: assignment ? { id: assignment.playlistId, name: assignment.name } : null,
       items: resolvedItems,
       mpvExtraArgs,
