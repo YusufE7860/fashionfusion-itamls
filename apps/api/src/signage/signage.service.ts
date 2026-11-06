@@ -208,7 +208,9 @@ export class SignageService {
   // Agent polls this to find out what to play. We resolve device > store > region.
   async getConfig(deviceId: string, token: string) {
     const device = await this.authDevice(deviceId, token);
-    const assignment = await this.resolveAssignment(device);
+    const assignment = await this.resolveAssignment(
+      { id: device.id, storeId: device.storeId, entity: (device as any).entity },
+    );
     const allItems = assignment
       ? await this.prisma.signagePlaylistItem.findMany({
           where: { playlistId: assignment.playlistId },
@@ -910,13 +912,47 @@ export class SignageService {
 
   // ---------- Admin: assignments ----------
 
-  async setAssignment(dto: { playlistId: string; deviceId?: string; storeId?: string; regionId?: string }) {
+  /**
+   * Point one target (device / store / region) at a playlist for a given
+   * brand slot. Defaults to the attached playlist's own entity so legacy
+   * single-brand workflows keep working without passing `entity`
+   * explicitly. The write is a true upsert on the composite unique key —
+   * no "delete every assignment for this target" anymore, so a mixed-brand
+   * store's opposite brand slot is never touched.
+   */
+  async setAssignment(dto: {
+    playlistId: string; deviceId?: string; storeId?: string; regionId?: string;
+    entity?: 'FASHION_FUSION' | 'EVLV' | 'BOTH';
+  }) {
     const { playlistId, deviceId, storeId, regionId } = dto;
-    if (!deviceId && !storeId && !regionId) throw new BadRequestException('Must target device, store, or region');
-    if (deviceId) await this.prisma.signageAssignment.deleteMany({ where: { deviceId } });
-    else if (storeId) await this.prisma.signageAssignment.deleteMany({ where: { storeId } });
-    else if (regionId) await this.prisma.signageAssignment.deleteMany({ where: { regionId } });
-    return this.prisma.signageAssignment.create({ data: { playlistId, deviceId, storeId, regionId } });
+    if (!deviceId && !storeId && !regionId) {
+      throw new BadRequestException('Must target device, store, or region');
+    }
+    const pl = await this.prisma.signagePlaylist.findUnique({
+      where: { id: playlistId }, select: { entity: true },
+    });
+    if (!pl) throw new BadRequestException('playlist not found');
+    const entity = dto.entity ?? (pl.entity as any) ?? 'BOTH';
+
+    if (deviceId) {
+      return this.prisma.signageAssignment.upsert({
+        where: { deviceId_entity: { deviceId, entity } },
+        create: { playlistId, deviceId, entity },
+        update: { playlistId },
+      });
+    }
+    if (storeId) {
+      return this.prisma.signageAssignment.upsert({
+        where: { storeId_entity: { storeId, entity } },
+        create: { playlistId, storeId, entity },
+        update: { playlistId },
+      });
+    }
+    return this.prisma.signageAssignment.upsert({
+      where: { regionId_entity: { regionId: regionId!, entity } },
+      create: { playlistId, regionId: regionId!, entity },
+      update: { playlistId },
+    });
   }
 
   /**
@@ -932,10 +968,7 @@ export class SignageService {
 
     // A store qualifies if its own Store.entity matches OR it physically
     // hosts at least one signage device of that entity (mixed-brand stores,
-    // where FF and Evolve TVs share a location). This way an "assign to
-    // Evolve" bulk op still covers an FF-labelled store that has 2 Evolve
-    // TVs in its window — otherwise those TVs would be left with no
-    // playlist.
+    // where FF and Evolve TVs share a location).
     const where =
       dto.entity === 'ALL'
         ? {}
@@ -948,35 +981,21 @@ export class SignageService {
     const stores = await this.prisma.store.findMany({ where, select: { id: true } });
     if (stores.length === 0) return { ok: true, count: 0, assigned: [] };
 
-    // Replace scoped by entity. A store may hold BOTH an FF playlist and an
-    // EVLV playlist at once (mixed-brand stores) — assigning one must NOT
-    // wipe the other. We delete only assignments whose playlist's entity
-    // overlaps with the one we're about to assign:
-    //   - Assigning to FASHION_FUSION / EVLV: delete existing per-store
-    //     assignments whose playlist is that entity OR 'BOTH' (shared-content
-    //     slot), leave the opposite entity alone.
-    //   - Assigning to ALL: delete every existing per-store assignment,
-    //     because the new playlist covers both brands.
-    const entitiesToReplace =
-      dto.entity === 'ALL'
-        ? ['FASHION_FUSION', 'EVLV', 'BOTH']
-        : [dto.entity, 'BOTH'];
-    const existingToDrop = await this.prisma.signageAssignment.findMany({
-      where: {
-        storeId: { in: stores.map((s) => s.id) },
-        playlist: { entity: { in: entitiesToReplace } },
-      },
-      select: { id: true },
-    });
-    const ops = [
-      this.prisma.signageAssignment.deleteMany({
-        where: { id: { in: existingToDrop.map((a) => a.id) } },
-      }),
-      this.prisma.signageAssignment.createMany({
-        data: stores.map((s) => ({ playlistId: dto.playlistId, storeId: s.id })),
-      }),
-    ];
-    await this.prisma.$transaction(ops);
+    // Upsert on (storeId, entity). "ALL" fills the BOTH slot so the
+    // resolver picks it up for either brand when no brand-specific slot
+    // exists. FF / EVLV fills their own slot without touching the opposite
+    // brand's slot on the same store — making an accidental cross-wipe
+    // impossible at the DB level, not just in service code.
+    const slotEntity = dto.entity === 'ALL' ? 'BOTH' : dto.entity;
+    await this.prisma.$transaction(
+      stores.map((s) =>
+        this.prisma.signageAssignment.upsert({
+          where: { storeId_entity: { storeId: s.id, entity: slotEntity } },
+          create: { storeId: s.id, entity: slotEntity, playlistId: dto.playlistId },
+          update: { playlistId: dto.playlistId },
+        }),
+      ),
+    );
     return { ok: true, count: stores.length, playlist: pl.name, entity: dto.entity };
   }
 
@@ -999,27 +1018,45 @@ export class SignageService {
   // ---------- Resolution ----------
 
   /** device > store > region assignment resolution. */
-  private async resolveAssignment(device: { id: string; storeId: string | null }): Promise<{ playlistId: string; name: string } | null> {
-    const direct = await this.prisma.signageAssignment.findFirst({
-      where: { deviceId: device.id },
-      include: { playlist: true },
-    });
-    if (direct) return { playlistId: direct.playlistId, name: direct.playlist.name };
+  /**
+   * Pick the playlist a device should play. Specificity cascade:
+   *   1. device-level assignment  (by device id)
+   *   2. store-level assignment   (by store id)
+   *   3. region-level assignment  (by the store's region)
+   * Within each level we also respect the brand slot — a device with
+   * entity=FASHION_FUSION prefers an assignment whose entity matches, then
+   * falls back to BOTH, then null (legacy pre-split rows), so existing data
+   * keeps working during the migration window.
+   */
+  private async resolveAssignment(device: { id: string; storeId: string | null; entity?: string | null }): Promise<{ playlistId: string; name: string } | null> {
+    const brandOrder = [device.entity ?? null, 'BOTH', null].filter(
+      (v, i, a) => a.indexOf(v) === i,
+    ) as (string | null)[];
 
-    if (device.storeId) {
-      const perStore = await this.prisma.signageAssignment.findFirst({
-        where: { storeId: device.storeId },
-        include: { playlist: true },
-      });
-      if (perStore) return { playlistId: perStore.playlistId, name: perStore.playlist.name };
-
-      const store = await this.prisma.store.findUnique({ where: { id: device.storeId }, select: { regionId: true } });
-      if (store?.regionId) {
-        const perRegion = await this.prisma.signageAssignment.findFirst({
-          where: { regionId: store.regionId },
+    const firstMatch = async (where: any) => {
+      for (const ent of brandOrder) {
+        const hit = await this.prisma.signageAssignment.findFirst({
+          where: { ...where, entity: ent },
           include: { playlist: true },
         });
-        if (perRegion) return { playlistId: perRegion.playlistId, name: perRegion.playlist.name };
+        if (hit) return { playlistId: hit.playlistId, name: hit.playlist.name };
+      }
+      return null;
+    };
+
+    const atDevice = await firstMatch({ deviceId: device.id });
+    if (atDevice) return atDevice;
+
+    if (device.storeId) {
+      const atStore = await firstMatch({ storeId: device.storeId });
+      if (atStore) return atStore;
+
+      const store = await this.prisma.store.findUnique({
+        where: { id: device.storeId }, select: { regionId: true },
+      });
+      if (store?.regionId) {
+        const atRegion = await firstMatch({ regionId: store.regionId });
+        if (atRegion) return atRegion;
       }
     }
     return null;

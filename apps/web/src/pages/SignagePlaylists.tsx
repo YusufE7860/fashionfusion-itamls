@@ -197,10 +197,11 @@ export function SignagePlaylists() {
                 {myAssigns.length === 0 && <li className="text-ink-300">Not assigned anywhere.</li>}
                 {myAssigns.map((a: any) => (
                   <li key={a.id} className="flex items-center justify-between rounded border border-ink-500/10 p-2">
-                    <span>
+                    <span className="flex items-center gap-2">
                       {a.device ? `Device: ${a.device.name}` :
                        a.store  ? `Store: ${a.store.code} — ${a.store.name}` :
                        a.region ? `Region: ${a.region.code}` : '—'}
+                      <BrandSlotChip entity={a.entity}/>
                     </span>
                     {canWrite && (
                       <button className="btn-ghost text-rose-500" onClick={() => unassign.mutate(a.id)}>
@@ -267,8 +268,13 @@ export function SignagePlaylists() {
 function AssignPicker({ stores, regions, onPick }: { stores: any[]; regions: any[]; onPick: (scope: any) => void }) {
   const [scope, setScope] = useState<'store' | 'region'>('store');
   const [val, setVal] = useState('');
+  // Which brand slot on the target this assignment fills. Defaults to BOTH
+  // so single-brand playlists keep their one-click behaviour; switch to FF
+  // or EVLV when assigning in a mixed-brand store so the other brand's
+  // slot is preserved.
+  const [entity, setEntity] = useState<'FASHION_FUSION' | 'EVLV' | 'BOTH'>('BOTH');
   return (
-    <div className="flex items-end gap-2">
+    <div className="flex flex-wrap items-end gap-2">
       <div>
         <label className="label">Scope</label>
         <select className="field" value={scope} onChange={(e) => { setScope(e.target.value as any); setVal(''); }}>
@@ -276,7 +282,7 @@ function AssignPicker({ stores, regions, onPick }: { stores: any[]; regions: any
           <option value="region">Region</option>
         </select>
       </div>
-      <div className="flex-1">
+      <div className="flex-1 min-w-[220px]">
         <label className="label">Target</label>
         <select className="field" value={val} onChange={(e) => setVal(e.target.value)}>
           <option value="">— pick —</option>
@@ -285,10 +291,42 @@ function AssignPicker({ stores, regions, onPick }: { stores: any[]; regions: any
           )}
         </select>
       </div>
+      <div>
+        <label className="label">Brand slot</label>
+        <select className="field" value={entity} onChange={(e) => setEntity(e.target.value as any)}
+          title="Which brand on the target gets this playlist. Pick FF or EVLV in a mixed-brand store so the other brand's slot stays untouched.">
+          <option value="BOTH">Both brands</option>
+          <option value="FASHION_FUSION">Fashion Fusion only</option>
+          <option value="EVLV">Evolve only</option>
+        </select>
+      </div>
       <button className="btn-primary" disabled={!val}
-        onClick={() => { onPick(scope === 'store' ? { storeId: val } : { regionId: val }); setVal(''); }}>
+        onClick={() => {
+          const target = scope === 'store' ? { storeId: val } : { regionId: val };
+          onPick({ ...target, entity });
+          setVal('');
+        }}>
         Assign
       </button>
     </div>
+  );
+}
+
+/** Small coloured pill rendered next to each row in "My assignments" so an
+ *  admin can tell at a glance whether an assignment fills the FF slot, the
+ *  Evolve slot, the shared BOTH slot, or is a legacy row from before the
+ *  per-brand split (null entity). */
+function BrandSlotChip({ entity }: { entity?: string | null }) {
+  const info: Record<string, { label: string; cls: string }> = {
+    FASHION_FUSION: { label: 'FF slot',   cls: 'bg-brand-50 text-brand-700 ring-brand-300' },
+    EVLV:           { label: 'EVLV slot', cls: 'bg-indigo-50 text-indigo-700 ring-indigo-300' },
+    BOTH:           { label: 'Both',      cls: 'bg-slate-100 text-slate-700 ring-slate-300' },
+  };
+  const key = entity ?? 'BOTH';
+  const i = info[key] ?? { label: 'legacy', cls: 'bg-amber-50 text-amber-700 ring-amber-300' };
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${i.cls}`}>
+      {i.label}
+    </span>
   );
 }

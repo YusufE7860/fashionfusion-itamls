@@ -1065,6 +1065,16 @@ model SignageAssignment {
   deviceId   String?                       // most specific
   storeId    String?                       // mid specificity
   regionId   String?                       // least specific (uses ITAMLS Region)
+  // Brand slot this assignment fills on the target. Mirrors Store.entity /
+  // SignageDevice.entity so a single mixed-brand store can hold one FF
+  // playlist AND one EVLV playlist side-by-side; the per-device sync picks
+  // the slot matching the device's entity.
+  //   FASHION_FUSION — only FF devices in this target pick this playlist
+  //   EVLV           — only Evolve devices
+  //   BOTH           — shared slot (either brand may pick when no
+  //                     brand-specific assignment exists)
+  //   null           — legacy pre-split rows; treated as BOTH by resolver
+  entity     String?                       // FASHION_FUSION | EVLV | BOTH | null
   createdAt  DateTime @default(now())
 
   playlist SignagePlaylist @relation(fields: [playlistId], references: [id])
@@ -1072,6 +1082,11 @@ model SignageAssignment {
   store    Store?          @relation(fields: [storeId],    references: [id])
   region   Region?         @relation(fields: [regionId],   references: [id])
 
+  // One slot per (target, brand) — this is what makes it impossible to
+  // accidentally wipe the other brand's assignment on the same target.
+  @@unique([storeId,  entity])
+  @@unique([deviceId, entity])
+  @@unique([regionId, entity])
   @@index([deviceId])
   @@index([storeId])
   @@index([regionId])
