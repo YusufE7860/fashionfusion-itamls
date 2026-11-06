@@ -59,11 +59,17 @@ function flagsForProfile(profile: string): string[] {
     '--audio-channels=stereo',
   ];
   switch (profile) {
+    // NOTE on --gpu-context: previously hard-coded to `drm`, which is right
+    // for Ubuntu Server / ubuntu-console installs but WRONG for Pi OS
+    // Desktop (X11). DRM needs exclusive console ownership; X already owns
+    // the display, so mpv initialises in idle mode and nothing paints —
+    // the TV goes black with mpv still running. Letting mpv auto-pick
+    // (--gpu-context=auto, the implicit default when omitted) correctly
+    // chooses x11 under a session and drm on a console.
     case 'PI3':
       return [
         '--hwdec=v4l2m2m-copy',       // VideoCore IV HW decode via V4L2
         '--vo=gpu',
-        '--gpu-context=drm',          // Console/kiosk default; mpv ignores on X
         '--cache=yes', '--cache-secs=20',
         '--vd-lavc-threads=4',
         ...SMOOTH_COMMON,
@@ -72,7 +78,6 @@ function flagsForProfile(profile: string): string[] {
       return [
         '--hwdec=v4l2m2m-copy',
         '--vo=gpu',
-        '--gpu-context=drm',
         '--cache=yes', '--cache-secs=30',
         '--video-sync=display-resample',   // nudge video rate to match display
         ...SMOOTH_COMMON,
@@ -81,7 +86,6 @@ function flagsForProfile(profile: string): string[] {
       return [
         '--hwdec=drm',                // Pi 5 has first-class DRM/KMS decode
         '--vo=gpu-next',
-        '--gpu-context=drm',
         '--cache=yes', '--cache-secs=30',
         '--video-sync=display-resample',
         '--interpolation=yes',             // frame interpolation — looks silky
