@@ -45,18 +45,29 @@ def collect_hw() -> dict[str, Any]:
         )
     except Exception:
         out["hwGpuDrm"] = False
-    # CPU model — /proc/cpuinfo. On Pi, "Hardware" and "Model" lines are
-    # more descriptive than "model name".
+    # CPU model — prefer /proc/device-tree/model on ARM boards (it's the
+    # authoritative "Raspberry Pi 4 Model B Rev 1.4" string that the kernel
+    # exposes), fall back to /proc/cpuinfo. /proc/cpuinfo's Hardware line
+    # often lies about Pi 4/5 (reports BCM2835 for ABI back-compat), which
+    # breaks the server-side profile picker.
     try:
-        with open("/proc/cpuinfo") as f:
-            text = f.read()
-        for pat in (r"^model name\s*:\s*(.+)$", r"^Model\s*:\s*(.+)$", r"^Hardware\s*:\s*(.+)$"):
-            m = re.search(pat, text, re.MULTILINE)
-            if m:
-                out["hwCpuModel"] = m.group(1).strip()[:120]
-                break
+        with open("/proc/device-tree/model") as f:
+            model = f.read().strip("\x00").strip()
+        if model:
+            out["hwCpuModel"] = model[:120]
     except Exception:
         pass
+    if "hwCpuModel" not in out:
+        try:
+            with open("/proc/cpuinfo") as f:
+                text = f.read()
+            for pat in (r"^model name\s*:\s*(.+)$", r"^Model\s*:\s*(.+)$", r"^Hardware\s*:\s*(.+)$"):
+                m = re.search(pat, text, re.MULTILINE)
+                if m:
+                    out["hwCpuModel"] = m.group(1).strip()[:120]
+                    break
+        except Exception:
+            pass
     # Memory — /proc/meminfo
     try:
         with open("/proc/meminfo") as f:

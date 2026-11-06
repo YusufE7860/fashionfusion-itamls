@@ -17,12 +17,21 @@ function pickProfile(d: { hwCpuModel?: string | null; hwArch?: string | null;
   const arch = (d.hwArch ?? '').toLowerCase();
   const mem = d.hwMemMB ?? 0;
 
-  // Raspberry Pi detection — the model string varies by OS; look for signals
-  if (cpu.includes('bcm2837') || cpu.includes('cortex-a53')) return 'PI3';
-  if (cpu.includes('bcm2711') || cpu.includes('cortex-a72')) return 'PI4';
-  if (cpu.includes('bcm2712') || cpu.includes('cortex-a76')) return 'PI5';
+  // Raspberry Pi detection — the model string varies by OS. Match on every
+  // known signal:
+  //   - cpuinfo "model name" / "Model"  (Raspberry Pi N Model B ...)
+  //   - cpuinfo "Hardware"              (BCM27xx — note Pi 4 and Pi 5 still
+  //                                       report BCM2835 on some kernels for
+  //                                       ABI back-compat)
+  //   - part number via "Cortex-A5x"    (older firmware)
+  if (cpu.includes('raspberry pi 3') || cpu.includes('bcm2837') || cpu.includes('cortex-a53')) return 'PI3';
+  if (cpu.includes('raspberry pi 4') || cpu.includes('bcm2711') || cpu.includes('cortex-a72')) return 'PI4';
+  if (cpu.includes('raspberry pi 5') || cpu.includes('bcm2712') || cpu.includes('cortex-a76')) return 'PI5';
   if (arch.startsWith('armv7') || arch === 'armv6l') return 'PI3';   // old ARM = treat as low-end Pi
+  // 64-bit ARM with ≥ 2GB that didn't match above — almost certainly a Pi 4
+  // on a stock Raspberry Pi OS kernel reporting legacy "BCM2835" in Hardware.
   if (arch === 'aarch64' && mem < 2048) return 'PI3';
+  if (arch === 'aarch64') return 'PI4';
 
   // x86 — Intel/AMD with DRM render node → VAAPI candidate
   if ((arch === 'x86_64' || arch === 'amd64') && d.hwGpuDrm) return 'X86_VAAPI';
@@ -587,6 +596,9 @@ export class SignageService {
 
   // ---------- Resolution trace ----------
   // Explain in human-readable form what SHOULD play on this device + why.
+  // Mirrors the brand-slot cascade used by resolveAssignment so the trace
+  // answers the question "why did my EVLV device pick the FF playlist?"
+  // correctly — not with a stale pre-split any-slot lookup.
   async resolutionTrace(deviceId: string) {
     const device = await this.prisma.signageDevice.findUnique({
       where: { id: deviceId }, include: { store: true },
@@ -594,31 +606,62 @@ export class SignageService {
     if (!device) throw new NotFoundException();
 
     const steps: Array<{ step: string; result: string; detail?: string }> = [];
+    const brandOrder: (string | null)[] = [
+      (device as any).entity ?? null, 'BOTH', null,
+    ].filter((v, i, a) => a.indexOf(v) === i);
+
+    steps.push({
+      step: '0. Device brand',
+      result: (device as any).entity ?? 'unset',
+      detail: `Resolver tries slots in this order: ${brandOrder.map((b) => b ?? 'legacy-null').join(' → ')}`,
+    });
+
+    const firstSlotMatch = async (where: any) => {
+      // For a given target scope, list every candidate slot and remember
+      // which brand slot actually won so we can report it in the trace.
+      const candidates = await this.prisma.signageAssignment.findMany({
+        where, include: { playlist: true },
+      });
+      if (candidates.length === 0) return { winner: null as any, candidates };
+      for (const ent of brandOrder) {
+        const hit = candidates.find((c) => (c.entity ?? null) === ent);
+        if (hit) return { winner: hit, candidates };
+      }
+      return { winner: null, candidates };
+    };
 
     // 1. Device-level assignment
-    const direct = await this.prisma.signageAssignment.findFirst({
-      where: { deviceId }, include: { playlist: true },
+    const dev = await firstSlotMatch({ deviceId });
+    const direct = dev.winner;
+    steps.push({
+      step: '1. Device assignment',
+      result: direct
+        ? `Playlist "${direct.playlist.name}" (${direct.entity ?? 'legacy'} slot)`
+        : (dev.candidates.length
+            ? `${dev.candidates.length} slot(s) present but none match this device's brand — fall through to store`
+            : 'None — fall through to store'),
+      detail: dev.candidates.length
+        ? `Slots: ${dev.candidates.map((c) => `${c.entity ?? 'legacy'}→${c.playlist.name}`).join(', ')}`
+        : 'Direct device assignment, when present, takes precedence over store or region.',
     });
-    if (direct) {
-      steps.push({
-        step: '1. Device assignment',
-        result: `Playlist "${direct.playlist.name}"`,
-        detail: 'Direct device assignment wins — this takes precedence over store or region.',
-      });
-    } else {
-      steps.push({ step: '1. Device assignment', result: 'None — fall through to store' });
-    }
 
     // 2. Store-level
     let storeAssign: any = null;
+    let storeCandidates: any[] = [];
     if (!direct && device.storeId) {
-      storeAssign = await this.prisma.signageAssignment.findFirst({
-        where: { storeId: device.storeId }, include: { playlist: true },
-      });
+      const st = await firstSlotMatch({ storeId: device.storeId });
+      storeAssign = st.winner;
+      storeCandidates = st.candidates;
       steps.push({
         step: '2. Store assignment',
-        result: storeAssign ? `Playlist "${storeAssign.playlist.name}"` : 'None — fall through to region',
-        detail: device.store ? `For store ${device.store.code} — ${device.store.name}` : 'Device has no store attached',
+        result: storeAssign
+          ? `Playlist "${storeAssign.playlist.name}" (${storeAssign.entity ?? 'legacy'} slot)`
+          : (storeCandidates.length
+              ? `${storeCandidates.length} slot(s) present but none match this device's brand — fall through to region`
+              : 'None — fall through to region'),
+        detail: storeCandidates.length
+          ? `Slots on ${device.store?.code}: ${storeCandidates.map((c) => `${c.entity ?? 'legacy'}→${c.playlist.name}`).join(', ')}`
+          : device.store ? `For store ${device.store.code} — ${device.store.name}` : 'Device has no store attached',
       });
     } else if (!direct) {
       steps.push({ step: '2. Store assignment', result: 'Skipped — device has no store set' });
@@ -629,12 +672,13 @@ export class SignageService {
     if (!direct && !storeAssign && device.storeId) {
       const store = await this.prisma.store.findUnique({ where: { id: device.storeId }, select: { regionId: true, region: true } });
       if (store?.regionId) {
-        regionAssign = await this.prisma.signageAssignment.findFirst({
-          where: { regionId: store.regionId }, include: { playlist: true },
-        });
+        const rg = await firstSlotMatch({ regionId: store.regionId });
+        regionAssign = rg.winner;
         steps.push({
           step: '3. Region assignment',
-          result: regionAssign ? `Playlist "${regionAssign.playlist.name}"` : 'None',
+          result: regionAssign
+            ? `Playlist "${regionAssign.playlist.name}" (${regionAssign.entity ?? 'legacy'} slot)`
+            : 'None',
         });
       } else {
         steps.push({ step: '3. Region assignment', result: 'Skipped — store has no region entity attached' });
