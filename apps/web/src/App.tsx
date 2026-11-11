@@ -18,7 +18,7 @@ import { Invoices } from './pages/Invoices';
 import { AuditsList } from './pages/AuditsList';
 import { AuditDetail } from './pages/AuditDetail';
 import { ApiKeys } from './pages/ApiKeys';
-import { Discovery } from './pages/Discovery';
+// Discovery route removed; file kept in-repo but no longer wired up.
 import { Alerts } from './pages/Alerts';
 import { Templates } from './pages/Templates';
 import { Users } from './pages/Users';
@@ -38,7 +38,7 @@ import { TonerOrders } from './pages/TonerOrders';
 import { TonerOrderDetail } from './pages/TonerOrderDetail';
 import { Skus } from './pages/Skus';
 import { Security } from './pages/Security';
-import { AssetsImport } from './pages/AssetsImport';
+// AssetsImport route removed; file kept in-repo but no longer wired up.
 import { ActivityLog } from './pages/ActivityLog';
 import { Software } from './pages/Software';
 import { Updates } from './pages/Updates';
@@ -99,7 +99,9 @@ export function App() {
         <Route path="audits" element={<AuditsList />} />
         <Route path="audits/:id" element={<AuditDetail />} />
         <Route path="reports" element={<Reports />} />
-        <Route path="discovery" element={<Discovery />} />
+        {/* Discovery module removed per operator request — no live scanning
+            use case. Leave the Discovery.tsx page in-repo for now; just stop
+            routing to it so the sidebar/menu don't surface it. */}
         <Route path="alerts" element={<Alerts />} />
         <Route path="admin/templates" element={<Templates />} />
         <Route path="admin/users" element={<Users />} />
@@ -121,7 +123,8 @@ export function App() {
         <Route path="admin/skus" element={<Skus />} />
         <Route path="admin/security" element={<Security />} />
         <Route path="admin/activity" element={<ActivityLog />} />
-        <Route path="assets/import" element={<AssetsImport />} />
+        {/* Bulk Import removed per operator request — assets are added one at
+            a time or via the enrolled-agent inventory feed. */}
         <Route path="software" element={<Software />} />
         <Route path="admin/updates" element={<Updates />} />
         <Route path="stores/:id/backups" element={<StoreBackups />} />

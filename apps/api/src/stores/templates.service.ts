@@ -26,7 +26,21 @@ export class UpsertItemDto {
 export class TemplatesService {
   constructor(private prisma: PrismaService) {}
 
-  list() {
+  async list() {
+    // Make sure a "Custom" template always exists. The wizard treats
+    // code='CUSTOM' as the signal to switch to manual quantity entry; if
+    // nobody has created one yet, surface it automatically so the UI's
+    // Template dropdown always shows a Custom option.
+    const custom = await this.prisma.storeTemplate.findFirst({ where: { code: 'CUSTOM' } });
+    if (!custom) {
+      await this.prisma.storeTemplate.create({
+        data: {
+          code: 'CUSTOM',
+          name: 'Custom',
+          description: 'Operator fills in POS points, offices, printers and monitors on the wizard.',
+        },
+      });
+    }
     return this.prisma.storeTemplate.findMany({
       orderBy: { name: 'asc' },
       include: { items: { include: { category: true } } },

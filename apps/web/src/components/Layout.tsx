@@ -32,11 +32,9 @@ const NAV: NavEntry[] = [
   ] },
 
   { kind: 'group', id: 'inventory', label: 'Inventory', icon: Boxes, items: [
-    { to: '/assets',       label: 'Assets' },
-    { to: '/assets/import',label: 'Bulk Import' },
-    { to: '/stock',        label: 'Stock' },
-    { to: '/discovery',    label: 'Discovery' },
-    { to: '/software',     label: 'Software' },
+    { to: '/assets',   label: 'Assets' },
+    { to: '/stock',    label: 'Stock' },
+    { to: '/software', label: 'Software' },
   ] },
 
   { kind: 'group', id: 'logistics', label: 'Logistics', icon: Truck, items: [

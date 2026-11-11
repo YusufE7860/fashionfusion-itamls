@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
@@ -43,13 +44,32 @@ const PATH_PRESETS: { label: string; path: string; note?: string }[] = [
 
 type Mode = 'STORE' | 'HQ';
 
+// Same component serves three routes — each one restricts what the user can
+// target. /hq/agents → HQ only, /stores/agents → stores only, /admin/agents →
+// both. Gate the mode toggle + the PC-list scope filter accordingly so an HQ
+// admin never sees store PCs and vice versa.
+function restrictFromPath(pathname: string): 'HQ' | 'STORE' | 'BOTH' {
+  if (pathname.startsWith('/hq/'))     return 'HQ';
+  if (pathname.startsWith('/stores/')) return 'STORE';
+  return 'BOTH';
+}
+
 export function AgentEnrollment() {
   const qc = useQueryClient();
   const token = useAuth((s) => s.token);
   const hasPerm = useAuth((s) => s.hasPermission);
   const canManage = hasPerm('agents:manage');
+  const { pathname } = useLocation();
+  const restrict = restrictFromPath(pathname);
 
-  const [mode, setMode] = useState<Mode>('STORE');
+  const [mode, setMode] = useState<Mode>(restrict === 'HQ' ? 'HQ' : 'STORE');
+  // If the user navigates between pages the mode must snap back to the
+  // allowed one; otherwise an operator who was on /stores/agents and picked
+  // STORE would still be on STORE after routing to /hq/agents.
+  useEffect(() => {
+    if (restrict === 'HQ'    && mode !== 'HQ')    setMode('HQ');
+    if (restrict === 'STORE' && mode !== 'STORE') setMode('STORE');
+  }, [restrict]);  // eslint-disable-line react-hooks/exhaustive-deps
   const stores  = useQuery({ queryKey: ['stores'],       queryFn: () => api.get<StoreT[]>('/stores').then((r) => r.data) });
   const depts   = useQuery({ queryKey: ['departments'],  queryFn: () => api.get<Dept[]>('/departments').then((r) => r.data) });
   const pcs     = useQuery({ queryKey: ['agent-pcs'],    queryFn: () => api.get<Pc[]>('/agents/pcs').then((r) => r.data) });
@@ -156,12 +176,24 @@ export function AgentEnrollment() {
 
   const canIssue = mode === 'STORE' ? !!storeId : !!departmentId;
 
-  const [pcTab, setPcTab] = useState<'ALL' | 'STORE' | 'HQ'>('ALL');
+  const [pcTab, setPcTab] = useState<'ALL' | 'STORE' | 'HQ'>(
+    restrict === 'HQ' ? 'HQ' : restrict === 'STORE' ? 'STORE' : 'ALL',
+  );
+  useEffect(() => {
+    if (restrict === 'HQ'    && pcTab !== 'HQ')    setPcTab('HQ');
+    if (restrict === 'STORE' && pcTab !== 'STORE') setPcTab('STORE');
+  }, [restrict]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   const filteredPcs = useMemo(() => {
     if (!pcs.data) return [];
+    // When the route restricts scope, the filter is effectively mandatory —
+    // pcTab is also pinned above, so this is belt-and-braces to make sure a
+    // stale state never leaks the other scope into the list.
+    if (restrict === 'HQ')    return pcs.data.filter((p) => p.scope === 'HQ');
+    if (restrict === 'STORE') return pcs.data.filter((p) => p.scope === 'STORE');
     if (pcTab === 'ALL') return pcs.data;
     return pcs.data.filter((p) => p.scope === pcTab);
-  }, [pcs.data, pcTab]);
+  }, [pcs.data, pcTab, restrict]);
 
   return (
     <>
@@ -208,19 +240,22 @@ export function AgentEnrollment() {
           <h2 className="text-sm font-semibold text-slate-700">Issue a new enrollment token</h2>
         </div>
 
-        {/* Store / HQ toggle */}
-        <div className="mb-3 inline-flex rounded-lg border border-ink-500 p-1">
-          <button
-            className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mode === 'STORE' ? 'bg-brand-500 text-white' : 'text-ink-200 hover:bg-ink-600'}`}
-            onClick={() => setMode('STORE')}>
-            <Store size={13} />Store PC
-          </button>
-          <button
-            className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mode === 'HQ' ? 'bg-brand-500 text-white' : 'text-ink-200 hover:bg-ink-600'}`}
-            onClick={() => setMode('HQ')}>
-            <Building2 size={13} />HQ PC
-          </button>
-        </div>
+        {/* Store / HQ toggle — only shown on /admin/agents where both are valid.
+            HQ-only and Store-only pages pin the mode and hide this chooser. */}
+        {restrict === 'BOTH' && (
+          <div className="mb-3 inline-flex rounded-lg border border-ink-500 p-1">
+            <button
+              className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mode === 'STORE' ? 'bg-brand-500 text-white' : 'text-ink-200 hover:bg-ink-600'}`}
+              onClick={() => setMode('STORE')}>
+              <Store size={13} />Store PC
+            </button>
+            <button
+              className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${mode === 'HQ' ? 'bg-brand-500 text-white' : 'text-ink-200 hover:bg-ink-600'}`}
+              onClick={() => setMode('HQ')}>
+              <Building2 size={13} />HQ PC
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           {mode === 'STORE' ? (
@@ -366,13 +401,17 @@ export function AgentEnrollment() {
             <MonitorSmartphone size={16} className="text-brand-600" />
             <h2 className="text-sm font-semibold text-slate-700">Enrolled PCs</h2>
           </div>
-          <div className="inline-flex rounded-lg border border-ink-500 p-1 text-xs">
-            {(['ALL', 'STORE', 'HQ'] as const).map((t) => (
-              <button key={t}
-                className={`rounded-md px-3 py-1 font-medium transition-colors ${pcTab === t ? 'bg-brand-500 text-white' : 'text-ink-200 hover:bg-ink-600'}`}
-                onClick={() => setPcTab(t)}>{t}</button>
-            ))}
-          </div>
+          {/* ALL/STORE/HQ tabs are only useful on the admin screen where both
+              scopes mix. HQ-only and Store-only pages pin the filter. */}
+          {restrict === 'BOTH' && (
+            <div className="inline-flex rounded-lg border border-ink-500 p-1 text-xs">
+              {(['ALL', 'STORE', 'HQ'] as const).map((t) => (
+                <button key={t}
+                  className={`rounded-md px-3 py-1 font-medium transition-colors ${pcTab === t ? 'bg-brand-500 text-white' : 'text-ink-200 hover:bg-ink-600'}`}
+                  onClick={() => setPcTab(t)}>{t}</button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

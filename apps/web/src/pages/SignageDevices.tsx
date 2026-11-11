@@ -421,6 +421,7 @@ function InstallerModal({ onClose, stores }: { onClose: () => void; stores: any[
   const [entity, setEntity] = useState<'FASHION_FUSION' | 'EVLV'>('FASHION_FUSION');
   const [name, setName] = useState('');
   const [storeCode, setStoreCode] = useState('');
+  const [migrate, setMigrate] = useState(false);
 
   // The API base the web app was built against. The installer needs an
   // absolute URL so the installer script knows where to phone home — fall
@@ -431,6 +432,7 @@ function InstallerModal({ onClose, stores }: { onClose: () => void; stores: any[
   const params = new URLSearchParams({ platform, entity });
   if (name.trim())      params.set('name', name.trim());
   if (storeCode.trim()) params.set('storeCode', storeCode.trim());
+  if (migrate)          params.set('migrate', '1');
   const url = `${base}/signage/installer.sh?${params.toString()}`;
   const oneLiner = `curl -fsSL "${url}" | sudo bash`;
 
@@ -487,6 +489,18 @@ function InstallerModal({ onClose, stores }: { onClose: () => void; stores: any[
               </select>
             </label>
           </div>
+
+          <label className="flex items-start gap-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs">
+            <input type="checkbox" className="mt-0.5"
+              checked={migrate} onChange={(e) => setMigrate(e.target.checked)}/>
+            <span>
+              <b>Migrate from an older signage install</b> — stops and removes a prior
+              <code className="mx-1 rounded bg-white px-1">video_player</code>-style
+              service, scrubs <code className="mx-1 rounded bg-white px-1">install_video_player*.sh</code>,
+              <code className="mx-1 rounded bg-white px-1">play.sh</code> and friends from the player home,
+              then runs the fresh install. Safe no-op on a clean box.
+            </span>
+          </label>
 
           <div>
             <div className="mb-1 flex items-center justify-between">

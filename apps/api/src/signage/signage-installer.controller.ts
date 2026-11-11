@@ -28,6 +28,7 @@ export class SignageInstallerController {
     @Query('entity')   entity:   'FASHION_FUSION' | 'EVLV' = 'FASHION_FUSION',
     @Query('name')     name:     string | undefined,
     @Query('storeCode') storeCode: string | undefined,
+    @Query('migrate')  migrate:  string | undefined,
     @Res() res: Response,
   ) {
     const serverUrl = process.env.PUBLIC_API_URL ?? 'https://it.ffgsa.co.za:41235/api/v1';
@@ -36,8 +37,9 @@ export class SignageInstallerController {
     const safeEntity = entity === 'EVLV' ? 'EVLV' : 'FASHION_FUSION';
     const safeName = (name ?? '').replace(/[^\w\s\-\.]/g, '').trim();
     const safeStore = (storeCode ?? '').replace(/[^\w\-]/g, '').trim();
+    const doMigrate = /^(1|true|yes)$/i.test(migrate ?? '');
 
-    const script = buildInstallerScript({ platform, serverUrl, provisioningSecret, hmacSecret, safeName, safeStore, safeEntity });
+    const script = buildInstallerScript({ platform, serverUrl, provisioningSecret, hmacSecret, safeName, safeStore, safeEntity, migrate: doMigrate });
     res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
     res.setHeader('Content-Disposition', 'inline; filename="install-signage.sh"');
     res.send(script);
@@ -70,8 +72,9 @@ function buildInstallerScript(opts: {
   safeName: string;
   safeStore: string;
   safeEntity: string;
+  migrate: boolean;
 }) {
-  const { platform, serverUrl, provisioningSecret, hmacSecret, safeName, safeStore, safeEntity } = opts;
+  const { platform, serverUrl, provisioningSecret, hmacSecret, safeName, safeStore, safeEntity, migrate } = opts;
   const tarballUrl = `${serverUrl}/signage/agent.tar.gz`;
 
   // Platform-specific display/service tweaks.
@@ -128,6 +131,57 @@ echo "============================================================"
 
 ${playerUserCmd}
 echo ">> Player will run as: \$PLAYER_USER"
+
+# Server stamped the migrate choice from ?migrate=1 at script-generation time.
+${migrate ? 'MIGRATE="${MIGRATE:-1}"' : 'MIGRATE="${MIGRATE:-0}"'}
+
+# -----------------------------------------------------------------------------
+# Migrate-away cleanup. Pass MIGRATE=1 (or ?migrate=1 on the URL — the
+# wrapper sets the env var) to scrub a previous, home-grown signage install
+# before laying down the new one. Catches:
+#   - legacy video_player / mediaplayer / signagepi / ffsignage systemd units
+#     (stop, disable, remove unit file, reload daemon)
+#   - old installer + run scripts in the player user's home directory
+#   - cached playlists / videos in ~/Videos or ~/signage
+#
+# Idempotent. If nothing matches, the block is a no-op.
+# -----------------------------------------------------------------------------
+if [[ "\${MIGRATE:-0}" == "1" ]]; then
+  echo ">> MIGRATE=1 — scrubbing any previous signage install before continuing."
+
+  LEGACY_UNITS=(video_player mediaplayer signage signagepi ffsignage kiosk-player)
+  for unit in "\${LEGACY_UNITS[@]}"; do
+    for suffix in "" ".service"; do
+      full="\${unit}\${suffix}"
+      if systemctl list-unit-files | grep -q "^\${full}"; then
+        echo "   - stopping \$full"
+        systemctl stop   "\$full"   2>/dev/null || true
+        systemctl disable "\$full"  2>/dev/null || true
+        rm -f "/etc/systemd/system/\$full" "/lib/systemd/system/\$full" 2>/dev/null || true
+      fi
+    done
+  done
+  systemctl daemon-reload 2>/dev/null || true
+
+  PU_HOME="\$(getent passwd "\$PLAYER_USER" | cut -d: -f6)"
+  if [[ -n "\$PU_HOME" && -d "\$PU_HOME" ]]; then
+    # Known legacy filenames — delete without complaining if absent.
+    for pattern in \\
+      "install.sh" "Install.sh" "install_video_player.sh" "install_video_player_Update.sh*" \\
+      "play.sh" "video_player.sh" "player.sh" "signage.sh" "ffsignage.sh" \\
+      ; do
+      # shellcheck disable=SC2086
+      find "\$PU_HOME" -maxdepth 1 -name \$pattern -print -delete 2>/dev/null || true
+    done
+  fi
+
+  # Kill any still-running playback processes from the old system so they
+  # don't fight the new mpv for the screen.
+  pkill -f -9 video_player   2>/dev/null || true
+  pkill -f -9 signage-legacy 2>/dev/null || true
+
+  echo ">> Cleanup done."
+fi
 
 echo ">> Installing system packages…"
 export DEBIAN_FRONTEND=noninteractive
