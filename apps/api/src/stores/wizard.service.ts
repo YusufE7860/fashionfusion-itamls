@@ -28,15 +28,15 @@ const PDFDocument = require('pdfkit');
  */
 const CUSTOM_CODE = 'CUSTOM';
 
-// Category codes we recognise for custom-template quantity mapping. These
-// mirror the canonical categories we seed in Admin → Templates. Any custom
-// category the operator adds later still works via the template-items path;
-// the custom-mode path just needs the common four.
-const CUSTOM_CATEGORY_MAP: Record<string, keyof CustomInputs> = {
-  'POS_PC':     'posPoints',
-  'OFFICE_PC':  'offices',
-  'PRINTER':    'printers',
-  'MONITOR':    'screens',
+// Custom-mode categories mapped by Category.name (Category has no 'code'
+// field in this schema). The match is case-insensitive; the FIRST alias
+// that matches an existing Category wins — add aliases here rather than
+// renaming categories in the DB when terminology drifts.
+const CUSTOM_CATEGORY_ALIASES: Record<keyof CustomInputs, string[]> = {
+  posPoints: ['POS PC',     'POS',    'Till PC',    'POS Computer'],
+  offices:   ['Office PC',  'Desktop PC', 'Desktop', 'Workstation'],
+  printers:  ['Printer',    'Printers'],
+  screens:   ['Monitor',    'Monitors',   'Screen',  'Screens', 'Display'],
 };
 
 interface CustomInputs {
@@ -126,16 +126,36 @@ export class WizardService {
         printers:  dto.printers  ?? 0,
         screens:   dto.screens   ?? 0,
       };
-      // Pull any category that's in our CUSTOM_CATEGORY_MAP. Load them all
-      // in one query to keep this cheap even for big category catalogs.
-      const codes = Object.keys(CUSTOM_CATEGORY_MAP);
-      const cats = await this.prisma.category.findMany({ where: { code: { in: codes } } });
-      for (const cat of cats) {
-        const mapKey = CUSTOM_CATEGORY_MAP[cat.code];
-        const qty = mapKey ? customInputs[mapKey] : 0;
-        if (qty > 0) {
-          itemsForProposal.push({ categoryId: cat.id, categoryName: cat.name, requiredQty: qty });
+      // Find the matching Category for each custom input. Case-insensitive
+      // name match against the alias list. One Prisma call pulls them all;
+      // we filter in JS to keep the alias logic readable.
+      const allCats = await this.prisma.category.findMany({
+        select: { id: true, name: true },
+      });
+      const findByAliases = (aliases: string[]) => {
+        for (const alias of aliases) {
+          const lower = alias.toLowerCase();
+          const hit = allCats.find((c) => c.name.toLowerCase() === lower);
+          if (hit) return hit;
         }
+        return null;
+      };
+      for (const key of Object.keys(customInputs) as Array<keyof CustomInputs>) {
+        const qty = customInputs[key];
+        if (qty <= 0) continue;
+        const cat = findByAliases(CUSTOM_CATEGORY_ALIASES[key]);
+        if (!cat) {
+          // No matching category exists yet — emit a synthetic line so the
+          // operator sees that qty in the proposal. categoryId is left
+          // empty; the costing step treats missing categoryId as R0.
+          itemsForProposal.push({
+            categoryId:   '',
+            categoryName: CUSTOM_CATEGORY_ALIASES[key][0] + ' (no category — add in Admin)',
+            requiredQty:  qty,
+          });
+          continue;
+        }
+        itemsForProposal.push({ categoryId: cat.id, categoryName: cat.name, requiredQty: qty });
       }
       if (itemsForProposal.length === 0) {
         throw new BadRequestException(
@@ -160,9 +180,14 @@ export class WizardService {
     }> = [];
     let equipmentTotal = 0;
     for (const it of itemsForProposal) {
-      const skus = await this.prisma.sku.findMany({
-        where: { categoryId: it.categoryId, unitCostCents: { gt: 0 } },
-      });
+      // When categoryId is empty (custom-mode synthetic row where no
+      // matching Category exists yet) there are no SKUs to average —
+      // treat the line as R0 so the costs tally without crashing.
+      const skus = it.categoryId
+        ? await this.prisma.sku.findMany({
+            where: { categoryId: it.categoryId, unitCostCents: { gt: 0 } },
+          })
+        : [];
       const avg = skus.length === 0
         ? 0
         : Math.round(skus.reduce((s, k) => s + k.unitCostCents, 0) / skus.length);
