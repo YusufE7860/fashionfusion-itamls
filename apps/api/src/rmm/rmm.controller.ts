@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { RmmService } from './rmm.service';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { Permissions } from '../shared';
@@ -57,5 +57,17 @@ export class RmmController {
   @RequirePermissions(Permissions.AgentsWrite ?? 'agents:write')
   runScript(@Param('id') id: string, @Body() body: { agentPcIds: string[] }, @Req() req: any) {
     return this.svc.runScript(id, body.agentPcIds ?? [], ctxFor(req));
+  }
+
+  @Patch('scripts/:id')
+  @RequirePermissions(Permissions.AgentsWrite ?? 'agents:write')
+  updateScript(@Param('id') id: string, @Body() dto: any) {
+    return this.svc.updateScript(id, dto);
+  }
+
+  @Delete('scripts/:id')
+  @RequirePermissions(Permissions.AgentsWrite ?? 'agents:write')
+  deleteScript(@Param('id') id: string) {
+    return this.svc.deleteScript(id);
   }
 }

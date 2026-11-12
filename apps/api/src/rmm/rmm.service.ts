@@ -11,9 +11,38 @@ export class RmmService {
 
   // ---------- Connection / PC listing ----------
   async listConnections() {
-    return this.prisma.rmmConnection.findMany({
+    const conns = await this.prisma.rmmConnection.findMany({
       orderBy: [{ isOnline: 'desc' }, { lastSeenAt: 'desc' }],
       take: 500,
+    });
+    // RmmConnection.agentPcId is a string reference to StorePc.id rather
+    // than a Prisma relation, so we batch-load the PC records and merge
+    // display-friendly fields (name, scope, store code/name, department)
+    // into each connection. This is what makes filter-by-store and
+    // multi-select bulk ops possible on the UI side.
+    const pcIds = conns.map((c) => c.agentPcId).filter(Boolean);
+    const pcs = pcIds.length
+      ? await this.prisma.storePc.findMany({
+          where: { id: { in: pcIds } },
+          include: {
+            store:      { select: { id: true, code: true, name: true } },
+            department: { select: { id: true, name: true } },
+          },
+        })
+      : [];
+    const pcMap = new Map(pcs.map((p) => [p.id, p]));
+    return conns.map((c) => {
+      const pc = pcMap.get(c.agentPcId);
+      return {
+        ...c,
+        pcName:   pc?.name ?? null,
+        scope:    pc?.scope ?? null,
+        storeId:  pc?.storeId ?? null,
+        storeCode: pc?.store?.code ?? null,
+        storeName: pc?.store?.name ?? null,
+        departmentName: pc?.department?.name ?? null,
+        live:     this.gateway.isOnline(c.agentPcId),
+      };
     });
   }
 
@@ -104,6 +133,34 @@ export class RmmService {
         createdById: ctx.userId,
       },
     });
+  }
+
+  async updateScript(id: string, dto: {
+    name?: string; description?: string;
+    interpreter?: 'POWERSHELL' | 'CMD' | 'BASH';
+    body?: string; tags?: string; isActive?: boolean;
+  }) {
+    const script = await this.prisma.rmmScript.findUnique({ where: { id } });
+    if (!script) throw new NotFoundException();
+    return this.prisma.rmmScript.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined        && { name: dto.name.trim() }),
+        ...(dto.description !== undefined && { description: dto.description ?? null }),
+        ...(dto.interpreter !== undefined && { interpreter: dto.interpreter }),
+        ...(dto.body !== undefined        && { body: dto.body }),
+        ...(dto.tags !== undefined        && { tags: dto.tags ?? null }),
+        ...(dto.isActive !== undefined    && { isActive: dto.isActive }),
+      },
+    });
+  }
+
+  async deleteScript(id: string) {
+    // Soft delete — scripts might be linked to historical RmmScriptRun rows,
+    // so we flip isActive rather than wiping the audit trail.
+    const script = await this.prisma.rmmScript.findUnique({ where: { id } });
+    if (!script) throw new NotFoundException();
+    return this.prisma.rmmScript.update({ where: { id }, data: { isActive: false } });
   }
 
   async runScript(scriptId: string, agentPcIds: string[], ctx: UserCtx) {
