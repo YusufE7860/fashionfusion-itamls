@@ -56,7 +56,7 @@ export class PoService {
           include: {
             lines: {
               include: {
-                sku: { include: { category: true, supplier: true } },
+                sku: { include: { category: true } },
               },
             },
             requester: { select: { id: true, fullName: true, email: true } },
