@@ -4,6 +4,7 @@ import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { formatZAR } from '@itamls/shared';
 import { Plus, X, Save } from 'lucide-react';
+import { RandInput, NumInput } from '@/components/RandInput';
 
 export function TonerTypes() {
   const qc = useQueryClient();
@@ -37,14 +38,15 @@ export function TonerTypes() {
               <input className="field" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="HP 111L Original" /></div>
             <div><label className="label">Manufacturer</label>
               <input className="field" value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} /></div>
-            <div><label className="label">Unit cost (cents, ex VAT)</label>
-              <input type="number" min={0} className="field" value={form.unitCostCents} onChange={(e) => setForm({ ...form, unitCostCents: +e.target.value })} /></div>
+            <div><label className="label">Unit cost (ex VAT)</label>
+              <RandInput valueCents={form.unitCostCents}
+                onChangeCents={(v) => setForm({ ...form, unitCostCents: v ?? 0 })} /></div>
             <div><label className="label">VAT %</label>
-              <input type="number" min={0} className="field" value={form.vatPct} onChange={(e) => setForm({ ...form, vatPct: +e.target.value })} /></div>
+              <NumInput value={form.vatPct} onChange={(n) => setForm({ ...form, vatPct: n })} /></div>
             <div><label className="label">HQ stock</label>
-              <input type="number" min={0} className="field" value={form.hqStock} onChange={(e) => setForm({ ...form, hqStock: +e.target.value })} /></div>
+              <NumInput value={form.hqStock} onChange={(n) => setForm({ ...form, hqStock: n })} /></div>
             <div><label className="label">Reorder level</label>
-              <input type="number" min={0} className="field" value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: +e.target.value })} /></div>
+              <NumInput value={form.reorderLevel} onChange={(n) => setForm({ ...form, reorderLevel: n })} /></div>
           </div>
           <button className="btn-primary mt-3" disabled={!form.code || !form.name || create.isPending}
             onClick={() => create.mutate()}>{create.isPending ? 'Saving…' : 'Save'}</button>
@@ -86,17 +88,21 @@ function TypeRow({ type }: { type: any }) {
       <td className="td">{type.name}</td>
       <td className="td">{type.manufacturer}</td>
       <td className="td text-right">
-        <input type="number" min={0} className="field w-32 text-right font-mono"
-          value={edit.unitCostCents} onChange={(e) => setEdit({ ...edit, unitCostCents: +e.target.value })} />
-        <div className="text-[10px] text-ink-200">{formatZAR(edit.unitCostCents)}</div>
+        <RandInput className="w-32" valueCents={edit.unitCostCents}
+          onChangeCents={(v) => setEdit({ ...edit, unitCostCents: v ?? 0 })} />
       </td>
       <td className="td text-right font-mono">{type.vatPct}%</td>
       <td className="td text-right">
-        <input type="number" min={0} className="field w-20 text-right font-mono"
-          value={edit.hqStock} onChange={(e) => setEdit({ ...edit, hqStock: +e.target.value })} /></td>
+        <input type="text" inputMode="numeric" className="field w-20 text-right font-mono"
+          value={edit.hqStock}
+          onChange={(e) => {
+            const n = parseInt(e.target.value.replace(/[^\d]/g, ''), 10);
+            setEdit({ ...edit, hqStock: Number.isFinite(n) ? n : 0 });
+          }} /></td>
       <td className="td text-right">
-        <input type="number" min={0} className="field w-20 text-right font-mono"
-          value={edit.reorderLevel} onChange={(e) => setEdit({ ...edit, reorderLevel: +e.target.value })} /></td>
+        <NumInput className="w-20 text-right font-mono" min={0}
+          value={edit.reorderLevel}
+          onChange={(n) => setEdit({ ...edit, reorderLevel: n })} /></td>
       <td className="td text-right">
         {dirty && <button className="btn-primary" onClick={() => update.mutate()}><Save size={12}/>Save</button>}
       </td>

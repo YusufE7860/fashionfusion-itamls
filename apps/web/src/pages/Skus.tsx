@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { formatZAR } from '@itamls/shared';
 import { Save, Search, X, ExternalLink } from 'lucide-react';
 import clsx from 'clsx';
+import { RandInput } from '@/components/RandInput';
 
 export function Skus() {
   const skus = useQuery({ queryKey: ['skus'], queryFn: () => api.get('/skus').then((r) => r.data) });
@@ -69,9 +70,9 @@ function SkuRow({ sku }: { sku: any }) {
         <td className="td">{sku.manufacturer} {sku.model}</td>
         <td className="td text-right">
           <div className="flex items-center justify-end gap-2">
-            <input type="number" min={0} className="field w-32 text-right font-mono"
-              value={edit.unitCostCents}
-              onChange={(e) => setEdit({ ...edit, unitCostCents: +e.target.value })} />
+            <RandInput className="w-32"
+              valueCents={edit.unitCostCents}
+              onChangeCents={(v) => setEdit({ ...edit, unitCostCents: v ?? 0 })} />
             <button title="Look up web price" className="btn-ghost"
                     onClick={() => setShowLookup(true)}>
               <Search size={12}/>
@@ -80,14 +81,20 @@ function SkuRow({ sku }: { sku: any }) {
           <div className="mt-1 text-[10px] text-ink-200">{formatZAR(edit.unitCostCents)}</div>
         </td>
         <td className="td text-right">
-          <input type="number" min={0} className="field w-20 text-right font-mono"
+          <input type="text" inputMode="numeric" className="field w-20 text-right font-mono"
             value={edit.warrantyMonths}
-            onChange={(e) => setEdit({ ...edit, warrantyMonths: +e.target.value })} />
+            onChange={(e) => {
+              const n = parseInt(e.target.value.replace(/[^\d]/g, ''), 10);
+              setEdit({ ...edit, warrantyMonths: Number.isFinite(n) ? n : 0 });
+            }} />
         </td>
         <td className="td text-right">
-          <input type="number" min={0} className="field w-20 text-right font-mono"
+          <input type="text" inputMode="numeric" className="field w-20 text-right font-mono"
             value={edit.depreciationYears}
-            onChange={(e) => setEdit({ ...edit, depreciationYears: +e.target.value })} />
+            onChange={(e) => {
+              const n = parseInt(e.target.value.replace(/[^\d]/g, ''), 10);
+              setEdit({ ...edit, depreciationYears: Number.isFinite(n) ? n : 0 });
+            }} />
         </td>
         <td className="td text-right">
           {dirty && (

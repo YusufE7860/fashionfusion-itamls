@@ -6,6 +6,7 @@ import { Pill } from '@/components/Pill';
 import { useAuth } from '@/store/auth';
 import { formatZAR } from '@itamls/shared';
 import { X } from 'lucide-react';
+import { RandInput } from '@/components/RandInput';
 
 export function PurchaseRequests() {
   const qc = useQueryClient();
@@ -71,7 +72,7 @@ export function PurchaseRequests() {
           <h3 className="mb-2 text-sm font-semibold">New purchase request</h3>
           <textarea className="field mb-2" placeholder="Justification…" value={justification} onChange={(e) => setJustification(e.target.value)} />
           <table className="w-full text-sm">
-            <thead><tr><th className="th">SKU</th><th className="th">Qty</th><th className="th">Est unit (cents)</th><th></th></tr></thead>
+            <thead><tr><th className="th">SKU</th><th className="th">Qty</th><th className="th">Est unit price</th><th></th></tr></thead>
             <tbody>
               {lines.map((l, i) => (
                 <tr key={i} className="border-t">
@@ -83,10 +84,19 @@ export function PurchaseRequests() {
                       {skus.data?.map((s: any) => <option key={s.id} value={s.id}>{s.code} – {s.name}</option>)}
                     </select>
                   </td>
-                  <td className="td"><input type="number" className="field w-20" value={l.qty}
-                    onChange={(e) => { const c = [...lines]; c[i].qty = +e.target.value; setLines(c); }} /></td>
-                  <td className="td"><input type="number" className="field w-32" value={l.estUnitCostCents}
-                    onChange={(e) => { const c = [...lines]; c[i].estUnitCostCents = +e.target.value; setLines(c); }} /></td>
+                  <td className="td">
+                    <input type="text" inputMode="numeric" className="field w-20" value={l.qty}
+                      onChange={(e) => {
+                        const c = [...lines];
+                        const n = parseInt(e.target.value.replace(/[^\d]/g, ''), 10);
+                        c[i].qty = Number.isFinite(n) ? n : 0;
+                        setLines(c);
+                      }} />
+                  </td>
+                  <td className="td">
+                    <RandInput valueCents={l.estUnitCostCents}
+                      onChangeCents={(v) => { const c = [...lines]; c[i].estUnitCostCents = v ?? 0; setLines(c); }} />
+                  </td>
                   <td className="td"><button className="btn-ghost" onClick={() => setLines(lines.filter((_, j) => j !== i))}>×</button></td>
                 </tr>
               ))}

@@ -4,6 +4,7 @@ import { api } from '@/api/client';
 import { PageHeader } from '@/components/PageHeader';
 import { formatZAR } from '@itamls/shared';
 import { Plus, X, KeyRound, Calendar } from 'lucide-react';
+import { RandInput } from '@/components/RandInput';
 
 export function Software() {
   const qc = useQueryClient();
@@ -107,7 +108,8 @@ export function Software() {
                   <div><label className="label">Seats</label>
                     <input type="number" min={1} className="field" value={licForm.seatsTotal} onChange={(e) => setLicForm({ ...licForm, seatsTotal: +e.target.value })} /></div>
                   <div><label className="label">Cost (cents)</label>
-                    <input type="number" min={0} className="field" value={licForm.costCents} onChange={(e) => setLicForm({ ...licForm, costCents: +e.target.value })} /></div>
+                    <RandInput valueCents={licForm.costCents}
+                      onChangeCents={(v) => setLicForm({ ...licForm, costCents: v ?? 0 })} /></div>
                   <div><label className="label">Purchase date</label>
                     <input type="date" className="field" value={licForm.purchaseDate} onChange={(e) => setLicForm({ ...licForm, purchaseDate: e.target.value })} /></div>
                   <div><label className="label">Expiry</label>

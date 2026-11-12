@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { Pill } from '@/components/Pill';
 import { useAuth } from '@/store/auth';
 import { formatZAR } from '@itamls/shared';
+import { RandInput } from '@/components/RandInput';
 import { Plus, X } from 'lucide-react';
 
 export function AssetsList() {
@@ -86,7 +87,8 @@ export function AssetsList() {
             <div><label className="label">Purchase date</label>
               <input type="date" className="field" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })} /></div>
             <div><label className="label">Purchase cost (cents)</label>
-              <input type="number" className="field" value={form.purchaseCostCents} onChange={(e) => setForm({ ...form, purchaseCostCents: +e.target.value })} /></div>
+              <RandInput valueCents={form.purchaseCostCents}
+                onChangeCents={(v) => setForm({ ...form, purchaseCostCents: v ?? 0 })} /></div>
             <div><label className="label">Warranty expiry</label>
               <input type="date" className="field" value={form.warrantyExpiry} onChange={(e) => setForm({ ...form, warrantyExpiry: e.target.value })} /></div>
           </div>

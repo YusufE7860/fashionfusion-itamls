@@ -24,15 +24,26 @@ export class RmmService {
     const pcs = pcIds.length
       ? await this.prisma.storePc.findMany({
           where: { id: { in: pcIds } },
-          include: {
-            store:      { select: { id: true, code: true, name: true } },
-            department: { select: { id: true, name: true } },
-          },
+          include: { store: { select: { id: true, code: true, name: true } } },
         })
       : [];
+    // Department isn't a Prisma relation on StorePc in this schema (only
+    // the departmentId scalar lives on the row). Batch-load the names we
+    // need in one more query so the UI can render a friendly label.
+    const deptIds = Array.from(
+      new Set(pcs.map((p: any) => p.departmentId).filter(Boolean)),
+    ) as string[];
+    const depts = deptIds.length
+      ? await this.prisma.department.findMany({
+          where: { id: { in: deptIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const deptMap = new Map(depts.map((d) => [d.id, d.name]));
+
     const pcMap = new Map(pcs.map((p) => [p.id, p]));
     return conns.map((c) => {
-      const pc = pcMap.get(c.agentPcId);
+      const pc = pcMap.get(c.agentPcId) as any;
       return {
         ...c,
         pcName:   pc?.name ?? null,
@@ -40,7 +51,7 @@ export class RmmService {
         storeId:  pc?.storeId ?? null,
         storeCode: pc?.store?.code ?? null,
         storeName: pc?.store?.name ?? null,
-        departmentName: pc?.department?.name ?? null,
+        departmentName: pc?.departmentId ? deptMap.get(pc.departmentId) ?? null : null,
         live:     this.gateway.isOnline(c.agentPcId),
       };
     });

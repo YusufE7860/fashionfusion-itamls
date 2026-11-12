@@ -6,6 +6,7 @@ import { Pill } from '@/components/Pill';
 import { useAuth } from '@/store/auth';
 import { formatZAR } from '@itamls/shared';
 import { Plus, X, Check } from 'lucide-react';
+import { RandInput } from '@/components/RandInput';
 
 export function GrvList() {
   const qc = useQueryClient();
@@ -94,10 +95,17 @@ export function GrvList() {
                       {skus.data?.map((s: any) => <option key={s.id} value={s.id}>{s.code} – {s.name}{s.isSerialised ? ' ⓢ' : ''}</option>)}
                     </select>
                   </td>
-                  <td className="td"><input type="number" min={1} className="field w-20" value={l.qty}
-                    onChange={(e) => { const c = [...lines]; c[i].qty = +e.target.value; setLines(c); }} /></td>
-                  <td className="td"><input type="number" min={0} className="field w-32" value={l.unitCostCents}
-                    onChange={(e) => { const c = [...lines]; c[i].unitCostCents = +e.target.value; setLines(c); }} /></td>
+                  <td className="td">
+                    <input type="text" inputMode="numeric" className="field w-20" value={l.qty}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value.replace(/[^\d]/g, ''), 10);
+                        const c = [...lines]; c[i].qty = Number.isFinite(n) ? n : 0; setLines(c);
+                      }} />
+                  </td>
+                  <td className="td">
+                    <RandInput className="w-32" valueCents={l.unitCostCents}
+                      onChangeCents={(v) => { const c = [...lines]; c[i].unitCostCents = v ?? 0; setLines(c); }} />
+                  </td>
                   <td className="td"><input className="field font-mono text-xs" value={l.serialNumbers}
                     placeholder="SN-001, SN-002"
                     onChange={(e) => { const c = [...lines]; c[i].serialNumbers = e.target.value; setLines(c); }} /></td>

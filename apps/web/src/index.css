@@ -80,6 +80,29 @@ button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent
            md:py-1.5 md:text-sm md:min-h-0;
   }
   select.field { color-scheme: light; }
+
+  /* ---------- Kill the native spinner on number inputs ----------
+     Browsers stick ugly up/down arrows on <input type="number"> and the
+     mouse-wheel-while-focused "feature" randomly changes values. We've
+     migrated the big input sites to the shared RandInput / NumInput
+     text widgets (see components/RandInput.tsx), but there are still
+     many legacy <input type="number"> fields scattered across the app.
+     This CSS kills the spinner globally so they all look and behave
+     like clean text fields while keeping the mobile numeric keypad. */
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+  }
+  /* Also stop wheel scroll from mutating the value — the user almost
+     never actually wants that, and it's lost dozens of edits. */
+  input[type="number"]:focus { outline-offset: 2px; }
+
   .label {
     @apply mb-1 block text-[11px] font-semibold uppercase tracking-wider text-ink-300;
   }

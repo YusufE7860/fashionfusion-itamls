@@ -5,6 +5,7 @@ import { useAuth } from '@/store/auth';
 import { PageHeader } from '@/components/PageHeader';
 import { formatZAR } from '@itamls/shared';
 import { Upload } from 'lucide-react';
+import { RandInput } from '@/components/RandInput';
 
 export function Invoices() {
   const qc = useQueryClient();
@@ -78,7 +79,8 @@ export function Invoices() {
             <div><label className="label">Invoice date</label>
               <input type="date" className="field" value={form.invoiceDate} onChange={(e) => setForm({ ...form, invoiceDate: e.target.value })} /></div>
             <div><label className="label">Total (cents)</label>
-              <input type="number" className="field" value={form.totalCents} onChange={(e) => setForm({ ...form, totalCents: +e.target.value })} /></div>
+              <RandInput valueCents={form.totalCents}
+                onChangeCents={(v) => setForm({ ...form, totalCents: v ?? 0 })} /></div>
             <div className="col-span-2"><label className="label">File (PDF, image, etc.)</label>
               <input type="file" className="field" accept="application/pdf,image/*" onChange={(e) => setForm({ ...form, file: e.target.files?.[0] ?? null })} required /></div>
           </div>

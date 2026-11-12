@@ -152,10 +152,13 @@ export function TonerPlan() {
                     {MONTHS.map((m) => (
                       <td key={m} className="td">
                         <input
-                          type="number" min={0}
+                          type="text" inputMode="numeric"
                           className="field w-14 text-right font-mono"
                           value={getVal(store.id, tonerType.id, m)}
-                          onChange={(e) => setVal(store.id, tonerType.id, m, Math.max(0, +e.target.value))}
+                          onChange={(e) => {
+                            const n = parseInt(e.target.value.replace(/[^\d]/g, ''), 10);
+                            setVal(store.id, tonerType.id, m, Number.isFinite(n) ? Math.max(0, n) : 0);
+                          }}
                         />
                       </td>
                     ))}
