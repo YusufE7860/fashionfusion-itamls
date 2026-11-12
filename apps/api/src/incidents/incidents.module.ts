@@ -1,10 +1,9 @@
 import { Module } from '@nestjs/common';
-import { IncidentsService } from './incidents.service';
-import { IncidentsController } from './incidents.controller';
+import { EquipmentIncidentsController } from './equipment-incidents.controller';
+import { EquipmentIncidentsService } from './equipment-incidents.service';
 
 @Module({
-  controllers: [IncidentsController],
-  providers: [IncidentsService],
-  exports: [IncidentsService],
+  controllers: [EquipmentIncidentsController],
+  providers: [EquipmentIncidentsService],
 })
 export class IncidentsModule {}

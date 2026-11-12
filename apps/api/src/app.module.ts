@@ -24,6 +24,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { OrgModule } from './org/org.module';
 import { RmmModule } from './rmm/rmm.module';
+import { IncidentsModule } from './incidents/incidents.module';
 import { SignageModule } from './signage/signage.module';
 import { TonerModule } from './toner/toner.module';
 import { PriceLookupModule } from './price-lookup/price-lookup.module';
@@ -72,6 +73,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     RemindersModule,
     OrgModule,
     RmmModule,
+    IncidentsModule,
     SignageModule,
     TonerModule,
     PriceLookupModule,

@@ -12,6 +12,7 @@ import { GrvList } from './pages/GrvList';
 import { IbtList } from './pages/IbtList';
 import { PurchaseRequests } from './pages/PurchaseRequests';
 import { PurchaseOrders  } from './pages/PurchaseOrders';
+import { EquipmentIncidents } from './pages/EquipmentIncidents';
 import { Repairs } from './pages/Repairs';
 import { Warranties } from './pages/Warranties';
 import { Reports } from './pages/Reports';
@@ -95,6 +96,7 @@ export function App() {
         <Route path="ibt" element={<IbtList />} />
         <Route path="procurement" element={<PurchaseRequests />} />
         <Route path="procurement/pos" element={<PurchaseOrders />} />
+        <Route path="incidents" element={<EquipmentIncidents />} />
         <Route path="invoices" element={<Invoices />} />
         <Route path="repairs" element={<Repairs />} />
         <Route path="warranties" element={<Warranties />} />

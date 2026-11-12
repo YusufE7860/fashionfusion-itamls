@@ -82,6 +82,7 @@ model User {
   dispatches     Dispatch[]
   prRequested    PurchaseRequest[] @relation("PrRequester")
   prApproved     PurchaseRequest[] @relation("PrApprover")
+  equipmentIncidentsReported EquipmentIncident[] @relation("EquipIncidentReporter")
 
   permissionOverrides UserPermissionOverride[]
   storeAccess         UserStoreAccess[]
@@ -250,6 +251,7 @@ model Store {
   tickets        Ticket[]
   signageDevices SignageDevice[]
   signageAssignments SignageAssignment[]
+  incidents      EquipmentIncident[]
 }
 
 // Geographic region grouping stores (Gauteng, KZN, Western Cape, …).
@@ -335,6 +337,46 @@ model Asset {
   repairs  Repair[]
   ibtLines IbtLine[]
   tickets  Ticket[]
+  incidents EquipmentIncident[]
+}
+
+// ---------- Equipment incident register ----------
+// Tracks store-side equipment damage / loss / theft caused by staff. Captures
+// who's responsible, the replacement cost and whether an Acknowledgement of
+// Debt (AOD) has been issued, so the ops team can follow through on payroll
+// deductions or recoveries without losing the paper trail.
+model EquipmentIncident {
+  id                   String    @id @default(cuid())
+  code                 String    @unique            // INC-2026-00001
+  storeId              String?                      // where it happened
+  assetId              String?                      // linked asset when known
+  itemDescription      String                       // free text fallback
+  // BROKEN | LOST | STOLEN | DAMAGED | OTHER
+  incidentType         String    @default("BROKEN")
+  incidentDate         DateTime
+  // Responsible staff member. They're not ITAMLS users, so freeform fields.
+  responsibleName      String
+  responsibleEmpNo     String?
+  description          String?                      // what happened
+  replacementCostCents Int       @default(0)
+  // AOD = Acknowledgement of Debt. Scanned copy stored in MinIO.
+  aodIssued            Boolean   @default(false)
+  aodNumber            String?
+  aodDate              DateTime?
+  aodFileKey           String?                      // MinIO storage key
+  // OPEN | AOD_ISSUED | DEDUCTING | PAID | WRITTEN_OFF | RECOVERED | DISPUTED
+  status               String    @default("OPEN")
+  notes                String?
+  reportedById         String
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  store      Store?  @relation(fields: [storeId], references: [id])
+  asset      Asset?  @relation(fields: [assetId], references: [id])
+  reportedBy User    @relation("EquipIncidentReporter", fields: [reportedById], references: [id])
+
+  @@index([storeId, status])
+  @@index([assetId])
 }
 
 // ---------- HQ departments ----------
