@@ -11,6 +11,7 @@ import { StoreWizard } from './pages/StoreWizard';
 import { GrvList } from './pages/GrvList';
 import { IbtList } from './pages/IbtList';
 import { PurchaseRequests } from './pages/PurchaseRequests';
+import { PurchaseOrders  } from './pages/PurchaseOrders';
 import { Repairs } from './pages/Repairs';
 import { Warranties } from './pages/Warranties';
 import { Reports } from './pages/Reports';
@@ -93,6 +94,7 @@ export function App() {
         <Route path="grv" element={<GrvList />} />
         <Route path="ibt" element={<IbtList />} />
         <Route path="procurement" element={<PurchaseRequests />} />
+        <Route path="procurement/pos" element={<PurchaseOrders />} />
         <Route path="invoices" element={<Invoices />} />
         <Route path="repairs" element={<Repairs />} />
         <Route path="warranties" element={<Warranties />} />

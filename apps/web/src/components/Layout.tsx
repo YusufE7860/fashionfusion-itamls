@@ -40,8 +40,9 @@ const NAV: NavEntry[] = [
   { kind: 'group', id: 'logistics', label: 'Logistics', icon: Truck, items: [
     { to: '/grv',         label: 'GRV' },
     { to: '/ibt',         label: 'IBT' },
-    { to: '/procurement', label: 'Procurement' },
-    { to: '/invoices',    label: 'Invoices' },
+    { to: '/procurement',     label: 'Procurement' },
+    { to: '/procurement/pos', label: 'Purchase Orders' },
+    { to: '/invoices',        label: 'Invoices' },
   ] },
 
   { kind: 'group', id: 'service', label: 'Service', icon: Wrench, items: [
