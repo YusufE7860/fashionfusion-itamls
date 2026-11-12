@@ -67,10 +67,16 @@ export class PrService {
   async transition(id: string, target: string, actorId: string) {
     const pr = await this.prisma.purchaseRequest.findUnique({ where: { id } });
     if (!pr) throw new NotFoundException();
+    // Finance approval step removed — operator feedback: IT approval is the
+    // only gate they need. An IT-approved PR becomes Ordered by issuing a
+    // PO via POST /purchase-orders, which the UI now does in the same
+    // click as the approve. The FinanceApproved status is kept in the
+    // allowed-list only as a legacy destination so historical rows
+    // transition into Ordered without failing.
     const allowed: Record<string, string[]> = {
       [PurchaseRequestStatus.Draft]:           [PurchaseRequestStatus.Submitted],
       [PurchaseRequestStatus.Submitted]:       [PurchaseRequestStatus.ItApproved, PurchaseRequestStatus.Rejected],
-      [PurchaseRequestStatus.ItApproved]:      [PurchaseRequestStatus.FinanceApproved, PurchaseRequestStatus.Rejected],
+      [PurchaseRequestStatus.ItApproved]:      [PurchaseRequestStatus.Ordered,    PurchaseRequestStatus.Rejected],
       [PurchaseRequestStatus.FinanceApproved]: [PurchaseRequestStatus.Ordered],
       [PurchaseRequestStatus.Ordered]:         [PurchaseRequestStatus.Closed],
     };
@@ -79,7 +85,7 @@ export class PrService {
       throw new BadRequestException(`Cannot transition ${pr.status} → ${target}`);
     }
     const data: any = { status: target };
-    if (target === PurchaseRequestStatus.ItApproved || target === PurchaseRequestStatus.FinanceApproved) {
+    if (target === PurchaseRequestStatus.ItApproved) {
       data.approverId = actorId;
     }
     return this.prisma.purchaseRequest.update({ where: { id }, data });

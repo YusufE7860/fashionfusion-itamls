@@ -12,8 +12,10 @@ export class PoController {
   @Get(':id')
   detail(@Param('id') id: string) { return this.svc.detail(id); }
 
+  // PO creation needs the same permission that lets a person approve a PR —
+  // IT manager / admin. Finance is no longer a separate step.
   @Post()
-  @RequirePermissions(Permissions.ProcurementApproveFinance)
+  @RequirePermissions(Permissions.ProcurementApproveIt)
   create(@Body() dto: CreatePoDto) { return this.svc.create(dto); }
 
   /** Downloadable PDF that matches the printed Fashion Fusion PO book. */

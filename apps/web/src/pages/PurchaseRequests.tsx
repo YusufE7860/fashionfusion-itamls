@@ -5,12 +5,40 @@ import { PageHeader } from '@/components/PageHeader';
 import { Pill } from '@/components/Pill';
 import { useAuth } from '@/store/auth';
 import { formatZAR } from '@itamls/shared';
+import { X } from 'lucide-react';
 
 export function PurchaseRequests() {
   const qc = useQueryClient();
   const hasPerm = useAuth((s) => s.hasPermission);
   const prs = useQuery({ queryKey: ['prs'], queryFn: () => api.get('/purchase-requests').then((r) => r.data) });
   const skus = useQuery({ queryKey: ['skus'], queryFn: () => api.get('/skus').then((r) => r.data) });
+  const suppliers = useQuery({
+    queryKey: ['suppliers'],
+    queryFn: () => api.get<any[]>('/suppliers').then((r) => r.data).catch(() => []),
+  });
+
+  // Approve + issue PO modal
+  const [approving, setApproving] = useState<any | null>(null);
+  const [supplierId, setSupplierId] = useState('');
+  const [expectedDelivery, setExpectedDelivery] = useState('');
+
+  const approveAndIssuePo = useMutation({
+    mutationFn: async ({ prId, supplierId, expectedDelivery }: { prId: string; supplierId: string; expectedDelivery?: string }) => {
+      // Two steps server-side: transition PR → IT_APPROVED, then create PO
+      // (which also transitions the PR to ORDERED). We do them in order so a
+      // failed PO creation leaves the PR at IT_APPROVED for retry.
+      await api.post(`/purchase-requests/${prId}/approve-it`);
+      return api.post('/purchase-orders', { prId, supplierId, expectedDelivery }).then((r) => r.data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['prs'] });
+      qc.invalidateQueries({ queryKey: ['pos'] });
+      setApproving(null);
+      setSupplierId('');
+      setExpectedDelivery('');
+    },
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not issue PO'),
+  });
 
   const [showNew, setShowNew] = useState(false);
   const [justification, setJustification] = useState('');
@@ -73,6 +101,59 @@ export function PurchaseRequests() {
         </div>
       )}
 
+      {approving && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          onClick={() => setApproving(null)}>
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-semibold">Approve &amp; issue PO</h3>
+                <p className="text-xs text-ink-300">
+                  {approving.code} — {approving.lines?.length ?? 0} line item(s), est.&nbsp;
+                  <b>{formatZAR(approving.totalEstCents)}</b>
+                </p>
+              </div>
+              <button className="btn-ghost" onClick={() => setApproving(null)}><X size={14}/></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="label">Supplier</label>
+                <select className="field" value={supplierId}
+                  onChange={(e) => setSupplierId(e.target.value)}>
+                  <option value="">Pick a supplier…</option>
+                  {suppliers.data?.map((s: any) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                {suppliers.data?.length === 0 && (
+                  <p className="mt-1 text-[11px] text-rose-600">
+                    No suppliers configured yet. Add one under Admin → Suppliers first.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="label">Expected delivery <span className="text-ink-400">(optional)</span></label>
+                <input type="date" className="field" value={expectedDelivery}
+                  onChange={(e) => setExpectedDelivery(e.target.value)}/>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-ink-500/10 pt-3">
+                <button className="btn-ghost" onClick={() => setApproving(null)}>Cancel</button>
+                <button className="btn-primary"
+                  disabled={!supplierId || approveAndIssuePo.isPending}
+                  onClick={() => approveAndIssuePo.mutate({
+                    prId: approving.id,
+                    supplierId,
+                    expectedDelivery: expectedDelivery || undefined,
+                  })}>
+                  {approveAndIssuePo.isPending ? 'Issuing…' : 'Approve &amp; Issue PO'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card overflow-hidden">
         <table className="w-full">
           <thead className="bg-slate-50">
@@ -94,9 +175,10 @@ export function PurchaseRequests() {
                     {p.status === 'DRAFT' && hasPerm('procurement:create') &&
                       <button className="btn-ghost" onClick={() => transition.mutate({ id: p.id, path: 'submit' })}>Submit</button>}
                     {p.status === 'SUBMITTED' && hasPerm('procurement:approve:it') &&
-                      <button className="btn-ghost" onClick={() => transition.mutate({ id: p.id, path: 'approve-it' })}>IT approve</button>}
-                    {p.status === 'IT_APPROVED' && hasPerm('procurement:approve:finance') &&
-                      <button className="btn-ghost" onClick={() => transition.mutate({ id: p.id, path: 'approve-finance' })}>Finance approve</button>}
+                      <button className="btn-primary"
+                        onClick={() => { setApproving(p); setSupplierId(''); setExpectedDelivery(''); }}>
+                        Approve &amp; Issue PO
+                      </button>}
                   </div>
                 </td>
               </tr>
