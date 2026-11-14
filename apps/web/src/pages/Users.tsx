@@ -89,6 +89,20 @@ const MODULE_GROUPS: ModuleGroup[] = [
     { code: 'agents:read',  label: 'View enrolled PCs' },
     { code: 'agents:write', label: 'Manage enrolment tokens / PCs' },
   ]},
+  { label: 'RMM (remote tools)', perms: [
+    { code: 'agents:remote-exec',   label: 'Queue commands / run saved scripts' },
+    { code: 'agents:remote-manage', label: 'Freeze fleet, toggle HMAC bypass, bulk ops' },
+    { code: 'agents:remote-shell',  label: 'Run arbitrary PowerShell / SHELL_EXEC' },
+  ]},
+  { label: 'Signage', perms: [
+    { code: 'signage:videos:read',        label: 'View signage videos' },
+    { code: 'signage:videos:write',       label: 'Upload / edit / delete signage videos' },
+    { code: 'signage:playlists:read',     label: 'View playlists' },
+    { code: 'signage:playlists:write',    label: 'Create / edit playlists' },
+    { code: 'signage:devices:read',       label: 'View media players + playback trace' },
+    { code: 'signage:devices:write',      label: 'Approve, rename, change orientation / rotation / brand / store, snapshot, resync, delete' },
+    { code: 'signage:assignments:manage', label: 'Assign playlists to stores / devices (per-brand slots)' },
+  ]},
   { label: 'Reports (global)', perms: [
     { code: 'reports:read',   label: 'View reports' },
     { code: 'reports:export', label: 'Export reports (CSV/PDF)' },

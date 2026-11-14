@@ -10,7 +10,12 @@ import clsx from 'clsx';
 export function SignageDevices() {
   const qc = useQueryClient();
   const hasPerm = useAuth((s) => s.hasPermission);
-  const canWrite = hasPerm('stores:write');
+  // Signage techs should be able to edit orientation, rotation, brand,
+  // store and other per-device settings without being granted broad store
+  // management rights. The dedicated `signage:devices:write` permission is
+  // the right gate; we keep `stores:write` as a legacy fallback so
+  // existing admin accounts don't lose access at deploy time.
+  const canWrite = hasPerm('signage:devices:write') || hasPerm('stores:write');
   const [viewing, setViewing] = useState<any | null>(null);
   const [showInstaller, setShowInstaller] = useState(false);
   // Which row is currently in rename mode + its draft value.
