@@ -76,7 +76,7 @@ export class RmmService {
 
   // ---------- Commands ----------
   async queueCommand(agentPcId: string, dto: {
-    kind: 'SHELL' | 'SCRIPT' | 'FILE_PUSH' | 'FILE_PULL' | 'WAKE' | 'RESTART';
+    kind: 'SHELL' | 'SCRIPT' | 'FILE_PUSH' | 'FILE_PULL' | 'WAKE' | 'RESTART' | 'SCREENSHOT' | 'VIEW_START' | 'VIEW_STOP';
     payload: any;
     sessionId?: string;
   }, ctx: UserCtx) {

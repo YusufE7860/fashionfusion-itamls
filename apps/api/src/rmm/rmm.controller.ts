@@ -38,6 +38,24 @@ export class RmmController {
     return this.svc.queueCommand(id, { kind: 'RESTART', payload: { delaySeconds: body.delaySeconds ?? 10 } }, ctxFor(req));
   }
 
+  @Post('pcs/:agentPcId/snapshot')
+  @RequirePermissions(Permissions.AgentsWrite ?? 'agents:write')
+  snapshot(@Param('agentPcId') id: string, @Req() req: any) {
+    return this.svc.queueCommand(id, { kind: 'SCREENSHOT' as any, payload: {} }, ctxFor(req));
+  }
+
+  @Post('pcs/:agentPcId/file-pull')
+  @RequirePermissions(Permissions.AgentsWrite ?? 'agents:write')
+  filePull(@Param('agentPcId') id: string, @Body() body: { path: string }, @Req() req: any) {
+    return this.svc.queueCommand(id, { kind: 'FILE_PULL' as any, payload: { path: body.path } }, ctxFor(req));
+  }
+
+  @Post('pcs/:agentPcId/file-push')
+  @RequirePermissions(Permissions.AgentsWrite ?? 'agents:write')
+  filePush(@Param('agentPcId') id: string, @Body() body: { path: string; base64: string }, @Req() req: any) {
+    return this.svc.queueCommand(id, { kind: 'FILE_PUSH' as any, payload: body }, ctxFor(req));
+  }
+
   @Get('pcs/:agentPcId/commands')
   @RequirePermissions(Permissions.AgentsRead ?? 'agents:read')
   history(@Param('agentPcId') id: string, @Query('limit') limit?: string) {

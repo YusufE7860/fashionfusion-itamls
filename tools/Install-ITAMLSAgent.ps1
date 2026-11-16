@@ -134,7 +134,7 @@ function Install-ITAMLSAgent {
 
     # --- 3. Download agent scripts ---
     Step 3 5 "Downloading agent scripts"
-    foreach ($script in @('Invoke-ITAMLSInventory.ps1','Invoke-ITAMLSBackup.ps1')) {
+    foreach ($script in @('Invoke-ITAMLSInventory.ps1','Invoke-ITAMLSBackup.ps1','Invoke-ITAMLSRmm.ps1')) {
         $dest = Join-Path $installDir $script
         $url  = "$Api/tools/$($script.ToLower())"
         try {
@@ -170,6 +170,32 @@ function Install-ITAMLSAgent {
     Register-ITAMLSTask -Name 'ITAMLS-Inventory' -Script 'Invoke-ITAMLSInventory.ps1' -Time '03:00'
     Register-ITAMLSTask -Name 'ITAMLS-Backup'    -Script 'Invoke-ITAMLSBackup.ps1'    -Time '02:00' `
         -ExtraArgs @{ ApiBase = $Api; ApiKey = $res.agentKey; StoreCode = $res.storeCode; PcName = $res.pcName }
+
+    # --- 4b. RMM agent (long-running, auto-restart) ---
+    # Unlike the inventory + backup tasks (which run once a day and exit), the
+    # RMM agent is a persistent WebSocket client. We register it with a
+    # start-at-boot trigger, RestartCount so it recovers from transient
+    # crashes, and no end time so it just keeps going.
+    try {
+        $rmmArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$installDir\Invoke-ITAMLSRmm.ps1`""
+        $rmmAct  = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $rmmArgs
+        $rmmTrig = New-ScheduledTaskTrigger -AtStartup
+        $rmmTrig.Delay = 'PT30S'
+        # "At logon" of any user, in case the PC was already booted when install ran.
+        $rmmTrig2 = New-ScheduledTaskTrigger -AtLogon
+        $rmmSet   = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+                        -StartWhenAvailable -RunOnlyIfNetworkAvailable `
+                        -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 2)
+        $rmmPrin  = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+        Unregister-ScheduledTask -TaskName 'ITAMLS-RMM' -Confirm:$false -ErrorAction SilentlyContinue
+        Register-ScheduledTask -TaskName 'ITAMLS-RMM' -Action $rmmAct -Trigger @($rmmTrig, $rmmTrig2) `
+            -Settings $rmmSet -Principal $rmmPrin -Force | Out-Null
+        # Start it right away so the admin sees the PC online without waiting for reboot.
+        Start-ScheduledTask -TaskName 'ITAMLS-RMM' -ErrorAction SilentlyContinue
+        LogS "Task 'ITAMLS-RMM' registered (start at boot + logon, auto-restart every 2m)" 'OK'
+    } catch {
+        LogS "Could not register ITAMLS-RMM: $($_.Exception.Message)" 'WARN'
+    }
 
     # --- 5. First inventory push ---
     Step 5 5 "Running first inventory push"

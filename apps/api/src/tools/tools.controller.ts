@@ -100,6 +100,17 @@ export class ToolsController {
     fs.createReadStream(file).pipe(res);
   }
 
+  /** Long-running RMM agent (WebSocket client). Downloaded by the installer
+   *  and registered as a boot-start scheduled task. */
+  @Public()
+  @Get('invoke-itamlsrmm.ps1')
+  serveRmmAgent(@Res() res: Response) {
+    const file = this.resolveToolFile('Invoke-ITAMLSRmm.ps1');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="Invoke-ITAMLSRmm.ps1"');
+    fs.createReadStream(file).pipe(res);
+  }
+
   /** Alias so the daily-backup task's downloader hits the same casing. */
   @Public()
   @Get('invoke-itamlsbackup.ps1')

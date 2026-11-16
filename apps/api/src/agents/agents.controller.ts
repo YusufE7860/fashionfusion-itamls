@@ -65,4 +65,30 @@ export class AgentsController {
     @Body() dto: InventoryDto,
     @Ip() ip: string,
   ) { return this.svc.ingestInventory(key, dto, ip); }
+
+  // ---- RMM screenshots (called by the Windows agent when it receives a
+  //      SCREENSHOT command over the WS). Three-step upload mirrors the
+  //      signage agent flow: mint a presigned PUT URL, agent uploads the
+  //      JPEG straight to MinIO, then tells us the upload is done.
+  @Public()
+  @Post('pcs/:id/screenshot-upload-url')
+  screenshotUploadUrl(@Param('id') id: string, @Headers('x-agent-key') key: string) {
+    return this.svc.screenshotUploadUrl(id, key);
+  }
+
+  @Public()
+  @Post('pcs/:id/screenshot-complete')
+  screenshotComplete(
+    @Param('id') id: string,
+    @Headers('x-agent-key') key: string,
+    @Body() body: { storageKey: string },
+  ) {
+    return this.svc.screenshotComplete(id, key, body);
+  }
+
+  @Get('pcs/:id/screenshot')
+  @RequirePermissions(Permissions.AgentsRead)
+  getScreenshot(@Param('id') id: string) {
+    return this.svc.getLatestScreenshot(id);
+  }
 }

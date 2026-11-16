@@ -1,10 +1,11 @@
 import {
   BadRequestException, Injectable, NotFoundException, UnauthorizedException,
 } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiKeysService } from '../discovery/api-keys.service';
 import { PinPadsService, AgentPinPadDto } from '../pinpads/pinpads.service';
+import { StorageService } from '../storage/storage.service';
 
 /**
  * PC-agent lifecycle:
@@ -55,7 +56,50 @@ export class AgentsService {
     private prisma: PrismaService,
     private apiKeys: ApiKeysService,
     private pinPads: PinPadsService,
+    private storage: StorageService,
   ) {}
+
+  /** Agent asks for a presigned PUT URL to upload a screenshot. We validate
+   *  the agent key owns the PC, mint a signed URL that expires in 10 min. */
+  async screenshotUploadUrl(pcId: string, agentKey: string) {
+    const k = await this.apiKeys.validate(agentKey);
+    if (!k?.pcId || k.pcId !== pcId) throw new UnauthorizedException('Agent key not bound to this PC');
+    const storageKey = `rmm/screenshots/${pcId}/${randomUUID()}.jpg`;
+    const uploadUrl = await this.storage.presignedPut(storageKey, 600);
+    return { storageKey, uploadUrl };
+  }
+
+  /** Agent confirms the upload is done. We don't need to re-fetch from
+   *  MinIO — the WS `cmd_result` for the SCREENSHOT command already carries
+   *  the storage key. Keeping the endpoint around for symmetry with the
+   *  signage flow and in case we want to record it on StorePc later. */
+  async screenshotComplete(pcId: string, agentKey: string, body: { storageKey: string }) {
+    const k = await this.apiKeys.validate(agentKey);
+    if (!k?.pcId || k.pcId !== pcId) throw new UnauthorizedException('Agent key not bound to this PC');
+    if (!body.storageKey?.startsWith(`rmm/screenshots/${pcId}/`)) {
+      throw new BadRequestException('storageKey does not match this PC');
+    }
+    return { ok: true };
+  }
+
+  /** Browser asks for the latest screenshot. We dig the storage key out of
+   *  the most recent completed SCREENSHOT command and return a presigned
+   *  GET URL. */
+  async getLatestScreenshot(pcId: string) {
+    const conn = await this.prisma.rmmConnection.findUnique({
+      where: { agentPcId: pcId }, select: { id: true },
+    });
+    if (!conn) return { url: null, takenAt: null };
+    const cmd = await this.prisma.rmmCommand.findFirst({
+      where: { connectionId: conn.id, kind: 'SCREENSHOT', status: 'DONE' },
+      orderBy: { completedAt: 'desc' },
+    });
+    if (!cmd?.stdout) return { url: null, takenAt: null };
+    const match = /screenshotKey=(rmm\/screenshots\/[^\s]+)/.exec(cmd.stdout);
+    if (!match) return { url: null, takenAt: cmd.completedAt };
+    const url = await this.storage.presignedGet(match[1], 600);
+    return { url, takenAt: cmd.completedAt };
+  }
 
   // ---------- Enrollment tokens ----------
   async issueToken(dto: IssueTokenDto, createdById?: string) {

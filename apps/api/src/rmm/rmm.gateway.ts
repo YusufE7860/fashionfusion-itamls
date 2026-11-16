@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Server as HttpServer } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { PrismaService } from '../prisma/prisma.service';
+import { ApiKeysService } from '../discovery/api-keys.service';
+import * as jwt from 'jsonwebtoken';
 
 interface AgentSocket extends WebSocket {
   agentPcId?: string;
@@ -29,7 +31,7 @@ export class RmmGateway implements OnModuleInit {
   // Browser-side listeners for live tailing (session consoles)
   private listeners = new Map<string, Set<(evt: any) => void>>(); // agentPcId → listeners
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private apiKeys: ApiKeysService) {}
 
   async onModuleInit() {
     // No-op; attach() is called from main.ts with the Nest HTTP server.
@@ -37,8 +39,30 @@ export class RmmGateway implements OnModuleInit {
 
   attach(server: HttpServer) {
     this.wss = new WebSocketServer({ noServer: true });
+    const viewerWss = new WebSocketServer({ noServer: true });
 
     server.on('upgrade', async (req, socket, head) => {
+      // Two paths over one HTTP server:
+      //   /api/v1/rmm/ws         — agent connections (Bearer agent key)
+      //   /api/v1/rmm/viewer/ws  — browser viewers (?pcId=X&token=<JWT>)
+      if (req.url?.startsWith('/api/v1/rmm/viewer/ws')) {
+        try {
+          const u = new URL(req.url, 'http://x');
+          const pcId  = u.searchParams.get('pcId');
+          const token = u.searchParams.get('token');
+          if (!pcId || !token) { socket.destroy(); return; }
+          const user = await this.resolveViewer(token);
+          if (!user) { socket.destroy(); return; }
+          viewerWss.handleUpgrade(req, socket, head, (ws) => {
+            viewerWss.emit('connection', ws, req, { pcId, user });
+          });
+        } catch (e) {
+          this.logger.error('viewer WS upgrade failed', e as any);
+          socket.destroy();
+        }
+        return;
+      }
+
       if (!req.url?.startsWith('/api/v1/rmm/ws')) return;
       try {
         const authHdr = req.headers['authorization'] ?? '';
@@ -56,6 +80,39 @@ export class RmmGateway implements OnModuleInit {
         this.logger.error('WS upgrade failed', e as any);
         socket.destroy();
       }
+    });
+
+    // Browser viewer bridge: subscribe to agent events, forward input back.
+    viewerWss.on('connection', (ws: any, _req, ctx: { pcId: string; user: any }) => {
+      this.logger.log(`RMM viewer opened by ${ctx.user?.sub} for pc ${ctx.pcId}`);
+      // Fan agent events (view_frame, metrics, cmd_result, …) to this socket.
+      const unsubscribe = this.on(ctx.pcId, (evt) => {
+        try { ws.send(JSON.stringify(evt)); } catch { /* ignore */ }
+      });
+      // Tell the agent to start streaming when the first viewer attaches.
+      this.sendToAgent(ctx.pcId, {
+        type: 'cmd',
+        id: `view-${Date.now()}`,
+        kind: 'VIEW_START',
+        payload: { fps: 10, quality: 55, scale: 1.0 },
+      });
+
+      ws.on('message', (buf: Buffer) => {
+        let m: any; try { m = JSON.parse(buf.toString()); } catch { return; }
+        if (m.type === 'remote_input') {
+          this.sendToAgent(ctx.pcId, { type: 'remote_input', payload: m.payload });
+        }
+      });
+      ws.on('close', () => {
+        unsubscribe();
+        // Tell the agent to stop encoding frames — no listeners left.
+        // (If a second viewer were also attached we'd leave it running;
+        // in practice one tech per PC at a time is the normal case.)
+        this.sendToAgent(ctx.pcId, {
+          type: 'cmd', id: `view-stop-${Date.now()}`, kind: 'VIEW_STOP', payload: {},
+        });
+        this.logger.log(`RMM viewer closed for pc ${ctx.pcId}`);
+      });
     });
 
     this.wss.on('connection', async (ws: AgentSocket, _req, agentPc: any) => {
@@ -110,21 +167,34 @@ export class RmmGateway implements OnModuleInit {
     }, 30_000);
   }
 
-  private async resolveAgent(token: string) {
-    const p = this.prisma as any;
-    const model = p.agentPc ?? p.pc ?? p.enrolledPc;
-    if (!model) return null;
+  /**
+   * Resolve the bearer token to the enrolled StorePc that owns it. The
+   * token is an API key minted by /agents/enroll and stored (hashed) in
+   * ApiKey.keyHash, with ApiKey.pcId linking back to StorePc.
+   */
+  /** Validate a browser viewer's JWT (same signing key as the REST API).
+   *  Must include `agents:write` in the permission list — viewing someone's
+   *  desktop is a write-level action. */
+  private async resolveViewer(token: string) {
     try {
-      return await model.findFirst({
-        where: {
-          OR: [
-            { authToken: token },
-            { token },
-            { apiKey: token },
-          ],
-          isActive: true,
-        } as any,
+      const decoded = jwt.verify(token, process.env.JWT_SECRET ?? 'change-me') as any;
+      const perms: string[] = decoded.permissions ?? [];
+      if (!perms.includes('agents:write')) return null;
+      return decoded;
+    } catch {
+      return null;
+    }
+  }
+
+  private async resolveAgent(token: string) {
+    try {
+      const apiKey = await this.apiKeys.validate(token);
+      if (!apiKey?.pcId) return null;
+      const pc = await this.prisma.storePc.findFirst({
+        where: { id: apiKey.pcId, isActive: true },
+        select: { id: true, name: true, scope: true, storeId: true, departmentId: true },
       });
+      return pc;
     } catch {
       return null;
     }
@@ -164,6 +234,14 @@ export class RmmGateway implements OnModuleInit {
       case 'cmd_output':
         this.emit(ws.agentPcId!, { type: 'cmd_output', id: msg.id, stream: msg.stream, chunk: msg.chunk });
         break;
+      case 'view_frame':
+        // Live remote-view frame from the agent. Fan out to any browser
+        // viewers listening on this PC. Don't persist frames anywhere —
+        // they're ephemeral, replay would be weird.
+        this.emit(ws.agentPcId!, {
+          type: 'view_frame', seq: msg.seq, w: msg.w, h: msg.h, jpeg: msg.jpeg,
+        });
+        break;
       case 'cmd_result':
         await this.prisma.rmmCommand.update({
           where: { id: msg.id },
@@ -187,6 +265,15 @@ export class RmmGateway implements OnModuleInit {
 
   // Public helpers used by REST controllers
   isOnline(agentPcId: string) { return this.sockets.has(agentPcId); }
+
+  /** Push an arbitrary message to a connected agent. Used by the viewer
+   *  bridge to forward mouse/keyboard events without going through the
+   *  RmmCommand queue (too slow for 60 Hz input). */
+  sendToAgent(agentPcId: string, msg: any): boolean {
+    const ws = this.sockets.get(agentPcId);
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    try { ws.send(JSON.stringify(msg)); return true; } catch { return false; }
+  }
 
   async dispatch(agentPcId: string, cmd: {
     id: string; kind: string; payload: any;
