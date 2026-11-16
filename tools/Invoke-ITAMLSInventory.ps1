@@ -68,6 +68,30 @@ try {
         }
 } catch {}
 
+# Strip NUL + C0 control chars (some buggy installers write malformed UTF-16
+# strings into the registry with embedded 0x00 bytes; Postgres rejects those
+# on text columns with "invalid byte sequence for encoding UTF8").
+function Strip-Ctl([string]$s) {
+    if ([string]::IsNullOrEmpty($s)) { return $null }
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($c in $s.ToCharArray()) {
+        $code = [int]$c
+        if ($code -eq 9 -or $code -eq 10 -or $code -eq 13 -or $code -ge 32) {
+            [void]$sb.Append($c)
+        }
+    }
+    $sb.ToString()
+}
+$entries = foreach ($e in $entries) {
+    [pscustomobject]@{
+        name        = Strip-Ctl $e.name
+        version     = Strip-Ctl $e.version
+        publisher   = Strip-Ctl $e.publisher
+        installDate = $e.installDate
+        source      = $e.source
+    }
+}
+
 # Dedupe by (name+version)
 $entries = $entries |
     Where-Object { $_.name -and $_.name.Length -lt 300 } |

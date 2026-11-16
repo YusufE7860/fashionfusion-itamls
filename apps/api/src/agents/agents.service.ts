@@ -328,7 +328,25 @@ export class AgentsService {
     if (!k.pcId) throw new UnauthorizedException('Agent key not bound to a PC');
 
     const pcId = k.pcId;
-    const entries = (dto.entries ?? []).filter((e) => e?.name?.trim());
+    // Strip NUL bytes (0x00) + other C0 control chars that Postgres rejects
+    // in text columns. Windows Registry sometimes stores malformed strings
+    // (truncated unicode, embedded NULs from buggy installers) that otherwise
+    // crash the whole batch with "invalid byte sequence for encoding UTF8".
+    const clean = (s: string | null | undefined): string | undefined => {
+      if (s == null) return undefined;
+      // Remove NUL + C0 controls except \t \n \r. Keep printable chars.
+      const stripped = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+      return stripped.length ? stripped : undefined;
+    };
+    const entries = (dto.entries ?? [])
+      .map((e) => ({
+        ...e,
+        name: clean(e?.name) ?? '',
+        version: clean(e?.version),
+        publisher: clean(e?.publisher),
+        source: clean(e?.source),
+      }))
+      .filter((e) => e.name.trim());
     // Full-replace snapshot: delete old rows, insert fresh
     await this.prisma.$transaction([
       this.prisma.pcSoftwareEntry.deleteMany({ where: { pcId } }),
@@ -342,6 +360,7 @@ export class AgentsService {
               installDate: e.installDate ? new Date(e.installDate) : null,
               source: (e.source ?? 'REGISTRY').slice(0, 40),
             })),
+            skipDuplicates: true,
           })]
         : []),
       this.prisma.storePc.update({
@@ -349,12 +368,12 @@ export class AgentsService {
         data: {
           lastInventoryAt: new Date(),
           lastSeenAt: new Date(),
-          ...(dto.agentVersion && { agentVersion: dto.agentVersion }),
-          ...(dto.osVersion && { osVersion: dto.osVersion }),
-          ...(dto.osBuild && { osBuild: dto.osBuild }),
-          ...(dto.cpuModel && { cpuModel: dto.cpuModel }),
-          ...(dto.ramGb && { ramGb: dto.ramGb }),
-          ...(dto.ipAddress && { ipAddress: dto.ipAddress }),
+          ...(clean(dto.agentVersion) && { agentVersion: clean(dto.agentVersion) }),
+          ...(clean(dto.osVersion)    && { osVersion:    clean(dto.osVersion) }),
+          ...(clean(dto.osBuild)      && { osBuild:      clean(dto.osBuild) }),
+          ...(clean(dto.cpuModel)     && { cpuModel:     clean(dto.cpuModel) }),
+          ...(dto.ramGb               && { ramGb: dto.ramGb }),
+          ...(clean(dto.ipAddress)    && { ipAddress:    clean(dto.ipAddress) }),
         },
       }),
     ]);
