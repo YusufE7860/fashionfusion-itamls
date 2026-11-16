@@ -11,8 +11,8 @@
         3. Download Invoke-ITAMLSInventory.ps1 and Invoke-ITAMLSBackup.ps1
            from the server into C:\ProgramData\ITAMLS
         4. Register two scheduled tasks:
-             ITAMLS-Inventory  — daily 03:00 (SYSTEM)
-             ITAMLS-Backup     — daily 02:00 (SYSTEM)
+             ITAMLS-Inventory  - daily 03:00 (SYSTEM)
+             ITAMLS-Backup     - daily 02:00 (SYSTEM)
         5. Run the first inventory push so the PC appears in the app right away
 
     The enrollment token is single-use (well, few-use, per admin's setting).
@@ -180,7 +180,7 @@ function Install-ITAMLSAgent {
     # back to the API using the agent key we minted above.
     #
     # If the server doesn't have the zip yet, we log a warning and continue
-    # — the rest of the install (inventory, backup, asset register) is still
+    # -- the rest of the install (inventory, backup, asset register) is still
     # valuable and the admin can retry RMM install later.
     try {
         $rmmWorkDir = Join-Path $installDir 'rmm-native'
@@ -197,7 +197,7 @@ function Install-ITAMLSAgent {
         LogS "Installing ItamlsRmm Windows service"
         . "$rmmDist\Install-ItamlsRmmNative.ps1"
         Install-ItamlsRmmNative -Source $rmmDist
-        LogS "ItamlsRmm service running — this PC will appear in RMM in ~60s" 'OK'
+        LogS "ItamlsRmm service running - this PC will appear in RMM in ~60s" 'OK'
     } catch {
         LogS "Could not install native RMM agent: $($_.Exception.Message)" 'WARN'
         LogS "Enrolment + inventory + backup are still installed. Retry RMM install later with:" 'WARN'
@@ -222,7 +222,7 @@ function Install-ITAMLSAgent {
     Write-Host "    Config:     $cfgPath" -ForegroundColor Green
     Write-Host "    Inventory:  daily 03:00 + 5 min post-boot" -ForegroundColor Green
     Write-Host "    Backup:     daily 02:00 + 5 min post-boot" -ForegroundColor Green
-    Write-Host "    RMM agent:  Windows service ItamlsRmm - live connect, scripts, metrics" -ForegroundColor Green
+    Write-Host "    RMM agent:  Windows service ItamlsRmm" -ForegroundColor Green
     Write-Host '   ================================================================' -ForegroundColor Green
 }
 

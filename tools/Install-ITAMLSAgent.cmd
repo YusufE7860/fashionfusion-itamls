@@ -102,7 +102,7 @@ if errorlevel 1 (
 )
 
 REM --- Token: prompt if not embedded ---
-REM Same guard as above — compare against the first 10 chars so the server's
+REM Same guard as above - compare against the first 10 chars so the server's
 REM global placeholder-replace can't accidentally make this condition true.
 if "!TOKEN:~0,10!"=="__EMBEDDED" (
     echo.
@@ -159,7 +159,7 @@ set "PSFILE=%TEMP%\itamls-install-%RANDOM%.ps1"
 >> "%PSFILE%" echo     try { $installerScript = (Invoke-WebRequest -Uri '%API%/tools/install-itamlsagent.ps1' -UseBasicParsing -TimeoutSec 30).Content } catch { Write-Host ('   ^> IWR failed: ' + $_.Exception.Message) -ForegroundColor Yellow }
 >> "%PSFILE%" echo     if (-not $installerScript) { try { $wc = New-Object System.Net.WebClient; $installerScript = $wc.DownloadString('%API%/tools/install-itamlsagent.ps1') } catch { Write-Host ('   ^> WebClient failed: ' + $_.Exception.Message) -ForegroundColor Yellow } }
 >> "%PSFILE%" echo     if (-not $installerScript) { try { $installerScript = (curl.exe --silent --insecure '%API%/tools/install-itamlsagent.ps1' ^| Out-String) } catch { } }
->> "%PSFILE%" echo     if (-not $installerScript) { throw 'Could not fetch installer from %API% — see errors above. Check: TLS reachability (try opening the URL in a browser from this PC), firewall / AV, and whether the server cert chain is complete.' }
+>> "%PSFILE%" echo     if (-not $installerScript) { throw 'Could not fetch installer from %API% - see errors above. Check: TLS reachability (try opening the URL in a browser from this PC), firewall / AV, and whether the server cert chain is complete.' }
 >> "%PSFILE%" echo     Set-Content -Path $agentPs1 -Value $installerScript -Encoding UTF8
 >> "%PSFILE%" echo     Write-Host '   ^> Executing installer...' -ForegroundColor Cyan
 >> "%PSFILE%" echo     . $agentPs1
