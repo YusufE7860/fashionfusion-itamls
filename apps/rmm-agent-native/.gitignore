@@ -1,0 +1,12 @@
+# Build + publish output — never belongs in git. Regenerated locally
+# with `build.ps1`, served from the ITAMLS server under apps/api/public/rmm/
+# (which itself is gitignored in the api folder).
+dist/
+bin/
+obj/
+*.zip
+
+# Visual Studio / Rider junk
+.vs/
+.idea/
+*.user

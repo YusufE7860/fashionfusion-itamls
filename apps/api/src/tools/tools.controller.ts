@@ -111,6 +111,75 @@ export class ToolsController {
     fs.createReadStream(file).pipe(res);
   }
 
+  /** Native C# RMM agent — pre-built self-contained Windows service + helper.
+   *  Admin builds the zip locally with apps/rmm-agent-native/build.ps1 and
+   *  drops it at apps/api/public/rmm/itamls-rmm-native.zip. Technicians then
+   *  download via the one-liner installer below. */
+  @Public()
+  @Get('itamls-rmm-native.zip')
+  serveRmmNativeZip(@Res() res: Response) {
+    const p = process.env.RMM_NATIVE_ZIP_PATH
+      ?? path.join(process.cwd(), 'public', 'rmm', 'itamls-rmm-native.zip');
+    if (!fs.existsSync(p)) {
+      res.status(404).type('text/plain').send(
+        `Native RMM agent bundle not found at ${p}.\n\n` +
+        `Build and upload it:\n` +
+        `  cd apps/rmm-agent-native && pwsh ./build.ps1\n` +
+        `  scp itamls-rmm-native.zip server:/opt/itamls/apps/api/public/rmm/\n`,
+      );
+      return;
+    }
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="itamls-rmm-native.zip"');
+    fs.createReadStream(p).pipe(res);
+  }
+
+  /** One-liner installer for the native RMM agent. Downloads the zip,
+   *  extracts to C:\ProgramData\ITAMLS\rmm-native, runs the embedded
+   *  installer. Technician flow:
+   *
+   *      iex (irm https://it.example/api/v1/tools/install-rmm-native.ps1)
+   *
+   *  Prereq: Install-ITAMLSAgent has already enrolled the PC so
+   *  agent.json exists. */
+  @Public()
+  @Get('install-rmm-native.ps1')
+  serveRmmNativeInstaller(@Res() res: Response) {
+    const apiBase = (process.env.PUBLIC_API_URL ?? 'https://it.ffgsa.co.za:41235/api/v1').replace(/\/$/, '');
+    const script = `#Requires -RunAsAdministrator
+# ITAMLS Native RMM Agent — one-line installer
+# Usage: iex (irm ${apiBase}/tools/install-rmm-native.ps1)
+
+$ErrorActionPreference = 'Stop'
+$api     = '${apiBase}'
+$workDir = 'C:\\ProgramData\\ITAMLS\\rmm-native'
+$zipPath = "$workDir\\itamls-rmm-native.zip"
+$distDir = "$workDir\\dist"
+
+if (-not (Test-Path 'C:\\ProgramData\\ITAMLS\\agent.json')) {
+    throw 'Run Install-ITAMLSAgent first — this installer needs the enrolled agent.json.'
+}
+
+Write-Host '==> Downloading native RMM agent bundle'
+New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+Invoke-WebRequest -Uri "$api/tools/itamls-rmm-native.zip" -OutFile $zipPath -UseBasicParsing
+
+Write-Host '==> Extracting'
+if (Test-Path $distDir) { Remove-Item -Recurse -Force $distDir }
+Expand-Archive -Path $zipPath -DestinationPath $distDir -Force
+
+Write-Host '==> Running installer'
+. "$distDir\\Install-ItamlsRmmNative.ps1"
+Install-ItamlsRmmNative -Source $distDir
+
+Write-Host ''
+Write-Host '✅ Done. Open ITAMLS → RMM; this PC should be online within ~60s.'
+`;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="install-rmm-native.ps1"');
+    res.send(script);
+  }
+
   /** Alias so the daily-backup task's downloader hits the same casing. */
   @Public()
   @Get('invoke-itamlsbackup.ps1')

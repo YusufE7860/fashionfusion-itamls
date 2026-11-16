@@ -154,14 +154,14 @@ public sealed class DxgiCapture : IScreenCapture
                     var ctx = _device.ImmediateContext;
                     ctx.CopyResource(_staging!, tex);
 
-                    var map = ctx.Map(_staging!, 0, MapMode.Read, MapFlags.None);
+                    var map = ctx.Map(_staging!, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
                     var bytes = new byte[_w * _h * 4];
                     unsafe {
                         var src = (byte*)map.DataPointer;
                         int stride = (int)map.RowPitch;
                         fixed (byte* dst = bytes) {
                             for (int y = 0; y < _h; y++)
-                                Buffer.MemoryCopy(src + y * stride, dst + y * _w * 4, _w * 4, _w * 4);
+                                Buffer.MemoryCopy(src + y * stride, dst + y * _w * 4, (ulong)(_w * 4), (ulong)(_w * 4));
                         }
                     }
                     ctx.Unmap(_staging!, 0);
@@ -178,7 +178,7 @@ public sealed class DxgiCapture : IScreenCapture
         {
             if (_staging is not null) return;
             _staging = _device.CreateTexture2D(new Texture2DDescription {
-                Width = _w, Height = _h, MipLevels = 1, ArraySize = 1,
+                Width = (uint)_w, Height = (uint)_h, MipLevels = 1, ArraySize = 1,
                 Format = Format.B8G8R8A8_UNorm,
                 SampleDescription = new SampleDescription(1, 0),
                 Usage = ResourceUsage.Staging,

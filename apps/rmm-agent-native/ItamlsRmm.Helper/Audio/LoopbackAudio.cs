@@ -1,5 +1,6 @@
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;   // SampleToWaveProvider16, WdlResamplingSampleProvider in modern NAudio
 
 namespace ItamlsRmm.Helper.Audio;
 
@@ -74,7 +75,7 @@ public sealed class LoopbackAudio : IDisposable
         if (srcFmt.Channels == 2 && _outFmt.Channels == 1)
             sampleProv = sampleProv.ToMono();
         if (sampleProv.WaveFormat.SampleRate != _outFmt.SampleRate)
-            sampleProv = new NAudio.Dsp.WdlResamplingSampleProvider(sampleProv, _outFmt.SampleRate);
+            sampleProv = new WdlResamplingSampleProvider(sampleProv, _outFmt.SampleRate);
 
         // Back to 16-bit PCM bytes.
         var pcm = new SampleToWaveProvider16(sampleProv);

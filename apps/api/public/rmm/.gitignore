@@ -1,0 +1,2 @@
+# Pre-built artifacts (uploaded by the operator with scp) — not tracked in git.
+*.zip

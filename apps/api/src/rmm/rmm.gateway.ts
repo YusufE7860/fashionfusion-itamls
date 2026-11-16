@@ -3,7 +3,7 @@ import { Server as HttpServer } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiKeysService } from '../discovery/api-keys.service';
-import * as jwt from 'jsonwebtoken';
+import { JwtService } from '@nestjs/jwt';
 
 interface AgentSocket extends WebSocket {
   agentPcId?: string;
@@ -31,7 +31,11 @@ export class RmmGateway implements OnModuleInit {
   // Browser-side listeners for live tailing (session consoles)
   private listeners = new Map<string, Set<(evt: any) => void>>(); // agentPcId → listeners
 
-  constructor(private prisma: PrismaService, private apiKeys: ApiKeysService) {}
+  constructor(
+    private prisma: PrismaService,
+    private apiKeys: ApiKeysService,
+    private jwt: JwtService,
+  ) {}
 
   async onModuleInit() {
     // No-op; attach() is called from main.ts with the Nest HTTP server.
@@ -177,7 +181,7 @@ export class RmmGateway implements OnModuleInit {
    *  desktop is a write-level action. */
   private async resolveViewer(token: string) {
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET ?? 'change-me') as any;
+      const decoded: any = await this.jwt.verifyAsync(token);
       const perms: string[] = decoded.permissions ?? [];
       if (!perms.includes('agents:write')) return null;
       return decoded;
