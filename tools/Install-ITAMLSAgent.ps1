@@ -222,7 +222,7 @@ function Install-ITAMLSAgent {
     Write-Host "    Config:     $cfgPath" -ForegroundColor Green
     Write-Host "    Inventory:  daily 03:00 + 5 min post-boot" -ForegroundColor Green
     Write-Host "    Backup:     daily 02:00 + 5 min post-boot" -ForegroundColor Green
-    Write-Host "    RMM agent:  Windows service 'ItamlsRmm' (live connect, scripts, metrics)" -ForegroundColor Green
+    Write-Host "    RMM agent:  Windows service ItamlsRmm - live connect, scripts, metrics" -ForegroundColor Green
     Write-Host '   ================================================================' -ForegroundColor Green
 }
 
