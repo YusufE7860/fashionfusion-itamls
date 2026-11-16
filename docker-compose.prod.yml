@@ -89,6 +89,10 @@ services:
       - ${HOST_REPO_PATH:-/opt/itamls}:/repo
       # Docker socket so the API can spawn the detached updater container
       - /var/run/docker.sock:/var/run/docker.sock
+      # Pre-built artifact uploads (signage agent tarball, native RMM zip,
+      # future binary distributions). Mounted so operators can scp a new
+      # build and have it live without rebuilding the container.
+      - ${HOST_REPO_PATH:-/opt/itamls}/apps/api/public:/app/apps/api/public
     expose:
       - "4000"
 

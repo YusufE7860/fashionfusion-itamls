@@ -134,7 +134,7 @@ function Install-ITAMLSAgent {
 
     # --- 3. Download agent scripts ---
     Step 3 5 "Downloading agent scripts"
-    foreach ($script in @('Invoke-ITAMLSInventory.ps1','Invoke-ITAMLSBackup.ps1','Invoke-ITAMLSRmm.ps1')) {
+    foreach ($script in @('Invoke-ITAMLSInventory.ps1','Invoke-ITAMLSBackup.ps1')) {
         $dest = Join-Path $installDir $script
         $url  = "$Api/tools/$($script.ToLower())"
         try {
@@ -171,30 +171,37 @@ function Install-ITAMLSAgent {
     Register-ITAMLSTask -Name 'ITAMLS-Backup'    -Script 'Invoke-ITAMLSBackup.ps1'    -Time '02:00' `
         -ExtraArgs @{ ApiBase = $Api; ApiKey = $res.agentKey; StoreCode = $res.storeCode; PcName = $res.pcName }
 
-    # --- 4b. RMM agent (long-running, auto-restart) ---
-    # Unlike the inventory + backup tasks (which run once a day and exit), the
-    # RMM agent is a persistent WebSocket client. We register it with a
-    # start-at-boot trigger, RestartCount so it recovers from transient
-    # crashes, and no end time so it just keeps going.
+    # --- 4b. Native RMM agent (Windows service) ---
+    # Replaces the old PowerShell scheduled-task RMM agent. We download the
+    # pre-built zip from the server (built by apps/rmm-agent-native/build.ps1
+    # and uploaded to apps/api/public/rmm/ by the operator), extract it, and
+    # register itamls-rmm-service.exe as a Windows service running under
+    # LocalSystem with auto-restart. Service immediately opens a WebSocket
+    # back to the API using the agent key we minted above.
+    #
+    # If the server doesn't have the zip yet, we log a warning and continue
+    # — the rest of the install (inventory, backup, asset register) is still
+    # valuable and the admin can retry RMM install later.
     try {
-        $rmmArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$installDir\Invoke-ITAMLSRmm.ps1`""
-        $rmmAct  = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $rmmArgs
-        $rmmTrig = New-ScheduledTaskTrigger -AtStartup
-        $rmmTrig.Delay = 'PT30S'
-        # "At logon" of any user, in case the PC was already booted when install ran.
-        $rmmTrig2 = New-ScheduledTaskTrigger -AtLogon
-        $rmmSet   = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-                        -StartWhenAvailable -RunOnlyIfNetworkAvailable `
-                        -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 2)
-        $rmmPrin  = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-        Unregister-ScheduledTask -TaskName 'ITAMLS-RMM' -Confirm:$false -ErrorAction SilentlyContinue
-        Register-ScheduledTask -TaskName 'ITAMLS-RMM' -Action $rmmAct -Trigger @($rmmTrig, $rmmTrig2) `
-            -Settings $rmmSet -Principal $rmmPrin -Force | Out-Null
-        # Start it right away so the admin sees the PC online without waiting for reboot.
-        Start-ScheduledTask -TaskName 'ITAMLS-RMM' -ErrorAction SilentlyContinue
-        LogS "Task 'ITAMLS-RMM' registered (start at boot + logon, auto-restart every 2m)" 'OK'
+        $rmmWorkDir = Join-Path $installDir 'rmm-native'
+        $rmmZip     = Join-Path $rmmWorkDir  'itamls-rmm-native.zip'
+        $rmmDist    = Join-Path $rmmWorkDir  'dist'
+        New-Item -ItemType Directory -Force -Path $rmmWorkDir | Out-Null
+
+        LogS "Downloading native RMM agent bundle"
+        Invoke-WebRequest -Uri "$Api/tools/itamls-rmm-native.zip" -OutFile $rmmZip -UseBasicParsing -TimeoutSec 180
+
+        if (Test-Path $rmmDist) { Remove-Item -Recurse -Force $rmmDist }
+        Expand-Archive -Path $rmmZip -DestinationPath $rmmDist -Force
+
+        LogS "Installing ItamlsRmm Windows service"
+        . "$rmmDist\Install-ItamlsRmmNative.ps1"
+        Install-ItamlsRmmNative -Source $rmmDist
+        LogS "ItamlsRmm service running — this PC will appear in RMM in ~60s" 'OK'
     } catch {
-        LogS "Could not register ITAMLS-RMM: $($_.Exception.Message)" 'WARN'
+        LogS "Could not install native RMM agent: $($_.Exception.Message)" 'WARN'
+        LogS "Enrolment + inventory + backup are still installed. Retry RMM install later with:" 'WARN'
+        LogS "   iex (irm $Api/tools/install-rmm-native.ps1)" 'WARN'
     }
 
     # --- 5. First inventory push ---
@@ -215,6 +222,7 @@ function Install-ITAMLSAgent {
     Write-Host "    Config:     $cfgPath" -ForegroundColor Green
     Write-Host "    Inventory:  daily 03:00 + 5 min post-boot" -ForegroundColor Green
     Write-Host "    Backup:     daily 02:00 + 5 min post-boot" -ForegroundColor Green
+    Write-Host "    RMM agent:  Windows service 'ItamlsRmm' (live connect, scripts, metrics)" -ForegroundColor Green
     Write-Host '   ================================================================' -ForegroundColor Green
 }
 
