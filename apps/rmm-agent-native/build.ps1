@@ -10,7 +10,7 @@
     Run this on any Windows box with the .NET 8 SDK installed. Drop the
     resulting .zip at `apps/api/public/rmm/itamls-rmm-native.zip` on the
     ITAMLS server. Technicians then run the one-line installer on each
-    target PC — no SDK, no git, no manual copy.
+    target PC - no SDK, no git, no manual copy.
 
 .EXAMPLE
     .\build.ps1
@@ -28,11 +28,11 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
 Write-Host '==> Publishing ItamlsRmm.Service'
 dotnet publish "$PSScriptRoot\ItamlsRmm.Service\ItamlsRmm.Service.csproj" -c $Configuration -o $dist
-if ($LASTEXITCODE -ne 0) { throw 'Service build failed — see errors above.' }
+if ($LASTEXITCODE -ne 0) { throw 'Service build failed - see errors above.' }
 
 Write-Host '==> Publishing ItamlsRmm.Helper'
 dotnet publish "$PSScriptRoot\ItamlsRmm.Helper\ItamlsRmm.Helper.csproj"   -c $Configuration -o $dist
-if ($LASTEXITCODE -ne 0) { throw 'Helper build failed — see errors above.' }
+if ($LASTEXITCODE -ne 0) { throw 'Helper build failed - see errors above.' }
 
 # Copy the installer script alongside so the zip is self-contained.
 Copy-Item "$PSScriptRoot\install\Install-ItamlsRmmNative.ps1" -Destination $dist
@@ -42,4 +42,4 @@ if (Test-Path $OutZip) { Remove-Item $OutZip }
 Compress-Archive -Path "$dist\*" -DestinationPath $OutZip -Force
 
 Write-Host ''
-Write-Host "✅ Built. Upload $OutZip to apps/api/public/rmm/ on the ITAMLS server."
+Write-Host "[OK] Built. Upload $OutZip to apps/api/public/rmm/ on the ITAMLS server."

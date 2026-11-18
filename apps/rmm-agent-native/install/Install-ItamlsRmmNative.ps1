@@ -1,9 +1,9 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Deploys the native C# RMM agent — service + helper — alongside the
+    Deploys the native C# RMM agent - service + helper - alongside the
     existing scheduled tasks. Replaces (not coexists with) the PowerShell
-    `Invoke-ITAMLSRmm.ps1` scheduled task set up by the old installer.
+    Invoke-ITAMLSRmm.ps1 scheduled task set up by the old installer.
 
 .DESCRIPTION
     Three steps:
@@ -50,27 +50,27 @@ function Install-ItamlsRmmNative {
         Start-Sleep -Seconds 2
     }
 
-    # 3. Copy binaries. Both exes must sit together — the service launches
+    # 3. Copy binaries. Both exes must sit together - the service launches
     #    the helper by path based on its own directory.
     foreach ($exe in 'itamls-rmm-service.exe','itamls-rmm-helper.exe') {
         $src = Join-Path $Source $exe
-        if (-not (Test-Path $src)) { throw "Missing $src — rebuild and re-publish before installing." }
+        if (-not (Test-Path $src)) { throw "Missing $src - rebuild and re-publish before installing." }
         Copy-Item -Force $src $installDir
     }
 
     # 4. Register the Windows service.
     $svcPath = Join-Path $installDir 'itamls-rmm-service.exe'
     sc.exe create 'ItamlsRmm' binPath= "`"$svcPath`"" start= auto DisplayName= 'ITAMLS Remote Monitoring' | Out-Null
-    sc.exe description 'ItamlsRmm' 'ITAMLS native RMM agent — screen / input / clipboard / commands over WebSocket.' | Out-Null
+    sc.exe description 'ItamlsRmm' 'ITAMLS native RMM agent - screen / input / clipboard / commands over WebSocket.' | Out-Null
     # Auto-restart on crash (5s, 10s, 30s backoff).
     sc.exe failure 'ItamlsRmm' reset= 86400 actions= restart/5000/restart/10000/restart/30000 | Out-Null
 
     Start-Service 'ItamlsRmm'
     Write-Host ''
-    Write-Host '✅ ItamlsRmm installed and running.' -ForegroundColor Green
+    Write-Host '[OK] ItamlsRmm installed and running.' -ForegroundColor Green
     Write-Host "   Binaries:   $installDir"
     Write-Host '   Config:     C:\ProgramData\ITAMLS\agent.json'
-    Write-Host '   Log:        Event Viewer → Applications → ItamlsRmm'
+    Write-Host '   Log:        Event Viewer -> Applications -> ItamlsRmm'
     Write-Host ''
     Write-Host 'Tail the WS behaviour live with:'
     Write-Host '   Get-WinEvent -LogName Application -MaxEvents 50 | Where-Object ProviderName -eq ItamlsRmm'
