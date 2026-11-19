@@ -94,6 +94,7 @@ model User {
   prApproved     PurchaseRequest[] @relation("PrApprover")
   equipmentIncidentsReported EquipmentIncident[] @relation("EquipIncidentReporter")
   repairsReported            Repair[]            @relation("RepairReporter")
+  pushSubscriptions          PushSubscription[]
 
   permissionOverrides UserPermissionOverride[]
   storeAccess         UserStoreAccess[]
@@ -2136,4 +2137,22 @@ model SignageVideoVariant {
 
   @@unique([videoId, quality])
   @@index([videoId])
+}
+
+// One Web Push subscription per device the user has opted in on. Techs typically
+// have 2+ (laptop + phone). Expired/invalid endpoints are deleted when a push
+// returns 410 Gone.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique                       // browser push service URL
+  p256dh    String                                 // client public key
+  auth      String                                 // auth secret
+  userAgent String?                                // for the "which devices" UI
+  createdAt DateTime @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

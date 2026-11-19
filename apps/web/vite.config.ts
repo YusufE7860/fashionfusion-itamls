@@ -66,6 +66,9 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webp,woff2}'],
+        // Pulled into the generated service worker verbatim. Hosts our
+        // 'push' + 'notificationclick' event handlers for Web Push.
+        importScripts: ['/push-handlers.js'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         runtimeCaching: [
           {

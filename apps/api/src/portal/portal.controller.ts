@@ -5,6 +5,7 @@ import {
 import { JwtAuthGuard } from '../common/guards/jwt.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { PortalScopeService, computePresence } from './portal.service';
+import { NotifyService } from '../notify/notify.service';
 
 /**
  * Store Portal API.
@@ -30,6 +31,7 @@ export class PortalController {
   constructor(
     private prisma: PrismaService,
     private scope: PortalScopeService,
+    private notify: NotifyService,
   ) {}
 
   // ---------- Identity + scope ----------
@@ -138,6 +140,26 @@ export class PortalController {
     return null;
   }
 
+  // ---------- Issue catalog ----------
+
+  /** The list of issues a store can pick from when logging a call.
+   *  Pulls from TicketCategory (already seeded with ~30 Fashion Fusion
+   *  issues + defaultPriority + issueTemplate). We expose only active
+   *  entries, sorted by sortOrder for consistent ordering. */
+  @Get('issue-types')
+  async issueTypes(@Req() req: any) {
+    this.requirePortalRole((req.user?.role ?? '').toUpperCase());
+    const rows = await this.prisma.ticketCategory.findMany({
+      where: { isActive: true },
+      select: {
+        id: true, code: true, name: true, description: true,
+        defaultPriority: true, issueTemplate: true, sortOrder: true,
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+    return rows;
+  }
+
   // ---------- Tickets (calls) ----------
 
   /** List tickets scoped to the user's stores.
@@ -197,59 +219,68 @@ export class PortalController {
     }));
   }
 
-  /** Create a ticket (call). */
+  /** Create a ticket (call).
+   *  New flow: the portal picks a categoryId from the issue catalog, and we
+   *  derive subject + priority from that category. Caller can override
+   *  priority (admin-set) or subject (free text) but neither is required. */
   @Post('tickets')
   async createTicket(
     @Req() req: any,
     @Body() body: {
       storeId: string;
-      subject: string;
-      description?: string;
-      priority?: string;
-      categoryId?: string;
+      categoryId: string;         // now required - picked from issue catalog
+      description?: string;        // the structured answers from issueTemplate
+      subject?: string;            // optional override
+      priority?: string;           // optional override
     },
   ) {
     const userId = req.user?.sub as string;
     await this.ensureScope(userId, req);
-    if (!body.storeId || !body.subject?.trim()) {
-      throw new BadRequestException('storeId and subject are required');
-    }
+    if (!body.storeId) throw new BadRequestException('storeId is required');
+    if (!body.categoryId) throw new BadRequestException('categoryId is required - pick an issue');
     await this.scope.requireStoreAccess(userId, body.storeId);
 
-    // Portal form uses friendly priority labels; map to P1-P4 schema values.
+    const cat = await this.prisma.ticketCategory.findUnique({
+      where: { id: body.categoryId },
+      select: { id: true, name: true, defaultPriority: true, isActive: true },
+    });
+    if (!cat || !cat.isActive) throw new BadRequestException('issue not found or inactive');
+
+    // Priority: explicit override wins, else category's defaultPriority.
     const priorityMap: Record<string, string> = {
       LOW: 'P4', MEDIUM: 'P3', HIGH: 'P2', CRITICAL: 'P1',
       P1: 'P1', P2: 'P2', P3: 'P3', P4: 'P4',
     };
-    const priority = priorityMap[(body.priority ?? 'MEDIUM').toUpperCase()] ?? 'P3';
+    const priority = body.priority
+      ? (priorityMap[body.priority.toUpperCase()] ?? cat.defaultPriority)
+      : cat.defaultPriority;
 
-    // Every ticket needs a category. Prefer the one passed; otherwise fall
-    // back to a 'MISC' / 'General' default so store users never get blocked.
-    let categoryId = body.categoryId;
-    if (!categoryId) {
-      const fallback = await this.prisma.ticketCategory.findFirst({
-        where: { OR: [{ code: 'MISC' }, { code: 'GEN' }, { code: 'GENERAL' }] },
-        select: { id: true },
-      }) ?? await this.prisma.ticketCategory.findFirst({ select: { id: true } });
-      if (!fallback) throw new BadRequestException('no ticket categories configured');
-      categoryId = fallback.id;
-    }
+    // Subject: explicit override wins, else category name so techs see a
+    // readable one-liner in the queue.
+    const subject = (body.subject?.trim() || cat.name).slice(0, 200);
 
     const code = await nextCode(this.prisma, 'TKT');
-    return this.prisma.ticket.create({
+    const ticket = await this.prisma.ticket.create({
       data: {
-        code,
-        subject: body.subject.trim().slice(0, 200),
+        code, subject,
         description: body.description?.trim().slice(0, 4000) ?? '',
         storeId: body.storeId,
         reporterId: userId,
         priority,
         status: 'NEW',
-        categoryId,
+        categoryId: cat.id,
         source: 'APP',
       },
-      select: { id: true, code: true, subject: true, status: true },
+      select: { id: true, code: true, subject: true, status: true, priority: true },
     });
+
+    // Fire-and-forget notification. Routing resolves assigned tech and pushes
+    // to all their registered devices. Failure here never blocks ticket create.
+    try {
+      await this.notify?.notifyNewTicket(ticket.id);
+    } catch { /* silent */ }
+
+    return ticket;
   }
 
   /** Single ticket detail - comments, events. */

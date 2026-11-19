@@ -42,6 +42,7 @@ import { DepartmentsModule } from './departments/departments.module';
 import { DvrsModule } from './dvrs/dvrs.module';
 import { SystemModule } from './system/system.module';
 import { PortalModule } from './portal/portal.module';
+import { NotifyModule } from './notify/notify.module';
 import { JwtAuthGuard } from './common/guards/jwt.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
@@ -91,6 +92,7 @@ import { ActivityTrackerInterceptor } from './common/interceptors/activity.inter
     SystemModule,
     IncidentsModule,
     PortalModule,
+    NotifyModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

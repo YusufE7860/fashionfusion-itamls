@@ -426,55 +426,156 @@ function CallNew() {
   const me = useMe();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [form, setForm] = useState({ storeId: '', subject: '', description: '', priority: 'MEDIUM' });
+  const [storeId, setStoreId]       = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [description, setDescription] = useState('');
+  const [search, setSearch]         = useState('');
 
-  if (me.data && me.data.stores?.length === 1 && !form.storeId) {
-    setForm({ ...form, storeId: me.data.stores[0].id });
+  const issues = useQuery<IssueType[]>({
+    queryKey: ['portal','issue-types'],
+    queryFn: () => api.get('/portal/issue-types').then(r => r.data),
+    staleTime: 10 * 60_000,
+  });
+
+  // Auto-pick the only store the user has
+  if (me.data && me.data.stores?.length === 1 && !storeId) setStoreId(me.data.stores[0].id);
+
+  const selected = issues.data?.find(i => i.id === categoryId) ?? null;
+
+  // When the user picks an issue, pre-fill the description with the template
+  // so the techs always get the same set of structured questions answered.
+  function pickIssue(i: IssueType) {
+    setCategoryId(i.id);
+    if (!description.trim() && i.issueTemplate) setDescription(i.issueTemplate);
   }
 
   const create = useMutation({
-    mutationFn: () => api.post('/portal/tickets', form).then(r => r.data),
+    mutationFn: () => api.post('/portal/tickets', {
+      storeId, categoryId, description,
+    }).then(r => r.data),
     onSuccess: (t) => { qc.invalidateQueries({ queryKey: ['portal'] }); navigate(`/portal/calls/${t.id}`); },
     onError: (e: any) => alert(e?.response?.data?.message ?? 'Failed to log call'),
   });
 
+  // Group the issue catalog by code prefix (POS-, PR-, NET- etc.) for the
+  // picker so the store user scans a small group rather than one long list.
+  const grouped = groupIssues(issues.data ?? [], search);
+
   return (
     <div className="space-y-3">
       <PortalBreadcrumb back="/portal/calls" title="Log a Call" />
-      <form className="space-y-3 rounded-xl bg-white p-5 shadow-sm" onSubmit={e => { e.preventDefault(); create.mutate(); }}>
+      <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (!categoryId) { alert('Pick an issue first'); return; } create.mutate(); }}>
         {me.data && me.data.stores.length > 1 && (
-          <Field label="Which store?">
-            <select className="input w-full" value={form.storeId} onChange={e => setForm({ ...form, storeId: e.target.value })} required>
-              <option value="">Select…</option>
-              {me.data.stores.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-            </select>
-          </Field>
+          <div className="rounded-xl bg-white p-4 shadow-sm">
+            <Field label="Which store?">
+              <select className="input w-full" value={storeId} onChange={e => setStoreId(e.target.value)} required>
+                <option value="">Select…</option>
+                {me.data.stores.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+              </select>
+            </Field>
+          </div>
         )}
-        <Field label="What's the issue? (one line)">
-          <input className="input w-full" value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} required maxLength={200} />
-        </Field>
-        <Field label="Details">
-          <textarea className="input w-full" rows={5} value={form.description}
-            onChange={e => setForm({ ...form, description: e.target.value })}
-            placeholder="When did it start? What were you doing? Any error messages?" />
-        </Field>
-        <Field label="Priority">
-          <select className="input w-full" value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>
-            <option value="LOW">Low - minor annoyance, workaround exists</option>
-            <option value="MEDIUM">Medium - affecting one person's work</option>
-            <option value="HIGH">High - affecting a till or the whole store</option>
-            <option value="CRITICAL">Critical - whole store down</option>
-          </select>
-        </Field>
-        <div className="flex justify-end gap-2 pt-2">
+
+        {/* ---- 1. Pick an issue ---- */}
+        <div className="rounded-xl bg-white p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-900">1. What's the issue?</h3>
+          <p className="mt-0.5 text-xs text-slate-400">Pick the one that fits best - it decides who gets this call and how urgent we treat it.</p>
+
+          <input className="input mt-3 w-full" placeholder="Search issues…" value={search} onChange={e => setSearch(e.target.value)} />
+
+          <div className="mt-3 space-y-3">
+            {issues.isLoading && <div className="p-6 text-center text-xs text-slate-400">Loading issues…</div>}
+            {!issues.isLoading && !grouped.length && <div className="p-6 text-center text-xs text-slate-400">No issues match "{search}"</div>}
+            {grouped.map(([group, items]) => (
+              <div key={group}>
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">{group}</div>
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {items.map(i => (
+                    <button key={i.id} type="button" onClick={() => pickIssue(i)}
+                      className={`flex items-start gap-2 rounded-lg border p-2.5 text-left transition ${
+                        categoryId === i.id
+                          ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-200'
+                          : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                    >
+                      <PriorityDot priority={i.defaultPriority} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-semibold text-slate-900">{i.name}</div>
+                        {i.description && <div className="line-clamp-1 text-[10px] text-slate-500">{i.description}</div>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ---- 2. Details ---- */}
+        {selected && (
+          <div className="rounded-xl bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-900">2. Fill in the details</h3>
+              <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${priorityPillColor(selected.defaultPriority)}`}>
+                Priority: {priorityLabel(selected.defaultPriority)} (auto-set)
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Answer every line below - the more detail, the faster the tech can fix it.
+            </p>
+            <textarea className="input mt-3 w-full font-mono text-[12px]" rows={9}
+              value={description} onChange={e => setDescription(e.target.value)}
+              placeholder={selected.issueTemplate ?? 'Describe the issue in detail…'} />
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
           <Link to="/portal/calls" className="btn-ghost">Cancel</Link>
-          <button type="submit" className="btn-primary" disabled={create.isPending}>
+          <button type="submit" className="btn-primary" disabled={create.isPending || !categoryId}>
             {create.isPending ? 'Logging…' : 'Log Call'}
           </button>
         </div>
       </form>
     </div>
   );
+}
+
+// Group issues by code prefix (POS-, PR-, NET-, etc.) into friendly headings.
+type IssueType = {
+  id: string; code: string; name: string; description: string | null;
+  defaultPriority: string; issueTemplate: string | null; sortOrder: number;
+};
+const PREFIX_LABEL: Record<string, string> = {
+  POS: 'Point of Sale', DOLFIN: 'Dolfin', PR: 'Printers', PIN: 'PIN Pad / Nedbank',
+  NET: 'Network / Internet', EOD: 'End of Day', SIG: 'Signage / TVs',
+  CCTV: 'CCTV', EMAIL: 'Email / Outlook', HW: 'Hardware', BARCODE: 'Scanners',
+};
+function groupIssues(all: IssueType[], search: string): [string, IssueType[]][] {
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? all.filter(i => (i.name + ' ' + (i.description ?? '') + ' ' + i.code).toLowerCase().includes(q))
+    : all;
+  const bins: Record<string, IssueType[]> = {};
+  for (const i of filtered) {
+    const prefix = i.code.split('-')[0];
+    const label = PREFIX_LABEL[prefix] ?? 'Other';
+    (bins[label] ??= []).push(i);
+  }
+  return Object.entries(bins).sort(([a],[b]) => a.localeCompare(b));
+}
+function PriorityDot({ priority }: { priority: string }) {
+  const color = { P1: 'bg-rose-500', P2: 'bg-amber-500', P3: 'bg-sky-500', P4: 'bg-slate-400' }[priority] ?? 'bg-slate-400';
+  return <span className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${color}`} title={priorityLabel(priority)}/>;
+}
+function priorityLabel(p: string) {
+  return ({ P1: 'Critical', P2: 'High', P3: 'Medium', P4: 'Low' } as Record<string, string>)[p] ?? p;
+}
+function priorityPillColor(p: string) {
+  return ({
+    P1: 'bg-rose-500   text-white',
+    P2: 'bg-amber-500  text-white',
+    P3: 'bg-sky-500    text-white',
+    P4: 'bg-slate-400  text-white',
+  } as Record<string, string>)[p] ?? 'bg-slate-500 text-white';
 }
 
 function CallDetail() {

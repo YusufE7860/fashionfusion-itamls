@@ -81,6 +81,13 @@ services:
       SMTP_USER:          ${SMTP_USER:-}
       SMTP_PASS:          ${SMTP_PASS:-}
       SMTP_FROM:          ${SMTP_FROM:-ITAMLS <no-reply@fashionfusion.local>}
+      # Web Push (VAPID). Generate once with:
+      #   npx web-push generate-vapid-keys
+      # and put the output in .env. Without these push notifications are
+      # disabled (service logs a warning on boot).
+      VAPID_PUBLIC_KEY:   ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY:  ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT:      ${VAPID_SUBJECT:-mailto:admin@fashionfusion.local}
       # In-app self-updater — where the repo lives on the host + inside the container
       REPO_DIR:           "/repo"
       HOST_REPO_PATH:     ${HOST_REPO_PATH:-/opt/itamls}

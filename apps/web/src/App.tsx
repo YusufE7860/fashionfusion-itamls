@@ -66,6 +66,7 @@ import { KnowledgeBase } from './pages/KnowledgeBase';
 import { PublicStatus } from './pages/PublicStatus';
 import { PortalRoot } from './pages/Portal';
 import { useAuth } from './store/auth';
+import { usePushNotifications } from './hooks/usePushNotifications';
 
 // Roles that live entirely inside the Store Portal. They are redirected
 // there on login and bounced off any admin-app route they try to reach.
@@ -95,6 +96,8 @@ function PortalGuard({ children }: { children: JSX.Element }) {
 }
 
 export function App() {
+  // Tech-only Web Push subscription; no-op for store/portal users.
+  usePushNotifications();
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
