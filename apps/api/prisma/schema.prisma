@@ -67,6 +67,16 @@ model User {
   totpSecret          String?
   totpEnabled         Boolean  @default(false)
   mustChangePassword  Boolean  @default(false)   // forces the change-password modal on next login
+  // Contact info surfaced to store/area-manager users via the portal so
+  // they can reach the tech who owns their open calls.
+  phone               String?
+  // Presence model. lastActiveAt is bumped by the activity interceptor on
+  // every authenticated API call (throttled to once/60s). presenceStatus is
+  // a manual override that trumps auto; presenceSetAt is when it was set
+  // so we can auto-expire it after an hour.
+  lastActiveAt        DateTime?
+  presenceStatus      String?                           // AVAILABLE | BUSY | LUNCH | AWAY  (null = auto)
+  presenceSetAt       DateTime?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

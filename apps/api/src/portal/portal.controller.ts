@@ -4,7 +4,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt.guard';
 import { PrismaService } from '../prisma/prisma.service';
-import { PortalScopeService } from './portal.service';
+import { PortalScopeService, computePresence } from './portal.service';
 
 /**
  * Store Portal API.
@@ -56,6 +56,11 @@ export class PortalController {
         })
       : [];
 
+    // Weekend on-call: if today is Sat or Sun, surface whoever's covering
+    // the shift so the store knows which cell number to try. Falls through
+    // to null during the week (regular assigned tech handles it).
+    const onCall = await this.resolveWeekendOnCall(storeIds);
+
     return {
       userId: user.id,
       fullName: user.fullName,
@@ -64,7 +69,73 @@ export class PortalController {
       roleName: user.role?.name,
       stores,
       isMultiStore: stores.length > 1,
+      onCall,  // null, or { id, fullName, phone, email, until, presence }
     };
+  }
+
+  /** Current user sets or clears their own presence (BUSY / LUNCH / AWAY /
+   *  AVAILABLE, or empty/null to go back to auto). Only techs would normally
+   *  call this - the portal doesn't offer the control. */
+  @Patch('me/presence')
+  async setPresence(@Req() req: any, @Body() body: { status?: string | null }) {
+    const userId = req.user?.sub as string;
+    const next = body.status?.toUpperCase();
+    const allowed = ['AVAILABLE','BUSY','LUNCH','AWAY'];
+    const data = (next && allowed.includes(next))
+      ? { presenceStatus: next, presenceSetAt: new Date() }
+      : { presenceStatus: null, presenceSetAt: null };
+    await this.prisma.user.update({ where: { id: userId }, data });
+    return { ok: true, status: next ?? null };
+  }
+
+  /** Find the technician currently on-call for this weekend (Sat/Sun). Returns
+   *  null during the week or when no shift covers the current time. Scope
+   *  matching: 'ALL' always matches; 'R:XXX' matches region code; 'S:XXX'
+   *  matches store code. */
+  private async resolveWeekendOnCall(storeIds: string[]) {
+    const now = new Date();
+    const dow = now.getDay();          // 0=Sun, 6=Sat
+    if (dow !== 0 && dow !== 6) return null;
+
+    const stores = storeIds.length ? await this.prisma.store.findMany({
+      where: { id: { in: storeIds } },
+      select: { code: true, regionRef: { select: { code: true } } },
+    }) : [];
+    const storeCodes  = new Set(stores.map(s => s.code));
+    const regionCodes = new Set(stores.map(s => s.regionRef?.code).filter(Boolean));
+
+    const shifts = await this.prisma.onCallShift.findMany({
+      where: { startAt: { lte: now }, endAt: { gt: now } },
+      include: {
+        technician: {
+          select: {
+            id: true, fullName: true, email: true, phone: true,
+            lastActiveAt: true, presenceStatus: true, presenceSetAt: true,
+          },
+        },
+      },
+    });
+
+    for (const s of shifts) {
+      const scopeOk = s.scope === 'ALL'
+        || s.scope.split(',').map(x => x.trim()).some(tok => {
+          if (tok.startsWith('R:')) return regionCodes.has(tok.slice(2));
+          if (tok.startsWith('S:')) return storeCodes.has(tok.slice(2));
+          return false;
+        });
+      if (!scopeOk) continue;
+      const t = s.technician;
+      return {
+        id: t.id,
+        fullName: t.fullName,
+        email: t.email,
+        phone: t.phone,
+        until: s.endAt,
+        notes: s.notes,
+        presence: computePresence(t),
+      };
+    }
+    return null;
   }
 
   // ---------- Tickets (calls) ----------
@@ -80,21 +151,50 @@ export class PortalController {
 
     const statusFilter = ticketStatusFilter(status);
 
-    return this.prisma.ticket.findMany({
+    const rows = await this.prisma.ticket.findMany({
       where: {
         storeId: { in: storeIds },
         ...(statusFilter ? { status: statusFilter } : {}),
       },
       select: {
         id: true, code: true, subject: true, status: true, priority: true,
-        createdAt: true, updatedAt: true,
+        createdAt: true, updatedAt: true, firstResponseAt: true,
         store: { select: { code: true, name: true } },
-        assignedTo: { select: { id: true, fullName: true } },
+        assignedTo: {
+          select: {
+            id: true, fullName: true, email: true, phone: true,
+            lastActiveAt: true, presenceStatus: true, presenceSetAt: true,
+            role: { select: { code: true, name: true } },
+          },
+        },
         category: { select: { name: true } },
+        // Last external-visible comment for the "Last update from IT" preview
+        comments: {
+          where: { isInternal: false },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { body: true, createdAt: true, author: { select: { fullName: true } } },
+        },
       },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
       take: 300,
     });
+
+    // Attach computed presence to the assigned tech so the UI doesn't need
+    // to recompute it from timestamps itself.
+    return rows.map(t => ({
+      ...t,
+      assignedTo: t.assignedTo ? {
+        id: t.assignedTo.id,
+        fullName: t.assignedTo.fullName,
+        email: t.assignedTo.email,
+        phone: t.assignedTo.phone,
+        roleName: t.assignedTo.role?.name,
+        presence: computePresence(t.assignedTo),
+      } : null,
+      lastUpdate: t.comments[0] ?? null,
+      comments: undefined,
+    }));
   }
 
   /** Create a ticket (call). */

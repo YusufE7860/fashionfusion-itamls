@@ -45,6 +45,7 @@ import { PortalModule } from './portal/portal.module';
 import { JwtAuthGuard } from './common/guards/jwt.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
+import { ActivityTrackerInterceptor } from './common/interceptors/activity.interceptor';
 
 @Module({
   imports: [
@@ -95,6 +96,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: ActivityTrackerInterceptor },
   ],
 })
 export class AppModule {}
