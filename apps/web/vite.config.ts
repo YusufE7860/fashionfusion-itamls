@@ -22,7 +22,11 @@ export default defineConfig({
         // mobile (home-screen icon) and desktop (taskbar / Dock icon).
         display: 'standalone',
         // Fall back to 'minimal-ui' then 'browser' on older desktop browsers.
-        display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
+        // NOTE: 'window-controls-overlay' pushes the OS close/min/max buttons
+        // INTO the page content area, which looked messy and cramped the
+        // store portal header. Standalone is cleaner - OS draws a normal
+        // title bar above, we own the whole app area beneath.
+        display_override: ['standalone', 'minimal-ui'],
         theme_color: '#0f172a',
         background_color: '#f8fafc',
         orientation: 'any',
