@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using Microsoft.Extensions.Logging;
 
@@ -99,10 +101,32 @@ internal sealed class PipeServer : IDisposable
     {
         try {
             _cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
-            _pipe = new NamedPipeServerStream(
+
+            // When a SYSTEM-owned service creates a named pipe with the default
+            // DACL, user-session processes (even admins) can't CONNECT to it.
+            // Explicitly grant Authenticated Users RW so the helper running
+            // under the interactive user's token can open the pipe. Local
+            // machine only - no network access to this pipe.
+            var security = new PipeSecurity();
+            var authUsers = new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null);
+            security.AddAccessRule(new PipeAccessRule(
+                authUsers,
+                PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+                AccessControlType.Allow));
+            var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            security.AddAccessRule(new PipeAccessRule(
+                systemSid, PipeAccessRights.FullControl, AccessControlType.Allow));
+
+            _pipe = NamedPipeServerStreamAcl.Create(
                 _pipeName,
-                PipeDirection.InOut, 1,
-                PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 64 * 1024, 64 * 1024);
+                PipeDirection.InOut,
+                maxNumberOfServerInstances: 1,
+                PipeTransmissionMode.Byte,
+                PipeOptions.Asynchronous,
+                inBufferSize: 64 * 1024,
+                outBufferSize: 64 * 1024,
+                pipeSecurity: security);
+
             _ = Task.Run(() => ServeAsync(_cts.Token));
             return true;
         } catch (Exception e) {

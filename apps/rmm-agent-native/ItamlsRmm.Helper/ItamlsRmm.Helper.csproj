@@ -1,14 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <!-- Must be Exe (not WinExe). WinExe + PublishSingleFile + spawned via
+         CreateProcessAsUser silently fails to initialize - the single-file
+         host needs a console subsystem to extract correctly in that path.
+         CREATE_NO_WINDOW in the service spawn still suppresses any console
+         window from flashing in production. -->
+    <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PublishSingleFile>true</PublishSingleFile>
+    <!-- NOT single-file. Single-file self-extracting apps fail silently when
+         the apphost is launched via CreateProcessAsUser with an unelevated
+         user token after an earlier elevated run populated the extract dir
+         with files the user can't read. We publish as a folder of DLLs so
+         there's no extract step and no cross-integrity file access issue. -->
+    <PublishSingleFile>false</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <AssemblyName>itamls-rmm-helper</AssemblyName>
     <RootNamespace>ItamlsRmm.Helper</RootNamespace>
     <Version>2.0.0</Version>

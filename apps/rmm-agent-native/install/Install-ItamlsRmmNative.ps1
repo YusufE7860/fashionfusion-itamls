@@ -35,6 +35,25 @@ function Install-ItamlsRmmNative {
     $installDir = 'C:\Program Files\ITAMLS-RMM'
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
+    # Pre-create logs dir with Authenticated Users write access so the
+    # user-session helper (unelevated, medium integrity) can drop crash logs
+    # without being blocked by the default ProgramData ACL.
+    $logsDir = 'C:\ProgramData\ITAMLS\logs'
+    New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
+    try {
+        $acl = Get-Acl $logsDir
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            'Authenticated Users',
+            'Modify,Synchronize',
+            'ContainerInherit,ObjectInherit',
+            'None',
+            'Allow')
+        $acl.AddAccessRule($rule)
+        Set-Acl $logsDir $acl
+    } catch {
+        Write-Host "Could not set logs ACL: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
     # 1. Remove the old PowerShell scheduled-task RMM agent, if any.
     try {
         Get-ScheduledTask -TaskName 'ITAMLS-RMM' -ErrorAction SilentlyContinue |
@@ -50,13 +69,21 @@ function Install-ItamlsRmmNative {
         Start-Sleep -Seconds 2
     }
 
-    # 3. Copy binaries. Both exes must sit together - the service launches
-    #    the helper by path based on its own directory.
-    foreach ($exe in 'itamls-rmm-service.exe','itamls-rmm-helper.exe') {
-        $src = Join-Path $Source $exe
-        if (-not (Test-Path $src)) { throw "Missing $src - rebuild and re-publish before installing." }
-        Copy-Item -Force $src $installDir
-    }
+    # 3. Copy binaries.
+    #    Service is a single-file exe, copied to installDir root.
+    #    Helper is a folder of DLLs (framework-dependent-free self-contained,
+    #    but NOT single-file; see helper .csproj for why). Copy the whole
+    #    folder into installDir\helper\ so itamls-rmm-helper.exe + its DLLs
+    #    live together.
+    $svcSrc = Join-Path $Source 'itamls-rmm-service.exe'
+    if (-not (Test-Path $svcSrc)) { throw "Missing $svcSrc - rebuild and re-publish before installing." }
+    Copy-Item -Force $svcSrc $installDir
+
+    $helperSrcDir = Join-Path $Source 'helper'
+    if (-not (Test-Path $helperSrcDir)) { throw "Missing helper folder at $helperSrcDir - rebuild." }
+    $helperDstDir = Join-Path $installDir 'helper'
+    if (Test-Path $helperDstDir) { Remove-Item -Recurse -Force $helperDstDir }
+    Copy-Item -Recurse -Force $helperSrcDir $helperDstDir
 
     # 4. Register the Windows service.
     $svcPath = Join-Path $installDir 'itamls-rmm-service.exe'

@@ -30,6 +30,7 @@ public sealed class SessionManager
 
     public void Start(CancellationToken stop)
     {
+        _log.LogInformation("SessionManager starting");
         _cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
         _ = Task.Run(() => LoopAsync(_cts.Token));
     }
@@ -57,18 +58,44 @@ public sealed class SessionManager
         }
     }
 
+    private DateTime _lastHeartbeat = DateTime.MinValue;
     private void Reconcile()
     {
         var active = EnumActiveSessions().ToHashSet();
+        // Heartbeat every 60s so we know the loop is alive + see session count.
+        if ((DateTime.UtcNow - _lastHeartbeat).TotalSeconds > 60) {
+            _log.LogInformation("Reconcile: active sessions = [{sessions}], helpers = [{helpers}]",
+                string.Join(",", active), string.Join(",", _helpers.Keys));
+            _lastHeartbeat = DateTime.UtcNow;
+        }
 
-        // Kill helpers whose sessions are gone (logoff, disconnect).
+        // Only reap helpers whose PROCESS has actually exited. We used to also
+        // reap when !active.Contains(sid), but WTSEnumerateSessions flaps:
+        // a logged-in user's session can be absent from the enum for one
+        // reconcile cycle and back the next. Killing on every dip cycles the
+        // helper every 5s and prevents the pipe from ever stabilizing. The
+        // helper itself exits cleanly when its user logs off (WTS notifies
+        // via Winlogon close + pipe EOF), so HasExited is the right signal.
         foreach (var kv in _helpers.ToArray()) {
-            if (!active.Contains(kv.Key) || kv.Value.HasExited) {
-                try { if (!kv.Value.HasExited) kv.Value.Kill(true); } catch { }
-                _helpers.TryRemove(kv.Key, out _);
-                if (_secure.TryRemove(kv.Key, out var sd)) { try { sd.Dispose(); } catch { } }
-                _log.LogInformation("Helper(s) for session {sid} removed", kv.Key);
-            }
+            if (!kv.Value.HasExited) continue;
+            int exitCode = 0; string exitReason;
+            try {
+                exitCode = kv.Value.ExitCode;
+                exitReason = exitCode switch {
+                    0          => "clean exit",
+                    2          => "missing --pipe arg",
+                    3          => "unhandled exception (see helper log)",
+                    -532462766 => "unhandled managed exception (0xE0434352)",
+                    -1073741819 => "access violation (0xC0000005)",
+                    -1073741511 => "entry point not found (0xC0000139)",
+                    -1073741502 => "DLL init failed (0xC0000142)",
+                    -1073740771 => "fatal single-file extract error (0xC0000409)",
+                    _          => $"exit code 0x{exitCode:X8} ({exitCode})",
+                };
+            } catch { exitReason = "exited (could not read code)"; }
+            _helpers.TryRemove(kv.Key, out _);
+            if (_secure.TryRemove(kv.Key, out var sd)) { try { sd.Dispose(); } catch { } }
+            _log.LogWarning("Helper for session {sid} exited: {reason}", kv.Key, exitReason);
         }
 
         // Spawn helpers in newly-active sessions.
@@ -126,9 +153,10 @@ public sealed class SessionManager
             var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>(), lpDesktop = @"winsta0\default" };
             var pi = default(PROCESS_INFORMATION);
 
-            // Helper exe is laid down next to the service exe during install.
+            // Helper lives in a sibling 'helper' folder (folder of DLLs, not
+            // single-file) alongside the service exe - see installer.
             var serviceDir = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule!.FileName)!;
-            var helperExe  = Path.Combine(serviceDir, "itamls-rmm-helper.exe");
+            var helperExe  = Path.Combine(serviceDir, "helper", "itamls-rmm-helper.exe");
             if (!File.Exists(helperExe)) {
                 _log.LogError("Helper exe missing at {path}", helperExe);
                 return false;

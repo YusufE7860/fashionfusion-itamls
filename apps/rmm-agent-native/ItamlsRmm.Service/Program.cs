@@ -18,6 +18,10 @@ builder.Logging.AddEventLog(settings =>
 {
     settings.SourceName = "ItamlsRmm";
 });
+// EventLog provider defaults to Warning-and-above; we want Info so we can
+// see session-spawn + WS-connect lifecycle in Event Viewer.
+builder.Logging.AddFilter<Microsoft.Extensions.Logging.EventLog.EventLogLoggerProvider>(
+    null, LogLevel.Information);
 
 builder.Services.AddHostedService<RmmService>();
 

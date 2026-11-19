@@ -83,6 +83,7 @@ model User {
   prRequested    PurchaseRequest[] @relation("PrRequester")
   prApproved     PurchaseRequest[] @relation("PrApprover")
   equipmentIncidentsReported EquipmentIncident[] @relation("EquipIncidentReporter")
+  repairsReported            Repair[]            @relation("RepairReporter")
 
   permissionOverrides UserPermissionOverride[]
   storeAccess         UserStoreAccess[]
@@ -252,6 +253,7 @@ model Store {
   signageDevices SignageDevice[]
   signageAssignments SignageAssignment[]
   incidents      EquipmentIncident[]
+  repairs        Repair[]
 }
 
 // Geographic region grouping stores (Gauteng, KZN, Western Cape, …).
@@ -579,19 +581,48 @@ model PurchaseOrder {
 model Repair {
   id           String   @id @default(cuid())
   code         String   @unique
-  assetId      String
+
+  // Scope: which store the item belongs to. Required so store/AM users can
+  // only see their own repairs. HQ repairs leave storeId null + go to any
+  // technician.
+  storeId      String?
+  store        Store?   @relation(fields: [storeId], references: [id])
+
+  // Who logged it (the store manager or whoever's on the terminal).
+  reportedById String?
+  reportedBy   User?    @relation("RepairReporter", fields: [reportedById], references: [id])
+
+  // Asset linkage is optional - store staff may not know the asset tag.
+  // When they don't, itemDescription carries the free-text identification
+  // ("till 2 slip printer", "office HP laptop", etc).
+  assetId         String?
+  asset           Asset?   @relation(fields: [assetId], references: [id])
+  itemDescription String?
+
+  // LOGGED | COLLECTED | AT_SUPPLIER | REPAIRED | RETURNED | REPLACED | WRITTEN_OFF | CANCELLED
   status       String   @default("LOGGED")
-  faultDesc    String
+  faultDesc    String   // "what's wrong with it"
+
+  // Dispatch details - who collected it, waybill, when it left the store.
+  technicianName  String?    // "which technician called it back"
+  waybillNumber   String?
+  dispatchedDate  DateTime?  // when it left the store
+  returnedDate    DateTime?  // when the store got it back
+  resolutionNotes String?    // what was done
+
   supplierId   String?
-  sentAt       DateTime?
-  receivedAt   DateTime?
+  supplier     Supplier? @relation(fields: [supplierId], references: [id])
+  sentAt       DateTime?   // when it was sent on to the supplier (vs dispatchedDate from the store)
+  receivedAt   DateTime?   // when the supplier returned it
   costCents    Int      @default(0)
   warrantyClaim Boolean @default(false)
   outcome      String?
-  createdAt    DateTime @default(now())
 
-  asset    Asset     @relation(fields: [assetId], references: [id])
-  supplier Supplier? @relation(fields: [supplierId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt @default(now())
+
+  @@index([storeId, status])
+  @@index([reportedById])
 }
 
 model Invoice {

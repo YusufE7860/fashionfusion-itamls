@@ -26,12 +26,15 @@ $dist = Join-Path $PSScriptRoot 'dist'
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-Write-Host '==> Publishing ItamlsRmm.Service'
+Write-Host '==> Publishing ItamlsRmm.Service (single-file)'
 dotnet publish "$PSScriptRoot\ItamlsRmm.Service\ItamlsRmm.Service.csproj" -c $Configuration -o $dist
 if ($LASTEXITCODE -ne 0) { throw 'Service build failed - see errors above.' }
 
-Write-Host '==> Publishing ItamlsRmm.Helper'
-dotnet publish "$PSScriptRoot\ItamlsRmm.Helper\ItamlsRmm.Helper.csproj"   -c $Configuration -o $dist
+# Helper publishes as a folder (NOT single-file, see .csproj note). Keep its
+# files in a sub-folder so they don't collide with the service exe.
+Write-Host '==> Publishing ItamlsRmm.Helper (folder)'
+$helperOut = Join-Path $dist 'helper'
+dotnet publish "$PSScriptRoot\ItamlsRmm.Helper\ItamlsRmm.Helper.csproj"   -c $Configuration -o $helperOut
 if ($LASTEXITCODE -ne 0) { throw 'Helper build failed - see errors above.' }
 
 # Copy the installer script alongside so the zip is self-contained.

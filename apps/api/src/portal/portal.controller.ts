@@ -1,0 +1,399 @@
+import {
+  BadRequestException, Body, Controller, Get, Param, Patch, Post, Query,
+  Req, UseGuards,
+} from '@nestjs/common';
+import { JwtAuthGuard } from '../common/guards/jwt.guard';
+import { PrismaService } from '../prisma/prisma.service';
+import { PortalScopeService } from './portal.service';
+
+/**
+ * Store Portal API.
+ *
+ * Mounted at /portal, all routes auth-required. Every route resolves the
+ * caller's accessible stores via PortalScopeService and filters by that.
+ *
+ * Role gate: controller rejects anyone whose role is not STORE_MANAGER or
+ * AREA_MANAGER. Admins + technicians use the main app; they don't need this
+ * portal and letting them in would silently narrow their view to scope they
+ * don't have.
+ *
+ * Shape of a portal user ("me"):
+ *   {
+ *     userId, fullName, email, role,
+ *     stores: [{ id, code, name }],          // every store they can see
+ *     isMultiStore: boolean                  // area manager / 2IC
+ *   }
+ */
+@UseGuards(JwtAuthGuard)
+@Controller('portal')
+export class PortalController {
+  constructor(
+    private prisma: PrismaService,
+    private scope: PortalScopeService,
+  ) {}
+
+  // ---------- Identity + scope ----------
+
+  @Get('me')
+  async me(@Req() req: any) {
+    const userId = req.user?.sub as string;
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true, fullName: true, email: true,
+        role: { select: { code: true, name: true } },
+      },
+    });
+    if (!user) throw new BadRequestException('user not found');
+    this.requirePortalRole(user.role?.code);
+
+    const storeIds = await this.scope.storeIdsForUser(userId);
+    const stores = storeIds.length
+      ? await this.prisma.store.findMany({
+          where: { id: { in: storeIds } },
+          select: { id: true, code: true, name: true, region: true, entity: true },
+          orderBy: { code: 'asc' },
+        })
+      : [];
+
+    return {
+      userId: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role?.code,
+      roleName: user.role?.name,
+      stores,
+      isMultiStore: stores.length > 1,
+    };
+  }
+
+  // ---------- Tickets (calls) ----------
+
+  /** List tickets scoped to the user's stores.
+   * Query: status=open|in_progress|closed|all (default open)
+   */
+  @Get('tickets')
+  async listTickets(@Req() req: any, @Query('status') status: string = 'open') {
+    const userId = req.user?.sub as string;
+    const storeIds = await this.ensureScope(userId, req);
+    if (!storeIds.length) return [];
+
+    const statusFilter = ticketStatusFilter(status);
+
+    return this.prisma.ticket.findMany({
+      where: {
+        storeId: { in: storeIds },
+        ...(statusFilter ? { status: statusFilter } : {}),
+      },
+      select: {
+        id: true, code: true, subject: true, status: true, priority: true,
+        createdAt: true, updatedAt: true,
+        store: { select: { code: true, name: true } },
+        assignedTo: { select: { id: true, fullName: true } },
+        category: { select: { name: true } },
+      },
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+      take: 300,
+    });
+  }
+
+  /** Create a ticket (call). */
+  @Post('tickets')
+  async createTicket(
+    @Req() req: any,
+    @Body() body: {
+      storeId: string;
+      subject: string;
+      description?: string;
+      priority?: string;
+      categoryId?: string;
+    },
+  ) {
+    const userId = req.user?.sub as string;
+    await this.ensureScope(userId, req);
+    if (!body.storeId || !body.subject?.trim()) {
+      throw new BadRequestException('storeId and subject are required');
+    }
+    await this.scope.requireStoreAccess(userId, body.storeId);
+
+    // Portal form uses friendly priority labels; map to P1-P4 schema values.
+    const priorityMap: Record<string, string> = {
+      LOW: 'P4', MEDIUM: 'P3', HIGH: 'P2', CRITICAL: 'P1',
+      P1: 'P1', P2: 'P2', P3: 'P3', P4: 'P4',
+    };
+    const priority = priorityMap[(body.priority ?? 'MEDIUM').toUpperCase()] ?? 'P3';
+
+    // Every ticket needs a category. Prefer the one passed; otherwise fall
+    // back to a 'MISC' / 'General' default so store users never get blocked.
+    let categoryId = body.categoryId;
+    if (!categoryId) {
+      const fallback = await this.prisma.ticketCategory.findFirst({
+        where: { OR: [{ code: 'MISC' }, { code: 'GEN' }, { code: 'GENERAL' }] },
+        select: { id: true },
+      }) ?? await this.prisma.ticketCategory.findFirst({ select: { id: true } });
+      if (!fallback) throw new BadRequestException('no ticket categories configured');
+      categoryId = fallback.id;
+    }
+
+    const code = await nextCode(this.prisma, 'TKT');
+    return this.prisma.ticket.create({
+      data: {
+        code,
+        subject: body.subject.trim().slice(0, 200),
+        description: body.description?.trim().slice(0, 4000) ?? '',
+        storeId: body.storeId,
+        reporterId: userId,
+        priority,
+        status: 'NEW',
+        categoryId,
+        source: 'APP',
+      },
+      select: { id: true, code: true, subject: true, status: true },
+    });
+  }
+
+  /** Single ticket detail - comments, events. */
+  @Get('tickets/:id')
+  async ticketDetail(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.sub as string;
+    const storeIds = await this.ensureScope(userId, req);
+    const t = await this.prisma.ticket.findFirst({
+      where: { id, storeId: { in: storeIds } },
+      include: {
+        store: { select: { code: true, name: true } },
+        assignedTo: { select: { fullName: true } },
+        reporter:   { select: { fullName: true } },
+        comments: {
+          where: { isInternal: false },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true, body: true, createdAt: true,
+            author: { select: { fullName: true } },
+          },
+        },
+      },
+    });
+    if (!t) throw new BadRequestException('ticket not found or outside scope');
+    return t;
+  }
+
+  // ---------- Repairs ----------
+
+  @Get('repairs')
+  async listRepairs(@Req() req: any, @Query('status') status: string = 'open') {
+    const userId = req.user?.sub as string;
+    const storeIds = await this.ensureScope(userId, req);
+    if (!storeIds.length) return [];
+
+    const where: any = { storeId: { in: storeIds } };
+    if (status === 'open') {
+      where.status = { notIn: ['REPLACED', 'WRITTEN_OFF', 'CANCELLED', 'RETURNED'] };
+    } else if (status === 'closed') {
+      where.status = { in: ['REPLACED', 'WRITTEN_OFF', 'CANCELLED', 'RETURNED'] };
+    }
+
+    return this.prisma.repair.findMany({
+      where,
+      select: {
+        id: true, code: true, status: true,
+        itemDescription: true, faultDesc: true,
+        technicianName: true, waybillNumber: true,
+        dispatchedDate: true, returnedDate: true,
+        createdAt: true, updatedAt: true,
+        store:     { select: { code: true, name: true } },
+        asset:     { select: { code: true, assetNumber: true, serialNumber: true } },
+        supplier:  { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+    });
+  }
+
+  @Post('repairs')
+  async createRepair(
+    @Req() req: any,
+    @Body() body: {
+      storeId: string;
+      assetId?: string;
+      itemDescription?: string;
+      faultDesc: string;
+      technicianName?: string;
+      waybillNumber?: string;
+      dispatchedDate?: string;   // ISO date
+    },
+  ) {
+    const userId = req.user?.sub as string;
+    await this.ensureScope(userId, req);
+    if (!body.storeId || !body.faultDesc?.trim()) {
+      throw new BadRequestException('storeId and faultDesc are required');
+    }
+    if (!body.assetId && !body.itemDescription?.trim()) {
+      throw new BadRequestException('either assetId or itemDescription required');
+    }
+    await this.scope.requireStoreAccess(userId, body.storeId);
+
+    const code = await nextCode(this.prisma, 'RPR');
+    const dispatched = body.dispatchedDate ? new Date(body.dispatchedDate) : null;
+    const initialStatus = dispatched ? 'COLLECTED' : 'LOGGED';
+
+    return this.prisma.repair.create({
+      data: {
+        code,
+        storeId: body.storeId,
+        reportedById: userId,
+        assetId: body.assetId ?? null,
+        itemDescription: body.itemDescription?.trim().slice(0, 300) ?? null,
+        faultDesc: body.faultDesc.trim().slice(0, 2000),
+        technicianName: body.technicianName?.trim().slice(0, 120) ?? null,
+        waybillNumber: body.waybillNumber?.trim().slice(0, 80) ?? null,
+        dispatchedDate: dispatched,
+        status: initialStatus,
+      },
+      select: { id: true, code: true, status: true },
+    });
+  }
+
+  @Patch('repairs/:id')
+  async updateRepair(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: Partial<{
+      technicianName: string;
+      waybillNumber: string;
+      dispatchedDate: string;
+      returnedDate: string;
+      resolutionNotes: string;
+      status: string;
+    }>,
+  ) {
+    const userId = req.user?.sub as string;
+    const storeIds = await this.ensureScope(userId, req);
+    const existing = await this.prisma.repair.findFirst({
+      where: { id, storeId: { in: storeIds } },
+      select: { id: true },
+    });
+    if (!existing) throw new BadRequestException('repair not found or outside scope');
+
+    return this.prisma.repair.update({
+      where: { id },
+      data: {
+        ...(body.technicianName  !== undefined && { technicianName:  body.technicianName.trim().slice(0, 120) }),
+        ...(body.waybillNumber   !== undefined && { waybillNumber:   body.waybillNumber.trim().slice(0, 80) }),
+        ...(body.dispatchedDate  !== undefined && { dispatchedDate:  body.dispatchedDate ? new Date(body.dispatchedDate) : null }),
+        ...(body.returnedDate    !== undefined && { returnedDate:    body.returnedDate ? new Date(body.returnedDate) : null }),
+        ...(body.resolutionNotes !== undefined && { resolutionNotes: body.resolutionNotes.trim().slice(0, 2000) }),
+        ...(body.status          !== undefined && { status: body.status.toUpperCase() }),
+      },
+    });
+  }
+
+  // ---------- Assets ----------
+
+  /** Asset register for the user's stores.
+   *  Asset facts (manufacturer, model, category) come from the linked Sku -
+   *  Asset itself just has tag/serial and location. We flatten the response
+   *  so the portal UI can render without knowing about Sku indirection.
+   */
+  @Get('assets')
+  async listAssets(@Req() req: any, @Query('search') search?: string) {
+    const userId = req.user?.sub as string;
+    const storeIds = await this.ensureScope(userId, req);
+    if (!storeIds.length) return [];
+
+    const where: any = { assignedStoreId: { in: storeIds } };
+    if (search?.trim()) {
+      const q = search.trim();
+      where.OR = [
+        { assetTag: { contains: q, mode: 'insensitive' } },
+        { serialNo: { contains: q, mode: 'insensitive' } },
+        { hostname: { contains: q, mode: 'insensitive' } },
+        { sku: { OR: [
+          { model:        { contains: q, mode: 'insensitive' } },
+          { manufacturer: { contains: q, mode: 'insensitive' } },
+          { name:         { contains: q, mode: 'insensitive' } },
+        ] } },
+      ];
+    }
+
+    const rows = await this.prisma.asset.findMany({
+      where,
+      select: {
+        id: true, assetTag: true, serialNo: true, status: true, condition: true,
+        purchaseDate: true, warrantyExpiry: true, hostname: true,
+        sku: {
+          select: {
+            manufacturer: true, model: true, name: true,
+            category: { select: { name: true } },
+          },
+        },
+        assignedStore: { select: { code: true, name: true } },
+        assignedUser:  { select: { fullName: true } },
+      },
+      orderBy: [{ assetTag: 'asc' }],
+      take: 500,
+    });
+
+    // Flatten sku fields so the UI doesn't need to know about the indirection.
+    return rows.map(a => ({
+      id: a.id,
+      assetNumber:  a.assetTag,
+      serialNumber: a.serialNo,
+      hostname:     a.hostname,
+      manufacturer: a.sku?.manufacturer,
+      model:        a.sku?.model ?? a.sku?.name,
+      status:       a.status,
+      condition:    a.condition,
+      purchaseDate: a.purchaseDate,
+      warrantyExpiry: a.warrantyExpiry,
+      category: a.sku?.category ? { name: a.sku.category.name } : null,
+      store: a.assignedStore ? { code: a.assignedStore.code, name: a.assignedStore.name } : null,
+      assignedUser: a.assignedUser,
+    }));
+  }
+
+  // ---------- Internal helpers ----------
+
+  private async ensureScope(userId: string, req: any): Promise<string[]> {
+    const role = (req.user?.role ?? '').toUpperCase();
+    this.requirePortalRole(role);
+    return this.scope.storeIdsForUser(userId);
+  }
+
+  private requirePortalRole(roleCode: string | undefined) {
+    if (!roleCode) throw new BadRequestException('role missing on token');
+    if (!['STORE_MANAGER', 'AREA_MANAGER'].includes(roleCode.toUpperCase())) {
+      throw new BadRequestException(
+        'the store portal is for STORE_MANAGER / AREA_MANAGER only - use the main app',
+      );
+    }
+  }
+}
+
+// Map UI-friendly status words to the ticket status values used in DB.
+// Schema values: NEW | ASSIGNED | IN_PROGRESS | WAITING_ON_USER | RESOLVED | CLOSED | REOPENED
+function ticketStatusFilter(s: string): any | null {
+  switch (s.toLowerCase()) {
+    case 'open':        return { in: ['NEW', 'ASSIGNED', 'REOPENED'] };
+    case 'in_progress': return { in: ['IN_PROGRESS', 'WAITING_ON_USER'] };
+    case 'closed':      return { in: ['RESOLVED', 'CLOSED'] };
+    case 'all':         return null;
+    default:            return null;
+  }
+}
+
+/** Mint the next sequential code. Cheap and collision-safe for our scale. */
+async function nextCode(prisma: PrismaService, prefix: string): Promise<string> {
+  const year = new Date().getFullYear();
+  const likeRoot = `${prefix}-${year}-`;
+  const latest = prefix === 'TKT'
+    ? await prisma.ticket.findFirst({
+        where: { code: { startsWith: likeRoot } },
+        orderBy: { code: 'desc' }, select: { code: true },
+      })
+    : await prisma.repair.findFirst({
+        where: { code: { startsWith: likeRoot } },
+        orderBy: { code: 'desc' }, select: { code: true },
+      });
+  const n = latest ? parseInt(latest.code.slice(likeRoot.length), 10) + 1 : 1;
+  return `${likeRoot}${String(n).padStart(5, '0')}`;
+}

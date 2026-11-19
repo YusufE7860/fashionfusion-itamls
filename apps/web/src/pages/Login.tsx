@@ -24,7 +24,11 @@ export function Login() {
       if (needs2fa && totpToken) body.totpToken = totpToken;
       const { data } = await api.post('/auth/login', body);
       setSession(data.accessToken, data.user);
-      navigate('/');
+      // Route by role: store/area managers live in the Store Portal; everyone
+      // else uses the main admin app.
+      const role = (data.user?.role ?? '').toUpperCase();
+      const portalOnly = role === 'STORE_MANAGER' || role === 'AREA_MANAGER';
+      navigate(portalOnly ? '/portal' : '/');
     } catch (e: any) {
       const resp = e.response?.data;
       if (resp?.requires2fa) {

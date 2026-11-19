@@ -64,11 +64,33 @@ import { HelpdeskImport } from './pages/HelpdeskImport';
 import { HelpdeskOnCall } from './pages/HelpdeskOnCall';
 import { KnowledgeBase } from './pages/KnowledgeBase';
 import { PublicStatus } from './pages/PublicStatus';
+import { PortalRoot } from './pages/Portal';
 import { useAuth } from './store/auth';
+
+// Roles that live entirely inside the Store Portal. They are redirected
+// there on login and bounced off any admin-app route they try to reach.
+const PORTAL_ONLY_ROLES = ['STORE_MANAGER', 'AREA_MANAGER'];
 
 function Protected({ children }: { children: JSX.Element }) {
   const token = useAuth((s) => s.token);
+  const user  = useAuth((s) => s.user);
   if (!token) return <Navigate to="/login" replace />;
+  // Store Managers + Area Managers can only see the portal.
+  if (user && PORTAL_ONLY_ROLES.includes(user.role?.toUpperCase())) {
+    return <Navigate to="/portal" replace />;
+  }
+  return children;
+}
+
+// Separate guard for the portal routes so admins / technicians don't
+// accidentally land here and see a view scoped to a store they don't own.
+function PortalGuard({ children }: { children: JSX.Element }) {
+  const token = useAuth((s) => s.token);
+  const user  = useAuth((s) => s.user);
+  if (!token) return <Navigate to="/login" replace />;
+  if (!user || !PORTAL_ONLY_ROLES.includes(user.role?.toUpperCase())) {
+    return <Navigate to="/" replace />;
+  }
   return children;
 }
 
@@ -77,6 +99,10 @@ export function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/status" element={<PublicStatus />} />
+
+      {/* Store portal - separate tree, no admin Layout, role-gated. */}
+      <Route path="/portal/*" element={<PortalGuard><PortalRoot /></PortalGuard>} />
+
       <Route
         path="/"
         element={
