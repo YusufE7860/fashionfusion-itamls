@@ -63,6 +63,12 @@ export class PortalController {
     // to null during the week (regular assigned tech handles it).
     const onCall = await this.resolveWeekendOnCall(storeIds);
 
+    // Default IT contact: the technician routed for this store's area (via
+    // AreaManager.assignedTechId). Shown in the "Your IT Contact" widget
+    // when nothing else is more relevant (no open calls, not a weekend).
+    // That way the store ALWAYS has a human to reach out to.
+    const defaultContact = await this.resolveDefaultTech(storeIds);
+
     return {
       userId: user.id,
       fullName: user.fullName,
@@ -71,7 +77,58 @@ export class PortalController {
       roleName: user.role?.name,
       stores,
       isMultiStore: stores.length > 1,
-      onCall,  // null, or { id, fullName, phone, email, until, presence }
+      onCall,          // weekend on-call tech, or null
+      defaultContact,  // general IT contact for this area, or null
+    };
+  }
+
+  /** Resolve the "regular" tech who covers these stores on a normal weekday:
+   *  the User.id stored on AreaManager.assignedTechId. Picks the first match
+   *  across the user's stores. Falls back to any active TECHNICIAN / IT_MANAGER
+   *  so the widget is never empty. */
+  private async resolveDefaultTech(storeIds: string[]) {
+    if (!storeIds.length) return null;
+
+    const stores = await this.prisma.store.findMany({
+      where: { id: { in: storeIds } },
+      select: {
+        areaManager: {
+          select: {
+            assignedTech: {
+              select: {
+                id: true, fullName: true, email: true, phone: true,
+                lastActiveAt: true, presenceStatus: true, presenceSetAt: true,
+                role: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    for (const s of stores) {
+      const t = s.areaManager?.assignedTech;
+      if (t) return {
+        id: t.id, fullName: t.fullName, email: t.email, phone: t.phone,
+        roleName: t.role?.name ?? 'IT',
+        presence: computePresence(t),
+      };
+    }
+
+    // Fallback - any active IT user so the widget never comes up blank.
+    const any = await this.prisma.user.findFirst({
+      where: { isActive: true, role: { code: { in: ['IT_MANAGER', 'TECHNICIAN', 'ADMINISTRATOR'] } } },
+      select: {
+        id: true, fullName: true, email: true, phone: true,
+        lastActiveAt: true, presenceStatus: true, presenceSetAt: true,
+        role: { select: { name: true } },
+      },
+      orderBy: { role: { code: 'asc' } },  // IT_MANAGER before TECHNICIAN
+    });
+    if (!any) return null;
+    return {
+      id: any.id, fullName: any.fullName, email: any.email, phone: any.phone,
+      roleName: any.role?.name ?? 'IT',
+      presence: computePresence(any),
     };
   }
 

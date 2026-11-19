@@ -297,23 +297,29 @@ function CallCard({ t }: { t: any }) {
 // =========================================================================
 
 function ITContact({ me, ticket }: { me: any; ticket: any }) {
-  // Weekend on-call takes precedence when set and we have no specifically-
-  // assigned tech, OR when the assigned tech is offline.
-  const onCall = me?.onCall;
-  const assigned = ticket?.assignedTo;
+  // Resolution order:
+  //   1. Assigned tech on the most-recent open ticket  (badge ASSIGNED)
+  //   2. Weekend on-call technician (Sat/Sun only)     (badge ON-CALL)
+  //   3. Default IT contact for the store's area       (badge YOUR IT)
+  // The widget should never be empty - the store always has someone to reach.
+  const assigned       = ticket?.assignedTo;
+  const onCall         = me?.onCall;
+  const defaultContact = me?.defaultContact;
 
   const primary =
-    onCall && (!assigned || assigned.presence === 'AWAY')
-      ? { ...onCall, badge: 'ON-CALL', roleName: onCall.notes ?? 'Weekend On-Call' }
-      : assigned
-        ? { ...assigned, badge: 'ASSIGNED' }
-        : null;
+    assigned
+      ? { ...assigned, badge: 'ASSIGNED' }
+      : onCall
+        ? { ...onCall, badge: 'ON-CALL', roleName: onCall.notes ?? 'Weekend On-Call' }
+        : defaultContact
+          ? { ...defaultContact, badge: 'YOUR IT' }
+          : null;
 
   if (!primary) {
     return (
       <div className="rounded-xl bg-white p-5 text-center text-xs text-slate-400 shadow-sm">
         <UserIcon size={24} className="mx-auto mb-2 text-slate-300"/>
-        No calls open right now. If something goes wrong, tap <b>Log a Call</b> above.
+        No IT contact assigned to your area yet. Ask your admin to set one.
       </div>
     );
   }
@@ -846,10 +852,12 @@ function AssetsList() {
 // =========================================================================
 
 function useMe() {
+  type Contact = { id: string; fullName: string; phone: string | null; email: string; presence: string; roleName?: string };
   return useQuery<{
     userId: string; fullName: string; email: string;
     role: string; roleName: string; stores: any[]; isMultiStore: boolean;
-    onCall: null | { id: string; fullName: string; phone: string | null; email: string; until: string; notes: string | null; presence: string };
+    onCall:         null | (Contact & { until: string; notes: string | null });
+    defaultContact: null | Contact;
   }>({
     queryKey: ['portal','me'],
     queryFn: () => api.get('/portal/me').then(r => r.data),
