@@ -86,7 +86,7 @@ export class ReportsService {
           columns: ['Code', 'Asset', 'Supplier', 'Status', 'Warranty?', 'Cost (ZAR)'],
           rows: rows.map((r) => [
             r.code,
-            `${r.asset.assetTag} – ${r.asset.sku.model}`,
+            r.asset ? `${r.asset.assetTag} – ${r.asset.sku.model}` : (r.itemDescription ?? '—'),
             r.supplier?.name ?? '—',
             r.status,
             r.warrantyClaim ? 'Yes' : 'No',

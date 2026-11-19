@@ -94,19 +94,23 @@ export class RepairsService {
 
       const updated = await tx.repair.update({ where: { id }, data: updates });
 
-      // Reflect on the asset
-      if (dto.target === RepairStatus.Sent) {
-        await tx.asset.update({ where: { id: r.assetId }, data: { status: AssetStatus.Repair } });
-      } else if (dto.target === RepairStatus.Returned) {
-        await tx.asset.update({ where: { id: r.assetId }, data: { status: AssetStatus.InStock } });
-        await tx.assetHistory.create({
-          data: { assetId: r.assetId, eventType: 'REPAIR_OUT', refTable: 'repair', refId: r.id, actorId },
-        });
-      } else if (dto.target === RepairStatus.WrittenOff) {
-        await tx.asset.update({ where: { id: r.assetId }, data: { status: AssetStatus.WrittenOff } });
-        await tx.assetHistory.create({
-          data: { assetId: r.assetId, eventType: 'RETIRED', refTable: 'repair', refId: r.id, actorId, notes: 'Written off via repair' },
-        });
+      // Reflect on the asset. Portal-logged repairs may have no asset link
+      // (store user described the item in free text), in which case we skip
+      // the asset-status / history writes.
+      if (r.assetId) {
+        if (dto.target === RepairStatus.Sent) {
+          await tx.asset.update({ where: { id: r.assetId }, data: { status: AssetStatus.Repair } });
+        } else if (dto.target === RepairStatus.Returned) {
+          await tx.asset.update({ where: { id: r.assetId }, data: { status: AssetStatus.InStock } });
+          await tx.assetHistory.create({
+            data: { assetId: r.assetId, eventType: 'REPAIR_OUT', refTable: 'repair', refId: r.id, actorId },
+          });
+        } else if (dto.target === RepairStatus.WrittenOff) {
+          await tx.asset.update({ where: { id: r.assetId }, data: { status: AssetStatus.WrittenOff } });
+          await tx.assetHistory.create({
+            data: { assetId: r.assetId, eventType: 'RETIRED', refTable: 'repair', refId: r.id, actorId, notes: 'Written off via repair' },
+          });
+        }
       }
       return updated;
     });

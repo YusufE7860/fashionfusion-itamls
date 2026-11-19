@@ -188,8 +188,9 @@ export class AlertsService {
       include: { asset: true },
     });
     for (const r of stuck) {
+      const itemLabel = r.asset?.assetTag ?? r.itemDescription ?? 'item';
       await this.upsertOnce('REPAIR_DELAY', 'WARN', 'repair', r.id,
-        `Repair ${r.code} on ${r.asset.assetTag} stuck in ${r.status} since ${r.sentAt?.toISOString().slice(0,10)}`);
+        `Repair ${r.code} on ${itemLabel} stuck in ${r.status} since ${r.sentAt?.toISOString().slice(0,10)}`);
     }
   }
 

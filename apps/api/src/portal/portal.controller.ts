@@ -201,7 +201,7 @@ export class PortalController {
         dispatchedDate: true, returnedDate: true,
         createdAt: true, updatedAt: true,
         store:     { select: { code: true, name: true } },
-        asset:     { select: { code: true, assetNumber: true, serialNumber: true } },
+        asset:     { select: { assetTag: true, serialNo: true } },
         supplier:  { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },
