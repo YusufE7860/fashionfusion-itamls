@@ -18,11 +18,17 @@ export class MailerService {
       this.logger.warn('SMTP not configured — emails will be logged but not sent. Set SMTP_HOST/PORT/USER/PASS in .env.');
       return;
     }
+    // Some shared mail hosts present a wildcard cert that doesn't cover the
+    // vanity hostname (e.g. mail.fashionfusion.co.za served by a *.flk1.host-h.net
+    // cert). Set SMTP_INSECURE_TLS=true to skip strict hostname verification -
+    // STARTTLS still protects credentials in transit, just without pinning.
+    const insecureTls = (process.env.SMTP_INSECURE_TLS ?? 'false') === 'true';
     this.transporter = nodemailer.createTransport({
       host,
       port: Number(process.env.SMTP_PORT ?? 587),
       secure: (process.env.SMTP_SECURE ?? 'false') === 'true',
       auth: user ? { user, pass } : undefined,
+      tls: insecureTls ? { rejectUnauthorized: false } : undefined,
     });
     this.logger.log(`SMTP configured: ${host}:${process.env.SMTP_PORT ?? 587}`);
   }

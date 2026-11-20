@@ -339,6 +339,12 @@ export class TicketsService {
         comments:   { include: { author: { select: { id: true, fullName: true, email: true } } }, orderBy: { createdAt: 'asc' } },
         events:     { include: { actor: { select: { id: true, fullName: true } } }, orderBy: { occurredAt: 'desc' }, take: 100 },
         attachments:{ include: { uploadedBy: { select: { id: true, fullName: true } } }, orderBy: { createdAt: 'asc' } },
+        // Linked repairs so the UI can show "Repair REP-XXX in progress" and
+        // disable the "Send for repair" button after one has been created.
+        repairs: {
+          select: { id: true, code: true, status: true, dispatchedDate: true, returnedDate: true, waybillNumber: true, technicianName: true },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
     if (!t) throw new NotFoundException();

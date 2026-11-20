@@ -34,8 +34,9 @@ export function PortalRoot() {
         <Route path="calls"          element={<CallsList />} />
         <Route path="calls/new"      element={<CallNew />} />
         <Route path="calls/:id"      element={<CallDetail />} />
+        {/* Repairs are now read-only for stores. The tech creates them from
+            a ticket; the store only tracks progress. */}
         <Route path="repairs"        element={<RepairsList />} />
-        <Route path="repairs/new"    element={<RepairNew />} />
         <Route path="repairs/:id"    element={<RepairDetail />} />
         <Route path="assets"         element={<AssetsList />} />
       </Route>
@@ -138,9 +139,6 @@ function PortalHome() {
           <div className="flex gap-2">
             <Link to="/portal/calls/new" className="flex items-center gap-1 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-amber-400">
               <Plus size={14}/>Log a Call
-            </Link>
-            <Link to="/portal/repairs/new" className="flex items-center gap-1 rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20">
-              <Wrench size={14}/>Log a Repair
             </Link>
           </div>
         </div>
@@ -660,11 +658,11 @@ function RepairsList() {
 
   return (
     <div className="space-y-3">
-      <PortalBreadcrumb back="/portal" title="Repairs" action={
-        <Link to="/portal/repairs/new" className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-400">
-          <Plus size={12} className="mr-1 inline" />Log a Repair
-        </Link>
-      } />
+      <PortalBreadcrumb back="/portal" title="Repairs in Progress" />
+      <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+        <b>Note:</b> you no longer log repairs here. Log a <Link to="/portal/calls/new" className="underline font-semibold">call</Link> instead
+        - if the item needs to be sent for repair, your technician will arrange it and you'll see progress on this page.
+      </div>
       <div className="flex gap-1 rounded-lg bg-slate-200/50 p-1 text-xs">
         {(['open','closed','all'] as const).map(s => (
           <button key={s} onClick={() => setStatus(s)}
@@ -701,59 +699,8 @@ function RepairsList() {
   );
 }
 
-function RepairNew() {
-  const me = useMe();
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const [form, setForm] = useState({
-    storeId: '', itemDescription: '', faultDesc: '', technicianName: '', waybillNumber: '', dispatchedDate: '',
-  });
-  if (me.data && me.data.stores?.length === 1 && !form.storeId) setForm({ ...form, storeId: me.data.stores[0].id });
-
-  const create = useMutation({
-    mutationFn: () => api.post('/portal/repairs', form).then(r => r.data),
-    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['portal'] }); navigate(`/portal/repairs/${r.id}`); },
-    onError: (e: any) => alert(e?.response?.data?.message ?? 'Failed to log repair'),
-  });
-
-  return (
-    <div className="space-y-3">
-      <PortalBreadcrumb back="/portal/repairs" title="Log a Repair" />
-      <form className="space-y-3 rounded-xl bg-white p-5 shadow-sm" onSubmit={e => { e.preventDefault(); create.mutate(); }}>
-        {me.data && me.data.stores.length > 1 && (
-          <Field label="Which store?">
-            <select className="input w-full" value={form.storeId} onChange={e => setForm({ ...form, storeId: e.target.value })} required>
-              <option value="">Select…</option>
-              {me.data.stores.map((s: any) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
-            </select>
-          </Field>
-        )}
-        <Field label="What's the item?" hint="e.g. 'Till 2 slip printer', 'Back office HP laptop'">
-          <input className="input w-full" value={form.itemDescription} onChange={e => setForm({ ...form, itemDescription: e.target.value })} required maxLength={300}/>
-        </Field>
-        <Field label="What's wrong with it?">
-          <textarea className="input w-full" rows={4} value={form.faultDesc} onChange={e => setForm({ ...form, faultDesc: e.target.value })} required maxLength={2000}
-            placeholder="Describe the fault, when it started, what you've already tried." />
-        </Field>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Which technician collected it?" hint="Name of the person who picked it up">
-            <input className="input w-full" value={form.technicianName} onChange={e => setForm({ ...form, technicianName: e.target.value })} maxLength={120}/>
-          </Field>
-          <Field label="Waybill number" hint="If courier was used">
-            <input className="input w-full" value={form.waybillNumber} onChange={e => setForm({ ...form, waybillNumber: e.target.value })} maxLength={80}/>
-          </Field>
-        </div>
-        <Field label="Dispatched date" hint="When did it leave the store? Leave blank if not yet sent.">
-          <input type="date" className="input w-full sm:w-64" value={form.dispatchedDate} onChange={e => setForm({ ...form, dispatchedDate: e.target.value })}/>
-        </Field>
-        <div className="flex justify-end gap-2 pt-2">
-          <Link to="/portal/repairs" className="btn-ghost">Cancel</Link>
-          <button type="submit" className="btn-primary" disabled={create.isPending}>{create.isPending ? 'Logging…' : 'Log Repair'}</button>
-        </div>
-      </form>
-    </div>
-  );
-}
+// RepairNew removed - stores no longer log repairs. Technicians convert
+// tickets to repairs from the Helpdesk ticket detail (POST /repairs/from-ticket/:id).
 
 function RepairDetail() {
   const { id } = useParams();

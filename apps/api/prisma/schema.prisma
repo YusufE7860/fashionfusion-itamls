@@ -600,7 +600,14 @@ model Repair {
   storeId      String?
   store        Store?   @relation(fields: [storeId], references: [id])
 
-  // Who logged it (the store manager or whoever's on the terminal).
+  // Originating helpdesk ticket. The tech triages the call, decides the item
+  // needs physical repair, then converts the ticket into a repair. Stores
+  // can't log repairs directly - everything to them is "broken".
+  ticketId     String?
+  ticket       Ticket?  @relation(fields: [ticketId], references: [id])
+
+  // Who logged it (the technician who converted the ticket, or null for
+  // legacy direct-logged repairs).
   reportedById String?
   reportedBy   User?    @relation("RepairReporter", fields: [reportedById], references: [id])
 
@@ -999,6 +1006,7 @@ model Ticket {
   linksFrom   TicketLink[]      @relation("TicketLinkSource")
   linksTo     TicketLink[]      @relation("TicketLinkTarget")
   approvals   TicketApproval[]  @relation("TicketApprovals")
+  repairs     Repair[]          // repairs spawned from this ticket
 
   @@index([status])
   @@index([priority])

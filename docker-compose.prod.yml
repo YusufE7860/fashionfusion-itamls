@@ -81,6 +81,11 @@ services:
       SMTP_USER:          ${SMTP_USER:-}
       SMTP_PASS:          ${SMTP_PASS:-}
       SMTP_FROM:          ${SMTP_FROM:-ITAMLS <no-reply@fashionfusion.local>}
+      # Shared-host mail servers often present a wildcard cert that doesn't
+      # cover our vanity hostname (e.g. mail.fashionfusion.co.za served by
+      # a *.flk1.host-h.net cert). Set this to 'true' to skip strict
+      # hostname verification. STARTTLS still encrypts; we just don't pin.
+      SMTP_INSECURE_TLS:  ${SMTP_INSECURE_TLS:-false}
       # Web Push (VAPID). Generate once with:
       #   npx web-push generate-vapid-keys
       # and put the output in .env. Without these push notifications are

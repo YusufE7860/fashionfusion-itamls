@@ -397,8 +397,20 @@ export class PortalController {
     });
   }
 
+  /** @deprecated Store users no longer log repairs directly - they log a
+   *  call and the technician decides whether to send it for repair. Kept as
+   *  a 403 so any old client gets a clear error instead of silent nothing. */
   @Post('repairs')
-  async createRepair(
+  createRepairDeprecated() {
+    throw new BadRequestException(
+      'Stores no longer log repairs directly. Log a call instead - if the item needs '
+      + 'physical repair, a technician will send it from the helpdesk ticket.',
+    );
+  }
+
+  /** Kept for completeness; portal patch is only used by the "Mark as Returned"
+   *  button on repair detail (store confirming the item came back). */
+  async createRepair_disabled_do_not_use(
     @Req() req: any,
     @Body() body: {
       storeId: string;

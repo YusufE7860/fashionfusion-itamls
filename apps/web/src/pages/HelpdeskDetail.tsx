@@ -89,6 +89,7 @@ export function HelpdeskDetail() {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const [showRepair, setShowRepair] = useState(false);
   const upload = useMutation({
     mutationFn: async (file: File) => {
       const fd = new FormData();
@@ -381,9 +382,30 @@ export function HelpdeskDetail() {
                     {categories.data?.map((c: any) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
                   </select>
                 </div>
+
+                {/* Send for Repair — spawns a Repair linked to this ticket.
+                    Use when the item physically needs to leave the store.
+                    Pauses this ticket's SLA until the item comes back. */}
+                <div className="mt-4 border-t border-slate-200 pt-3">
+                  <button type="button"
+                    onClick={() => setShowRepair(true)}
+                    disabled={t.repairs?.length > 0}
+                    className="btn-ghost w-full border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                    title={t.repairs?.length > 0 ? 'Already sent for repair' : 'Convert to a repair + ship the item'}
+                  >
+                    🔧 {t.repairs?.length > 0 ? `Repair ${t.repairs[0].code} in progress` : 'Send for repair'}
+                  </button>
+                </div>
               </>
             )}
           </section>
+          {showRepair && (
+            <SendForRepairModal
+              ticket={t}
+              onClose={() => setShowRepair(false)}
+              onCreated={() => { setShowRepair(false); qc.invalidateQueries({ queryKey: ['ticket', t.id] }); }}
+            />
+          )}
 
           <section className="card p-4">
             <h3 className="mb-3 text-sm font-semibold text-slate-700">Details</h3>
@@ -523,6 +545,83 @@ function ComposeBox({
         <button className="btn-primary" disabled={!reply.trim() || pending} onClick={onSubmit}>
           <Send size={13}/>{pending ? 'Posting…' : isInternal ? 'Post internal note' : 'Send reply'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================================
+// Send for Repair — modal invoked from the Actions card when a tech
+// decides a ticket's item physically needs to go away for repair.
+// Creates a Repair row linked back to this ticket + pauses the ticket SLA.
+// =========================================================================
+function SendForRepairModal({ ticket, onClose, onCreated }: {
+  ticket: any; onClose: () => void; onCreated: () => void;
+}) {
+  const [itemDescription, setItemDescription] = useState(ticket.asset ? '' : ticket.subject ?? '');
+  const [faultDesc, setFaultDesc] = useState(ticket.description ?? '');
+  const [technicianName, setTechnicianName] = useState('');
+  const [waybillNumber, setWaybillNumber] = useState('');
+  const [dispatchedDate, setDispatchedDate] = useState(new Date().toISOString().slice(0,10));
+
+  const create = useMutation({
+    mutationFn: () => api.post(`/repairs/from-ticket/${ticket.id}`, {
+      itemDescription: itemDescription || undefined,
+      faultDesc,
+      technicianName,
+      waybillNumber,
+      dispatchedDate: dispatchedDate || undefined,
+    }).then(r => r.data),
+    onSuccess: onCreated,
+    onError: (e: any) => alert(e?.response?.data?.message ?? 'Could not send for repair'),
+  });
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-bold text-slate-900">🔧 Send item for repair</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Linked to <span className="font-mono">{ticket.code}</span>. The store will see a comment with the waybill + dispatch date.
+        </p>
+        <form className="mt-4 space-y-3" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
+          {!ticket.asset && (
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-700">Item description</span>
+              <input className="field w-full" required
+                value={itemDescription} onChange={(e) => setItemDescription(e.target.value)}
+                placeholder="e.g. Till 2 slip printer, Back office HP laptop" />
+            </label>
+          )}
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-700">Fault</span>
+            <textarea className="field w-full" rows={3} required
+              value={faultDesc} onChange={(e) => setFaultDesc(e.target.value)} />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-700">Collected by (tech)</span>
+              <input className="field w-full"
+                value={technicianName} onChange={(e) => setTechnicianName(e.target.value)}
+                placeholder="Name" />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-700">Waybill #</span>
+              <input className="field w-full"
+                value={waybillNumber} onChange={(e) => setWaybillNumber(e.target.value)} />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-700">Dispatched date</span>
+            <input className="field w-full sm:w-64" type="date"
+              value={dispatchedDate} onChange={(e) => setDispatchedDate(e.target.value)} />
+          </label>
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={create.isPending || !faultDesc.trim()}>
+              {create.isPending ? 'Creating…' : 'Create repair'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
