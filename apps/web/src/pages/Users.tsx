@@ -115,6 +115,10 @@ export function Users() {
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => api.get('/roles').then((r) => r.data) });
   const stores = useQuery({ queryKey: ['stores'], queryFn: () => api.get('/stores').then((r) => r.data) });
   const [openId, setOpenId] = useState<string | null>(null);
+  // Role filter + search so admins can quickly narrow to "just the stores"
+  // or "just the area managers" when resetting their passwords.
+  const [roleFilter, setRoleFilter] = useState<string>('ALL');
+  const [search, setSearch] = useState('');
 
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ email: '', fullName: '', password: '', roleId: '', storeId: '' });
@@ -217,16 +221,56 @@ export function Users() {
         </div>
       )}
 
+      {/* Quick filter row - for finding Stores / AMs to reset their passwords */}
+      <div className="card mb-3 flex flex-wrap items-center gap-2 p-3">
+        <input
+          className="field flex-1 min-w-[220px]"
+          placeholder="Search by name or email…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="flex gap-1 rounded-md bg-slate-100 p-1 text-xs">
+          {[
+            ['ALL',            'All'],
+            ['STORE_MANAGER',  'Stores'],
+            ['AREA_MANAGER',   'Area Managers'],
+            ['TECHNICIAN',     'Technicians'],
+            ['IT_MANAGER',     'IT Managers'],
+            ['ADMINISTRATOR',  'Admins'],
+          ].map(([code, label]) => (
+            <button
+              key={code}
+              onClick={() => setRoleFilter(code)}
+              className={`rounded px-3 py-1.5 ${roleFilter === code ? 'bg-white font-medium text-ink-50 shadow-sm' : 'text-ink-300'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="space-y-3">
-        {users.data?.map((u: any) => (
-          <UserCard
-            key={u.id}
-            user={u}
-            roles={roles.data ?? []}
-            open={openId === u.id}
-            onToggle={() => setOpenId(openId === u.id ? null : u.id)}
-          />
-        ))}
+        {(users.data ?? [])
+          .filter((u: any) => roleFilter === 'ALL' || u.role?.code === roleFilter)
+          .filter((u: any) => {
+            if (!search.trim()) return true;
+            const q = search.trim().toLowerCase();
+            return (u.fullName?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q));
+          })
+          .map((u: any) => (
+            <UserCard
+              key={u.id}
+              user={u}
+              roles={roles.data ?? []}
+              open={openId === u.id}
+              onToggle={() => setOpenId(openId === u.id ? null : u.id)}
+            />
+          ))}
+        {(users.data ?? []).filter((u: any) => roleFilter === 'ALL' || u.role?.code === roleFilter).length === 0 && (
+          <div className="card p-6 text-center text-xs text-ink-300">
+            No users in this filter.
+          </div>
+        )}
       </div>
     </>
   );
@@ -274,9 +318,42 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
 
   const resetPassword = useMutation({
     mutationFn: (password: string) => api.post(`/users/${user.id}/reset-password`, { password }).then((r) => r.data),
-    onSuccess: () => alert('Password reset. Give the user the new password and ask them to change it on next login.'),
+    onSuccess: (_d, password) => {
+      // Show the password back to the admin so they can copy + send it.
+      const ok = navigator.clipboard?.writeText?.(password);
+      Promise.resolve(ok).finally(() => {
+        alert(
+          `Password reset for ${user.fullName}.\n\n`
+          + `New temporary password:\n\n   ${password}\n\n`
+          + `(Copied to your clipboard.)\n\n`
+          + `Send this to them and ask them to change it on first login.`,
+        );
+      });
+    },
     onError: (e: any) => alert(e.response?.data?.message ?? 'Reset failed'),
   });
+
+  /** Generate a human-friendly temp password: Word-####.
+   *  Readable over the phone, meets 8-char minimum, mixes letters + numbers. */
+  function generateTempPassword(): string {
+    const words = ['Apple','Bravo','Comet','Delta','Eagle','Falcon','Gamma','Harbor',
+                   'India','Jaguar','Kodiak','Lotus','Mango','Nexus','Orbit','Papyrus',
+                   'Quartz','Raven','Sierra','Tango','Umbra','Vector','Walrus','Xenon','Yoga','Zebra'];
+    const w = words[Math.floor(Math.random() * words.length)];
+    const n = Math.floor(1000 + Math.random() * 9000);
+    return `${w}-${n}`;
+  }
+  function resetWithGenerated() {
+    const pw = generateTempPassword();
+    if (!confirm(`Reset ${user.fullName}'s password to a new temporary one?`)) return;
+    resetPassword.mutate(pw);
+  }
+  function resetWithCustom() {
+    const pw = prompt(`Enter a new password for ${user.fullName} (minimum 8 characters):`);
+    if (!pw) return;
+    if (pw.length < 8) { alert('Password must be at least 8 characters.'); return; }
+    resetPassword.mutate(pw);
+  }
 
   const setOverride = useMutation({
     mutationFn: (body: { permissionCode: string; effect: 'GRANT' | 'DENY' | 'INHERIT' }) =>
@@ -344,13 +421,11 @@ function UserCard({ user, roles, open, onToggle }: { user: any; roles: any[]; op
                 {detail.data.role.code === 'AREA_MANAGER' && (
                   <AreaManagerTechPicker user={detail.data} allUsers={roles /* unused — see component */} />
                 )}
-                <button className="btn-ghost"
-                        onClick={() => {
-                          const pw = prompt('New password (≥ 8 characters):');
-                          if (pw && pw.length >= 8) resetPassword.mutate(pw);
-                          else if (pw !== null) alert('Password must be at least 8 characters');
-                        }}>
-                  <KeyRound size={12}/>Reset password
+                <button className="btn-primary" onClick={resetWithGenerated} disabled={resetPassword.isPending}>
+                  <KeyRound size={12}/>Reset password (auto)
+                </button>
+                <button className="btn-ghost" onClick={resetWithCustom} disabled={resetPassword.isPending}>
+                  <KeyRound size={12}/>Set custom password
                 </button>
                 <button className="btn-ghost"
                         onClick={() => {
