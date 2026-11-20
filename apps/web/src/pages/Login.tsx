@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { LogIn, ShieldCheck } from 'lucide-react';
 import { api } from '@/api/client';
 import { useAuth } from '@/store/auth';
@@ -91,7 +91,12 @@ export function Login() {
                      onChange={(e) => setEmail(e.target.value)} required disabled={needs2fa} />
             </div>
             <div>
-              <label className="label">Password</label>
+              <div className="flex items-end justify-between">
+                <label className="label">Password</label>
+                <Link to="/forgot-password" className="text-[11px] text-brand-500 hover:text-brand-400 hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
               <input className="field" type="password" value={password}
                      autoComplete="current-password"
                      onChange={(e) => setPassword(e.target.value)} required disabled={needs2fa} />

@@ -65,6 +65,8 @@ import { HelpdeskOnCall } from './pages/HelpdeskOnCall';
 import { KnowledgeBase } from './pages/KnowledgeBase';
 import { PublicStatus } from './pages/PublicStatus';
 import { PortalRoot } from './pages/Portal';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword  } from './pages/ResetPassword';
 import { useAuth } from './store/auth';
 import { usePushNotifications } from './hooks/usePushNotifications';
 
@@ -101,6 +103,8 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password"  element={<ResetPassword  />} />
       <Route path="/status" element={<PublicStatus />} />
 
       {/* Store portal - separate tree, no admin Layout, role-gated. */}

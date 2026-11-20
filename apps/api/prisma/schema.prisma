@@ -95,6 +95,7 @@ model User {
   equipmentIncidentsReported EquipmentIncident[] @relation("EquipIncidentReporter")
   repairsReported            Repair[]            @relation("RepairReporter")
   pushSubscriptions          PushSubscription[]
+  passwordResetTokens        PasswordResetToken[]
 
   permissionOverrides UserPermissionOverride[]
   storeAccess         UserStoreAccess[]
@@ -2155,4 +2156,23 @@ model PushSubscription {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// Password reset tokens issued when a user clicks "Forgot password".
+// We store a hash of the token (sha256) + a short expiry (15 min) and keep
+// one unused active token per user - requesting a new one invalidates the
+// previous. The raw token is only ever seen in the email link.
+model PasswordResetToken {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique                          // sha256 of raw token
+  expiresAt  DateTime
+  usedAt     DateTime?                                 // set when consumed
+  createdAt  DateTime @default(now())
+  requesterIp String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }

@@ -6,6 +6,8 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { TwofaService } from './twofa.service';
 import { UsersModule } from '../users/users.module';
+import { ForgotPasswordService } from './forgot-password.service';
+import { MailerModule } from '../mailer/mailer.module';
 
 @Module({
   imports: [
@@ -15,9 +17,10 @@ import { UsersModule } from '../users/users.module';
       signOptions: { expiresIn: process.env.JWT_EXPIRES_IN ?? '1d' },
     }),
     UsersModule,
+    MailerModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, TwofaService],
+  providers: [AuthService, JwtStrategy, TwofaService, ForgotPasswordService],
   exports: [AuthService, TwofaService],
 })
 export class AuthModule {}

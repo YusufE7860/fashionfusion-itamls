@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Ip, Post } from '@nestjs/common';
 import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { TwofaService } from './twofa.service';
 import { UsersService } from '../users/users.service';
 import { Public } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { ForgotPasswordService } from './forgot-password.service';
 
 class LoginDto {
   @IsEmail() email!: string;
@@ -18,6 +19,13 @@ class ChangePasswordDto {
   @IsString() currentPassword!: string;
   @IsString() @MinLength(8) newPassword!: string;
 }
+class ForgotPasswordDto {
+  @IsEmail() email!: string;
+}
+class ResetPasswordDto {
+  @IsString() token!: string;
+  @IsString() @MinLength(8) newPassword!: string;
+}
 
 @Controller('auth')
 export class AuthController {
@@ -25,7 +33,23 @@ export class AuthController {
     private auth: AuthService,
     private twofa: TwofaService,
     private users: UsersService,
+    private forgot: ForgotPasswordService,
   ) {}
+
+  /** Start the forgot-password flow. Always returns 200 - never leaks
+   *  whether the email exists. Email is sent out-of-band if match + active. */
+  @Public()
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto, @Ip() ip: string) {
+    return this.forgot.requestReset(dto.email, ip);
+  }
+
+  /** Consume the reset token from the email link and set a new password. */
+  @Public()
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.forgot.consumeReset(dto.token, dto.newPassword);
+  }
 
   @Public()
   @Post('login')
