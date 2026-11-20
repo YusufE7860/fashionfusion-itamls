@@ -446,11 +446,26 @@ function CallNew() {
 
   const selected = issues.data?.find(i => i.id === categoryId) ?? null;
 
-  // When the user picks an issue, pre-fill the description with the template
-  // so the techs always get the same set of structured questions answered.
+  // We remember the LAST template we auto-inserted so we can tell whether the
+  // user has typed into the box or not. If they haven't (description still
+  // matches the last inserted template), we silently swap the template when
+  // they pick a different issue. If they have typed, we ask before clobbering.
+  const [lastTemplate, setLastTemplate] = useState<string>('');
+
   function pickIssue(i: IssueType) {
     setCategoryId(i.id);
-    if (!description.trim() && i.issueTemplate) setDescription(i.issueTemplate);
+    const nextTpl = i.issueTemplate ?? '';
+    const pristine = description === '' || description === lastTemplate;
+    if (pristine) {
+      setDescription(nextTpl);
+      setLastTemplate(nextTpl);
+      return;
+    }
+    // User has typed - don't throw their work away without asking.
+    if (window.confirm('Replace your notes with the template for this issue?\n\n(Cancel to keep what you typed.)')) {
+      setDescription(nextTpl);
+      setLastTemplate(nextTpl);
+    }
   }
 
   const create = useMutation({
