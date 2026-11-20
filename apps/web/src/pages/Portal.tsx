@@ -11,16 +11,20 @@
  *
  * All data comes from /api/v1/portal/* and is scoped server-side by role.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Clipboard, LogOut, Plus, Package, Wrench, Phone, Mail,
   Clock, TrendingUp, AlertCircle, CheckCircle2, MessageSquare, Calendar,
-  ChevronRight, Shield, User as UserIcon,
+  ChevronRight, Shield, User as UserIcon, Moon, Sun, Sparkles,
+  Printer, Wifi, Monitor, Camera, CreditCard, ScanBarcode, HardDrive,
+  BadgeDollarSign, FileText, Mail as MailIcon, HelpCircle,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../store/auth';
+import { useTheme } from '../store/theme';
+import { SkeletonList, SkeletonCard, IconBadge } from '../components/portal/Skeleton';
 
 // =========================================================================
 // Routes + Layout
@@ -48,21 +52,34 @@ function PortalLayout() {
   const me = useMe();
   const navigate = useNavigate();
   const logout = useAuth((s) => s.logout);
+  const theme = useTheme();
+
+  // Flip the .dark class on <html> so Tailwind's dark: variants kick in.
+  // Also persist it (theme store already does), so refresh keeps the choice.
+  useEffect(() => {
+    const el = document.documentElement;
+    if (theme.mode === 'dark') el.classList.add('dark');
+    else                        el.classList.remove('dark');
+    return () => { /* don't strip on unmount - other pages share <html> */ };
+  }, [theme.mode]);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 backdrop-blur">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 text-slate-800 transition-colors
+                    dark:from-slate-950 dark:to-slate-900 dark:text-slate-100">
+      <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-white/85 backdrop-blur-md
+                         dark:border-slate-800/70 dark:bg-slate-900/80">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <Link to="/portal" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-amber-400 to-amber-600 text-white">
-              <Clipboard size={16}/>
+          <Link to="/portal" className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-white shadow-lg shadow-brand-500/30">
+              <Sparkles size={16}/>
             </div>
             <div className="leading-tight">
-              <div className="text-sm font-bold text-slate-900">Store Portal</div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-400">Fashion Fusion IT</div>
+              <div className="font-display text-sm font-bold text-slate-900 dark:text-white">Store Portal</div>
+              <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">Fashion Fusion IT</div>
             </div>
           </Link>
-          <nav className="hidden items-center gap-1 text-xs font-medium sm:flex">
+          <nav className="hidden items-center gap-1 rounded-full bg-slate-100/70 p-1 text-xs font-medium backdrop-blur sm:flex
+                           dark:bg-slate-800/70">
             {[
               ['/portal',          'Home'],
               ['/portal/calls',    'Calls'],
@@ -70,15 +87,19 @@ function PortalLayout() {
               ['/portal/assets',   'Assets'],
             ].map(([to, label]) => (
               <NavLink key={to} to={to} end={to === '/portal'}
-                className={({isActive}) => `rounded-md px-3 py-1.5 ${isActive ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'}`}
+                className={({isActive}) => `rounded-full px-3.5 py-1.5 transition-all ${
+                  isActive
+                    ? 'bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                }`}
               >{label}</NavLink>
             ))}
           </nav>
-          <div className="flex items-center gap-3 text-xs">
+          <div className="flex items-center gap-2 text-xs">
             {me.data && (
               <div className="hidden text-right leading-tight sm:block">
-                <div className="font-semibold text-slate-800">{me.data.fullName}</div>
-                <div className="text-slate-400">
+                <div className="font-semibold text-slate-800 dark:text-white">{me.data.fullName}</div>
+                <div className="text-slate-400 dark:text-slate-500">
                   {me.data.stores?.length === 1
                     ? me.data.stores[0].code
                     : me.data.stores?.length
@@ -88,11 +109,20 @@ function PortalLayout() {
               </div>
             )}
             <button
+              onClick={theme.toggle}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800
+                         dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white"
+              title={theme.mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme.mode === 'dark' ? <Sun size={13}/> : <Moon size={13}/>}
+            </button>
+            <button
               onClick={() => { logout(); navigate('/login'); }}
-              className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-slate-600 shadow-sm hover:bg-slate-50"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-rose-600
+                         dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-rose-400"
               title="Sign out"
             >
-              <LogOut size={12}/>
+              <LogOut size={13}/>
             </button>
           </div>
         </div>
@@ -120,15 +150,20 @@ function PortalHome() {
 
   return (
     <div className="space-y-4">
-      {/* ---- Welcome strip ---- */}
-      <div className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 p-6 text-white shadow-md">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* ---- Welcome card: soft brand tint, light & airy ---- */}
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-br from-brand-50 via-white to-amber-50 p-6 shadow-sm
+                      dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
+        {/* Decorative blob */}
+        <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-brand-200/40 blur-3xl dark:bg-brand-900/20" />
+        <div className="relative flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-xs font-medium uppercase tracking-wider text-slate-300">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-600 dark:text-brand-400">
               {greeting()}
             </div>
-            <h1 className="mt-1 text-2xl font-bold">{me.data?.fullName?.split(' ')[0] ?? 'there'}</h1>
-            <p className="mt-1 text-sm text-slate-300">
+            <h1 className="mt-1 font-display text-3xl font-bold text-slate-900 dark:text-white">
+              {me.data?.fullName?.split(' ')[0] ?? 'there'}<span className="text-brand-500">.</span>
+            </h1>
+            <p className="mt-1.5 max-w-lg text-sm text-slate-600 dark:text-slate-400">
               {me.data?.stores?.length === 1
                 ? `Here's what's happening at ${me.data.stores[0].name}.`
                 : me.data?.stores?.length
@@ -137,8 +172,10 @@ function PortalHome() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link to="/portal/calls/new" className="flex items-center gap-1 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-amber-400">
-              <Plus size={14}/>Log a Call
+            <Link to="/portal/calls/new"
+              className="group inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/20 transition hover:-translate-y-0.5 hover:shadow-xl
+                         dark:bg-brand-500 dark:shadow-brand-500/30 dark:hover:bg-brand-400">
+              <Plus size={15} className="transition group-hover:rotate-90"/>Log a Call
             </Link>
           </div>
         </div>
@@ -156,15 +193,17 @@ function PortalHome() {
       <div className="grid gap-3 lg:grid-cols-3">
         <section className="lg:col-span-2 space-y-3">
           <WidgetHeader title="Recent Calls" to="/portal/calls" />
-          {recentCalls.length ? recentCalls.map((t: any) => <CallCard key={t.id} t={t} />)
-            : <EmptyCard>No calls open right now. Nice.</EmptyCard>}
+          {openCalls.isLoading ? <SkeletonList count={2}/> :
+            recentCalls.length
+              ? recentCalls.map((t: any) => <CallCard key={t.id} t={t} />)
+              : <EmptyMessage emoji="✨" title="All quiet — nothing broken today." hint="If something goes wrong, tap Log a Call. We'll be in touch quickly."/>}
         </section>
 
         <aside className="space-y-3">
           <WidgetHeader title="Your IT Contact" />
           <ITContact me={me.data} ticket={recentCalls[0]} />
           <WidgetHeader title="Shortcuts" />
-          <div className="rounded-xl bg-white p-2 shadow-sm">
+          <div className="rounded-xl border border-slate-200/70 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <Shortcut to="/portal/calls"     icon={<MessageSquare size={14}/>} label="All my calls" />
             <Shortcut to="/portal/repairs"   icon={<Wrench size={14}/>}        label="Repairs register" />
             <Shortcut to="/portal/assets"    icon={<Package size={14}/>}       label="My IT equipment" />
@@ -191,18 +230,20 @@ function Kpi({ label, value, icon, tone }: {
   tone: 'sky'|'amber'|'rose'|'violet';
 }) {
   const bg = {
-    sky:    'bg-sky-50    text-sky-600',
-    amber:  'bg-amber-50  text-amber-600',
-    rose:   'bg-rose-50   text-rose-600',
-    violet: 'bg-violet-50 text-violet-600',
+    sky:    'bg-sky-50    text-sky-600    dark:bg-sky-900/40    dark:text-sky-300',
+    amber:  'bg-amber-50  text-amber-600  dark:bg-amber-900/40  dark:text-amber-300',
+    rose:   'bg-rose-50   text-rose-600   dark:bg-rose-900/40   dark:text-rose-300',
+    violet: 'bg-violet-50 text-violet-600 dark:bg-violet-900/40 dark:text-violet-300',
   }[tone];
   return (
-    <div className="rounded-xl bg-white p-4 shadow-sm">
+    <div className="group rounded-xl border border-slate-200/70 bg-white p-4 shadow-sm transition
+                     hover:-translate-y-0.5 hover:shadow-md
+                     dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wider text-slate-500">{label}</span>
-        <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${bg}`}>{icon}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</span>
+        <span className={`flex h-9 w-9 items-center justify-center rounded-xl transition group-hover:scale-110 ${bg}`}>{icon}</span>
       </div>
-      <div className="mt-2 text-3xl font-bold text-slate-900">{value}</div>
+      <div className="mt-2 font-display text-3xl font-bold text-slate-900 dark:text-white">{value}</div>
     </div>
   );
 }
@@ -217,14 +258,32 @@ function WidgetHeader({ title, to }: { title: string; to?: string }) {
 }
 
 function EmptyCard({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-xl bg-white p-6 text-center text-xs text-slate-400 shadow-sm">{children}</div>;
+  return (
+    <div className="rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center text-xs text-slate-400
+                     dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500">
+      {children}
+    </div>
+  );
+}
+
+/** Warm, illustrated empty state used throughout the portal. */
+function EmptyMessage({ emoji, title, hint }: { emoji: string; title: string; hint?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-white/70 p-8 text-center
+                     dark:border-slate-700 dark:bg-slate-900/60">
+      <div className="text-4xl leading-none select-none">{emoji}</div>
+      <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</div>
+      {hint && <div className="max-w-xs text-xs text-slate-400 dark:text-slate-500">{hint}</div>}
+    </div>
+  );
 }
 
 function Shortcut({ to, icon, label }: { to: string; icon: JSX.Element; label: string }) {
   return (
-    <Link to={to} className="flex items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+    <Link to={to} className="group flex items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50
+                             dark:text-slate-300 dark:hover:bg-slate-800">
       <span className="flex items-center gap-2">{icon}{label}</span>
-      <ChevronRight size={14} className="text-slate-300"/>
+      <ChevronRight size={14} className="text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500 dark:text-slate-600 dark:group-hover:text-slate-400"/>
     </Link>
   );
 }
@@ -235,31 +294,45 @@ function Shortcut({ to, icon, label }: { to: string; icon: JSX.Element; label: s
 
 function CallCard({ t }: { t: any }) {
   const d = new Date(t.createdAt);
+  // Left-edge priority stripe - scannable from the other side of the room.
+  const stripe = {
+    P1: 'before:bg-rose-500',
+    P2: 'before:bg-amber-500',
+    P3: 'before:bg-sky-500',
+    P4: 'before:bg-slate-300 dark:before:bg-slate-600',
+  }[t.priority as string] ?? 'before:bg-slate-300';
+
   return (
-    <Link to={`/portal/calls/${t.id}`} className="block rounded-xl bg-white shadow-sm transition hover:shadow-md">
+    <Link to={`/portal/calls/${t.id}`}
+      className={`relative block overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-sm transition
+                   hover:-translate-y-0.5 hover:shadow-lg
+                   dark:border-slate-800 dark:bg-slate-900
+                   before:absolute before:left-0 before:top-0 before:h-full before:w-1 ${stripe}`}>
       <div className="flex">
         {/* Date gutter */}
-        <div className="flex w-16 flex-col items-center justify-center border-r border-slate-100 bg-slate-50 py-3 text-slate-600">
-          <div className="text-[10px] font-medium uppercase tracking-wider">{d.toLocaleString('en', { month: 'short' })}</div>
-          <div className="text-2xl font-bold leading-none">{d.getDate()}</div>
-          <div className="mt-0.5 text-[10px] text-slate-400">{d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="flex w-16 flex-col items-center justify-center border-r border-slate-100 bg-slate-50/70 py-3 text-slate-600
+                         dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
+          <div className="text-[10px] font-semibold uppercase tracking-wider">{d.toLocaleString('en', { month: 'short' })}</div>
+          <div className="font-display text-2xl font-bold leading-none text-slate-900 dark:text-white">{d.getDate()}</div>
+          <div className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">{d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}</div>
         </div>
         {/* Body */}
         <div className="min-w-0 flex-1 p-3">
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">{t.code}</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">{t.code}</span>
                 <StatusPill status={t.status} />
                 <PriorityPill priority={t.priority} />
               </div>
-              <div className="mt-1.5 truncate text-sm font-semibold text-slate-900">{t.subject}</div>
-              <div className="mt-0.5 text-[11px] text-slate-400">
-                {t.store?.code} - {t.category?.name ?? 'General'}
+              <div className="mt-1.5 truncate text-sm font-semibold text-slate-900 dark:text-white">{t.subject}</div>
+              <div className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                {t.store?.code} · {t.category?.name ?? 'General'}
               </div>
               {t.lastUpdate && (
-                <div className="mt-2 rounded border border-slate-100 bg-slate-50 p-1.5 text-[11px] text-slate-600">
-                  <span className="mr-1 font-medium text-slate-500">{t.lastUpdate.author?.fullName ?? 'IT'} said:</span>
+                <div className="mt-2 rounded-lg border-l-2 border-sky-400 bg-sky-50 p-2 text-[11px] text-slate-700
+                                dark:border-sky-500 dark:bg-sky-950/40 dark:text-slate-200">
+                  <span className="mr-1 font-semibold text-sky-700 dark:text-sky-300">{t.lastUpdate.author?.fullName ?? 'IT'}:</span>
                   <span className="line-clamp-1">{t.lastUpdate.body}</span>
                 </div>
               )}
@@ -268,21 +341,23 @@ function CallCard({ t }: { t: any }) {
         </div>
         {/* Assigned tech chip */}
         {t.assignedTo ? (
-          <div className="flex w-44 flex-col items-center justify-center border-l border-slate-100 bg-slate-50 p-2 text-center">
+          <div className="hidden w-44 flex-col items-center justify-center border-l border-slate-100 bg-slate-50/70 p-2 text-center sm:flex
+                           dark:border-slate-800 dark:bg-slate-900/60">
             <PresenceAvatar u={t.assignedTo} size="sm" />
-            <div className="mt-1 truncate text-[11px] font-semibold text-slate-700">{t.assignedTo.fullName}</div>
-            <div className="text-[10px] text-slate-400">{t.assignedTo.roleName ?? 'IT'}</div>
+            <div className="mt-1 max-w-full truncate text-[11px] font-semibold text-slate-700 dark:text-slate-300">{t.assignedTo.fullName}</div>
+            <div className="text-[10px] text-slate-400 dark:text-slate-500">{t.assignedTo.roleName ?? 'IT'}</div>
             {t.assignedTo.phone && (
               <a href={`tel:${t.assignedTo.phone}`} onClick={e => e.stopPropagation()}
-                className="mt-1 flex items-center gap-1 text-[10px] text-sky-600 hover:underline">
+                className="mt-1 flex items-center gap-1 text-[10px] font-medium text-sky-600 hover:underline dark:text-sky-400">
                 <Phone size={10}/>{t.assignedTo.phone}
               </a>
             )}
           </div>
         ) : (
-          <div className="flex w-44 flex-col items-center justify-center border-l border-slate-100 bg-amber-50 p-2 text-center">
-            <AlertCircle size={16} className="text-amber-500"/>
-            <div className="mt-1 text-[11px] font-medium text-amber-700">Awaiting assignment</div>
+          <div className="hidden w-44 flex-col items-center justify-center border-l border-slate-100 bg-amber-50/70 p-2 text-center sm:flex
+                           dark:border-slate-800 dark:bg-amber-950/30">
+            <AlertCircle size={18} className="text-amber-500"/>
+            <div className="mt-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400">Awaiting assignment</div>
           </div>
         )}
       </div>
@@ -419,8 +494,9 @@ function CallsList() {
         ))}
       </div>
       <div className="space-y-2">
-        {q.data?.length ? q.data.map((t: any) => <CallCard key={t.id} t={t}/>) :
-          <EmptyCard>{q.isLoading ? 'Loading…' : 'No calls in this view.'}</EmptyCard>}
+        {q.isLoading ? <SkeletonList count={3}/> :
+          q.data?.length ? q.data.map((t: any) => <CallCard key={t.id} t={t}/>) :
+          <EmptyMessage emoji="📭" title="No calls in this view." hint={status === 'closed' ? "Resolved calls will appear here once IT marks them closed." : "Looking quiet. Enjoy it."}/>}
       </div>
     </div>
   );
@@ -502,30 +578,49 @@ function CallNew() {
 
           <input className="input mt-3 w-full" placeholder="Search issues…" value={search} onChange={e => setSearch(e.target.value)} />
 
-          <div className="mt-3 space-y-3">
-            {issues.isLoading && <div className="p-6 text-center text-xs text-slate-400">Loading issues…</div>}
-            {!issues.isLoading && !grouped.length && <div className="p-6 text-center text-xs text-slate-400">No issues match "{search}"</div>}
-            {grouped.map(([group, items]) => (
-              <div key={group}>
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">{group}</div>
-                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                  {items.map(i => (
-                    <button key={i.id} type="button" onClick={() => pickIssue(i)}
-                      className={`flex items-start gap-2 rounded-lg border p-2.5 text-left transition ${
-                        categoryId === i.id
-                          ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-200'
-                          : 'border-slate-200 bg-white hover:border-slate-300'}`}
-                    >
-                      <PriorityDot priority={i.defaultPriority} />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-semibold text-slate-900">{i.name}</div>
-                        {i.description && <div className="line-clamp-1 text-[10px] text-slate-500">{i.description}</div>}
-                      </div>
-                    </button>
-                  ))}
+          <div className="mt-3 space-y-4">
+            {issues.isLoading && <SkeletonList count={3}/>}
+            {!issues.isLoading && !grouped.length && (
+              <EmptyMessage
+                emoji="🔎"
+                title={`No issues match "${search}"`}
+                hint="Try different wording, or pick 'Other' if nothing fits."
+              />
+            )}
+            {grouped.map(([group, items]) => {
+              const meta = Object.values(GROUP_META).find(m => m.label === group) ?? GROUP_META.OTHER;
+              return (
+                <div key={group}>
+                  <div className="mb-1.5 flex items-center gap-1.5">
+                    <IconBadge icon={meta.icon} tone={meta.tone} size="sm" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">{group}</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {items.map(i => {
+                      const m = metaFor(i.code);
+                      const active = categoryId === i.id;
+                      return (
+                        <button key={i.id} type="button" onClick={() => pickIssue(i)}
+                          className={`group flex items-start gap-2.5 rounded-xl border p-3 text-left transition
+                            ${active
+                              ? 'border-brand-400 bg-brand-50 shadow-md ring-2 ring-brand-200 dark:border-brand-500 dark:bg-brand-950/40 dark:ring-brand-700'
+                              : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700'}`}
+                        >
+                          <IconBadge icon={m.icon} tone={m.tone} size="md" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="text-xs font-semibold text-slate-900 dark:text-white">{i.name}</div>
+                              <PriorityPill priority={i.defaultPriority}/>
+                            </div>
+                            {i.description && <div className="mt-0.5 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">{i.description}</div>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -563,11 +658,27 @@ type IssueType = {
   id: string; code: string; name: string; description: string | null;
   defaultPriority: string; issueTemplate: string | null; sortOrder: number;
 };
-const PREFIX_LABEL: Record<string, string> = {
-  POS: 'Point of Sale', DOLFIN: 'Dolfin', PR: 'Printers', PIN: 'PIN Pad / Nedbank',
-  NET: 'Network / Internet', EOD: 'End of Day', SIG: 'Signage / TVs',
-  CCTV: 'CCTV', EMAIL: 'Email / Outlook', HW: 'Hardware', BARCODE: 'Scanners',
+const GROUP_META: Record<string, { label: string; icon: JSX.Element; tone: 'sky'|'amber'|'emerald'|'rose'|'violet'|'cyan'|'pink'|'orange'|'slate' }> = {
+  POS:     { label: 'Point of Sale',     icon: <BadgeDollarSign size={14}/>, tone: 'amber' },
+  DOLFIN:  { label: 'Dolfin',            icon: <FileText size={14}/>,        tone: 'orange' },
+  PR:      { label: 'Printers',          icon: <Printer size={14}/>,         tone: 'sky' },
+  PIN:     { label: 'PIN Pad / Nedbank', icon: <CreditCard size={14}/>,      tone: 'violet' },
+  NET:     { label: 'Network / Internet', icon: <Wifi size={14}/>,           tone: 'cyan' },
+  EOD:     { label: 'End of Day',        icon: <BadgeDollarSign size={14}/>, tone: 'emerald' },
+  SIG:     { label: 'Signage / TVs',     icon: <Monitor size={14}/>,         tone: 'pink' },
+  CCTV:    { label: 'CCTV',              icon: <Camera size={14}/>,          tone: 'rose' },
+  EMAIL:   { label: 'Email / Outlook',   icon: <MailIcon size={14}/>,        tone: 'sky' },
+  HW:      { label: 'Hardware',          icon: <HardDrive size={14}/>,       tone: 'slate' },
+  BARCODE: { label: 'Scanners',          icon: <ScanBarcode size={14}/>,     tone: 'violet' },
+  OTHER:   { label: 'Other',             icon: <HelpCircle size={14}/>,      tone: 'slate' },
 };
+function metaFor(code: string) {
+  const prefix = code.split('-')[0];
+  return GROUP_META[prefix] ?? GROUP_META['OTHER'];
+}
+const PREFIX_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(GROUP_META).map(([k, v]) => [k, v.label]),
+);
 function groupIssues(all: IssueType[], search: string): [string, IssueType[]][] {
   const q = search.trim().toLowerCase();
   const filtered = q
@@ -580,10 +691,6 @@ function groupIssues(all: IssueType[], search: string): [string, IssueType[]][] 
     (bins[label] ??= []).push(i);
   }
   return Object.entries(bins).sort(([a],[b]) => a.localeCompare(b));
-}
-function PriorityDot({ priority }: { priority: string }) {
-  const color = { P1: 'bg-rose-500', P2: 'bg-amber-500', P3: 'bg-sky-500', P4: 'bg-slate-400' }[priority] ?? 'bg-slate-400';
-  return <span className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${color}`} title={priorityLabel(priority)}/>;
 }
 function priorityLabel(p: string) {
   return ({ P1: 'Critical', P2: 'High', P3: 'Medium', P4: 'Low' } as Record<string, string>)[p] ?? p;
@@ -604,8 +711,8 @@ function CallDetail() {
     queryFn: () => api.get(`/portal/tickets/${id}`).then(r => r.data),
   });
 
-  if (q.isLoading) return <EmptyCard>Loading…</EmptyCard>;
-  if (!q.data)    return <EmptyCard>Not found.</EmptyCard>;
+  if (q.isLoading) return <SkeletonCard lines={4}/>;
+  if (!q.data)    return <EmptyMessage emoji="🫥" title="Not found." hint="This call may have been closed or belongs to a different store."/>;
   const t = q.data;
 
   return (
@@ -708,7 +815,7 @@ function RepairsList() {
               </div>
             </div>
           </Link>
-        )) : <EmptyCard>{q.isLoading ? 'Loading…' : 'No repairs in this view.'}</EmptyCard>}
+        )) : (q.isLoading ? <SkeletonList count={3}/> : <EmptyMessage emoji="🔧" title="Nothing in for repair." hint="If anything needs sending away, IT will set it up from a call."/>)}
       </div>
     </div>
   );
@@ -729,8 +836,8 @@ function RepairDetail() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal'] }),
   });
 
-  if (q.isLoading) return <EmptyCard>Loading…</EmptyCard>;
-  if (!q.data)    return <EmptyCard>Not found.</EmptyCard>;
+  if (q.isLoading) return <SkeletonCard lines={5}/>;
+  if (!q.data)    return <EmptyMessage emoji="🫥" title="Not found."/>;
   const r = q.data;
 
   return (
@@ -785,8 +892,8 @@ function AssetsList() {
       <PortalBreadcrumb back="/portal" title="My Asset Register" />
       <input className="input w-full" placeholder="Search by asset number, serial, model…"
         value={search} onChange={e => setSearch(e.target.value)}/>
-      {q.isLoading && <EmptyCard>Loading…</EmptyCard>}
-      {!q.isLoading && !q.data?.length && <EmptyCard>No assets found.</EmptyCard>}
+      {q.isLoading && <SkeletonList count={4}/>}
+      {!q.isLoading && !q.data?.length && <EmptyMessage emoji="📦" title="No equipment on file." hint="If you think there should be, ask IT to double-check your asset register."/>}
       {Object.entries(grouped).map(([cat, items]) => (
         <div key={cat} className="overflow-hidden rounded-xl bg-white shadow-sm">
           <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -859,41 +966,59 @@ function Row({ label, v }: { label: string; v: string }) {
   );
 }
 
+// Store-friendly labels + colour map. We use leading dots and gradients so
+// the pills register even in a glance from across the back office.
 function StatusPill({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    OPEN:        'bg-sky-100     text-sky-700',
-    NEW:         'bg-sky-100     text-sky-700',
-    ASSIGNED:    'bg-sky-100     text-sky-700',
-    REOPENED:    'bg-amber-100   text-amber-700',
-    IN_PROGRESS: 'bg-amber-100   text-amber-700',
-    WAITING_ON_USER: 'bg-amber-100 text-amber-700',
-    RESOLVED:    'bg-emerald-100 text-emerald-700',
-    CLOSED:      'bg-slate-100   text-slate-500',
-    LOGGED:      'bg-sky-100     text-sky-700',
-    COLLECTED:   'bg-amber-100   text-amber-700',
-    AT_SUPPLIER: 'bg-amber-100   text-amber-700',
-    REPAIRED:    'bg-emerald-100 text-emerald-700',
-    RETURNED:    'bg-emerald-100 text-emerald-700',
-    REPLACED:    'bg-emerald-100 text-emerald-700',
-    WRITTEN_OFF: 'bg-rose-100    text-rose-700',
-    CANCELLED:   'bg-slate-100   text-slate-500',
-  };
+  const info = STATUS_INFO[status] ?? { label: prettyStatus(status), tone: 'slate', dot: '•' };
+  const cls = {
+    sky:     'bg-gradient-to-r from-sky-50 to-sky-100     text-sky-700   ring-sky-200    dark:from-sky-950 dark:to-sky-900 dark:text-sky-300 dark:ring-sky-800',
+    amber:   'bg-gradient-to-r from-amber-50 to-amber-100 text-amber-700 ring-amber-200  dark:from-amber-950 dark:to-amber-900 dark:text-amber-300 dark:ring-amber-800',
+    emerald: 'bg-gradient-to-r from-emerald-50 to-emerald-100 text-emerald-700 ring-emerald-200 dark:from-emerald-950 dark:to-emerald-900 dark:text-emerald-300 dark:ring-emerald-800',
+    rose:    'bg-gradient-to-r from-rose-50 to-rose-100   text-rose-700  ring-rose-200   dark:from-rose-950 dark:to-rose-900 dark:text-rose-300 dark:ring-rose-800',
+    slate:   'bg-gradient-to-r from-slate-50 to-slate-100 text-slate-600 ring-slate-200  dark:from-slate-800 dark:to-slate-700 dark:text-slate-300 dark:ring-slate-600',
+  }[info.tone];
+  const dotCls = {
+    sky:     'bg-sky-500',
+    amber:   'bg-amber-500',
+    emerald: 'bg-emerald-500',
+    rose:    'bg-rose-500',
+    slate:   'bg-slate-400',
+  }[info.tone];
   return (
-    <span className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${map[status] ?? 'bg-slate-100 text-slate-500'}`}>
-      {prettyStatus(status)}
+    <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${cls}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${dotCls}`} />
+      {info.label}
     </span>
   );
 }
+const STATUS_INFO: Record<string, { label: string; tone: 'sky'|'amber'|'emerald'|'rose'|'slate'; dot?: string }> = {
+  OPEN:            { label: 'Open',               tone: 'sky' },
+  NEW:             { label: 'Logged',             tone: 'sky' },
+  ASSIGNED:        { label: 'Assigned',           tone: 'sky' },
+  REOPENED:        { label: 'Reopened',           tone: 'amber' },
+  IN_PROGRESS:     { label: "We're on it",        tone: 'amber' },
+  WAITING_ON_USER: { label: 'Waiting on you',     tone: 'amber' },
+  RESOLVED:        { label: 'Resolved',           tone: 'emerald' },
+  CLOSED:          { label: 'Closed',             tone: 'slate' },
+  LOGGED:          { label: 'Logged',             tone: 'sky' },
+  COLLECTED:       { label: 'Collected',          tone: 'amber' },
+  AT_SUPPLIER:     { label: 'At supplier',        tone: 'amber' },
+  REPAIRED:        { label: 'Repaired',           tone: 'emerald' },
+  RETURNED:        { label: 'Returned',           tone: 'emerald' },
+  REPLACED:        { label: 'Replaced',           tone: 'emerald' },
+  WRITTEN_OFF:     { label: 'Written off',        tone: 'rose' },
+  CANCELLED:       { label: 'Cancelled',          tone: 'slate' },
+};
 
 function PriorityPill({ priority }: { priority: string }) {
-  const map: Record<string, string> = {
-    P1: 'bg-rose-500   text-white',
-    P2: 'bg-amber-500  text-white',
-    P3: 'bg-slate-500  text-white',
-    P4: 'bg-slate-300  text-slate-700',
-  };
-  const label = { P1: 'P1 Critical', P2: 'P2 High', P3: 'P3 Medium', P4: 'P4 Low' }[priority] ?? priority;
-  return <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${map[priority] ?? 'bg-slate-200 text-slate-700'}`}>{label}</span>;
+  const info = {
+    P1: { label: 'Critical', cls: 'bg-gradient-to-r from-rose-500 to-rose-600 text-white' },
+    P2: { label: 'High',     cls: 'bg-gradient-to-r from-amber-400 to-amber-500 text-white' },
+    P3: { label: 'Medium',   cls: 'bg-gradient-to-r from-sky-400 to-sky-500 text-white' },
+    P4: { label: 'Low',      cls: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300' },
+  }[priority as string];
+  if (!info) return <span>{priority}</span>;
+  return <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide shadow-sm ${info.cls}`}>{info.label}</span>;
 }
 
 function prettyStatus(s: string) {

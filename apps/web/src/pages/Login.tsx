@@ -58,11 +58,23 @@ export function Login() {
 
         <div className="relative">
           <h2 className="font-display text-3xl font-bold leading-tight">
-            One command center<br/>for your whole IT estate.
+            Everything IT,<br/>in one place.
           </h2>
           <p className="mt-4 max-w-md text-sm text-ink-300/90">
-            Assets, stores, tills, backups, toner, procurement, repairs — everything your IT department runs on, in one place.
+            Log a problem, track your repair, check on IT equipment at your store — whatever the IT need, it starts here.
           </p>
+          <ul className="mt-6 space-y-2 text-xs text-ink-300/80">
+            {[
+              'Log calls in under 30 seconds',
+              'See exactly who is helping you',
+              'Track repairs and dispatches',
+            ].map((line) => (
+              <li key={line} className="flex items-center gap-2">
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-brand-500/20 text-brand-400">✓</span>
+                {line}
+              </li>
+            ))}
+          </ul>
         </div>
 
         <div className="relative text-[11px] text-ink-400">
