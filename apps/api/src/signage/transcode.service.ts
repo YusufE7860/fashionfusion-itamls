@@ -106,7 +106,14 @@ export class SignageTranscodeService {
         }
         await this.prisma.signageVideo.update({
           where: { id: videoId },
-          data: { transcodeStatus: 'SKIPPED', transcodeAt: new Date(), durationSeconds: probe.durationSeconds },
+          data: {
+            transcodeStatus: 'SKIPPED',
+            transcodeAt: new Date(),
+            durationSeconds: probe.durationSeconds,
+            // Auto-tag orientation from source resolution so playlists filter
+            // correctly to each device's orientation (portrait TV vs landscape TV).
+            orientation: probe.height > probe.width ? 'PORTRAIT' : 'LANDSCAPE',
+          },
         });
         return;
       }
@@ -156,7 +163,14 @@ export class SignageTranscodeService {
 
       await this.prisma.signageVideo.update({
         where: { id: videoId },
-        data: { transcodeStatus: 'DONE', transcodeAt: new Date(), durationSeconds: probe.durationSeconds },
+        data: {
+          transcodeStatus: 'DONE',
+          transcodeAt: new Date(),
+          durationSeconds: probe.durationSeconds,
+          // Auto-tag orientation so the playlist filter picks only the right
+          // videos per device (portrait TV vs landscape TV).
+          orientation: isPortrait ? 'PORTRAIT' : 'LANDSCAPE',
+        },
       });
       this.log.log(`Transcode complete for ${videoId}`);
     } catch (e: any) {

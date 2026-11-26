@@ -58,7 +58,10 @@ export function SignagePlaylists() {
   const picked = playlists.data?.find((p: any) => p.id === selected);
   const [draft, setDraft] = useState<any[]>([]);
   function sync() {
-    if (picked) setDraft(picked.items.map((it: any, i: number) => ({ videoId: it.videoId, order: i, filename: it.video.filename })));
+    if (picked) setDraft(picked.items.map((it: any, i: number) => ({
+      videoId: it.videoId, order: i, filename: it.video.filename,
+      orientation: it.video.orientation ?? 'ANY',
+    })));
   }
   if (picked && draft.length === 0 && picked.items.length > 0) sync();
 
@@ -69,7 +72,7 @@ export function SignagePlaylists() {
     setDraft(items.map((it, idx) => ({ ...it, order: idx })));
   }
   function addVideo(v: any) {
-    setDraft([...draft, { videoId: v.id, order: draft.length, filename: v.filename }]);
+    setDraft([...draft, { videoId: v.id, order: draft.length, filename: v.filename, orientation: v.orientation ?? 'ANY' }]);
   }
 
   const myAssigns = (assigns.data ?? []).filter((a: any) => a.playlistId === selected);
@@ -167,6 +170,7 @@ export function SignagePlaylists() {
                   <li key={`${it.videoId}-${i}`} className="flex items-center gap-2 rounded border border-ink-500/10 bg-slate-50/40 p-2 text-xs">
                     <span className="w-6 font-mono text-ink-300">{i + 1}</span>
                     <span className="flex-1 font-mono">{it.filename}</span>
+                    <OrientationBadge value={it.orientation}/>
                     {canWrite && (
                       <div className="flex gap-0.5">
                         <button className="btn-ghost !p-1" onClick={() => move(i, -1)}><ArrowUp size={11}/></button>
@@ -184,8 +188,11 @@ export function SignagePlaylists() {
                 <h4 className="mb-2 text-xs font-semibold text-ink-300">Add video</h4>
                 <div className="flex flex-wrap gap-1">
                   {videos.data?.map((v: any) => (
-                    <button key={v.id} className="rounded border border-ink-500/20 bg-white px-2 py-1 text-[11px] hover:border-brand-400"
-                      onClick={() => addVideo(v)}>+ {v.filename}</button>
+                    <button key={v.id} className="flex items-center gap-1.5 rounded border border-ink-500/20 bg-white px-2 py-1 text-[11px] hover:border-brand-400"
+                      onClick={() => addVideo(v)}>
+                      + {v.filename}
+                      <OrientationBadge value={v.orientation ?? 'ANY'}/>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -327,6 +334,23 @@ function BrandSlotChip({ entity }: { entity?: string | null }) {
   return (
     <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${i.cls}`}>
       {i.label}
+    </span>
+  );
+}
+
+// Visual orientation badge — green for LANDSCAPE, violet for PORTRAIT,
+// grey for ANY (plays on both). Hints at a glance which devices will pick
+// up each video via the signage orientation filter.
+function OrientationBadge({ value }: { value: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    LANDSCAPE: { label: '◼ Landscape', cls: 'bg-emerald-100 text-emerald-700 ring-emerald-200' },
+    PORTRAIT:  { label: '▮ Portrait',  cls: 'bg-violet-100  text-violet-700  ring-violet-200' },
+    ANY:       { label: 'Any',         cls: 'bg-slate-100   text-slate-500   ring-slate-200' },
+  };
+  const info = map[value] ?? map.ANY;
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ring-1 ${info.cls}`}>
+      {info.label}
     </span>
   );
 }
