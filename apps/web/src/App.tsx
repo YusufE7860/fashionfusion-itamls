@@ -69,6 +69,7 @@ import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword  } from './pages/ResetPassword';
 import { useAuth } from './store/auth';
 import { usePushNotifications } from './hooks/usePushNotifications';
+import { useIdleTimeout } from './hooks/useIdleTimeout';
 
 // Roles that live entirely inside the Store Portal. They are redirected
 // there on login and bounced off any admin-app route they try to reach.
@@ -100,6 +101,8 @@ function PortalGuard({ children }: { children: JSX.Element }) {
 export function App() {
   // Tech-only Web Push subscription; no-op for store/portal users.
   usePushNotifications();
+  // Signs the user out after 30 minutes of no activity.
+  useIdleTimeout();
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

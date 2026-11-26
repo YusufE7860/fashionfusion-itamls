@@ -30,7 +30,12 @@ export const useAuth = create<AuthState>()(
         const u = get().user;
         if (u) set({ user: { ...u, mustChangePassword: false } });
       },
-      logout: () => set({ token: null, user: null }),
+      logout: () => {
+        // Also clear the idle-timeout timestamp so a fresh sign-in on this
+        // device doesn't inherit someone else's "last active" clock.
+        try { localStorage.removeItem('itamls-last-active'); } catch {}
+        set({ token: null, user: null });
+      },
       hasPermission: (p) => !!get().user?.permissions?.includes(p),
     }),
     { name: 'itamls-auth' },

@@ -61,10 +61,17 @@
 	@cors_preflight method OPTIONS
 	handle @cors_preflight {
 		header {
-			Access-Control-Allow-Origin  "https://{$APP_FQDN}:{$WEB_PORT}"
-			Access-Control-Allow-Methods "GET, PUT, POST, HEAD, DELETE, OPTIONS"
-			Access-Control-Allow-Headers "*"
-			Access-Control-Max-Age       "86400"
+			Access-Control-Allow-Origin         "https://{$APP_FQDN}:{$WEB_PORT}"
+			Access-Control-Allow-Methods        "GET, PUT, POST, HEAD, DELETE, OPTIONS"
+			Access-Control-Allow-Headers        "*"
+			Access-Control-Max-Age              "86400"
+			# Chrome's Private Network Access policy blocks requests from a
+			# "public" origin to a "local/private" address (which this host
+			# resolves to on the office LAN) unless the server opts in.
+			# Without this, uploads from the browser to :41236 fail with:
+			#   "Permission was denied for this request to access the
+			#    `local` address space."
+			Access-Control-Allow-Private-Network "true"
 		}
 		respond 204
 	}
@@ -88,8 +95,9 @@
 			header_down -Vary
 		}
 		header {
-			Access-Control-Allow-Origin   "https://{$APP_FQDN}:{$WEB_PORT}"
-			Access-Control-Expose-Headers "ETag"
+			Access-Control-Allow-Origin          "https://{$APP_FQDN}:{$WEB_PORT}"
+			Access-Control-Allow-Private-Network "true"
+			Access-Control-Expose-Headers        "ETag"
 			Vary "Origin"
 		}
 	}
